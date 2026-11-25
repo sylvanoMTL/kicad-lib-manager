@@ -6,15 +6,15 @@ current_phase: 16
 current_phase_name: Repo Split
 status: executing
 stopped_at: Phase 16 context gathered
-last_updated: "2026-11-24T13:28:15.221Z"
+last_updated: "2026-11-25T14:23:49.584Z"
 last_activity: 2026-11-24
 last_activity_desc: Phase 16 execution started
-state_head: ea90694b8ad02f6f4dad2a486d600c1ec668062c
+state_head: 1b5a7b85f8b6fd76ef98388b70fc5e0336355b83
 progress:
   total_phases: 8
   completed_phases: 2
   total_plans: 40
-  completed_plans: 22
+  completed_plans: 38
   percent: 25
 ---
 
@@ -102,6 +102,7 @@ The full decision log is in the PROJECT.md Key Decisions table. The v1.0 per-pha
 - [Phase 15]: The app resolves its library folder (override > remembered > KiCad's > legacy own folder until Phase 16 > first-run window); New Collection runs `git init -b main` in `Custom/` with no commit; the commit step's `parent_mode` (gitlink/none); the KiCad path-variable offer now covers any chosen folder (worktree refusal kept, never without Yes); Destination follows a switch when it showed the old folder.
 - [Phase 15]: The manual UAT was automated (real app driven with QTest, screenshots, isolated scratch state, offscreen + native on-screen at 175%); scripts in the session scratchpad `uat15/`. Main window minimum width 965-974 px accepted until the Phase 19 toolbar rework.
 - [v3.0 roadmap]: Eight phases in the owner's fixed order, one per area (14 TEST, 15 ROOT, 16 SPLIT, 17 CAT, 18 TBL, 19 MENU, 20 PY, 21 PKG). Phases 14-15 run autonomously (`/gsd-autonomous --to 15`) and are not split further; Phase 16 (repo split) is interactive. The freeze-tool spike is in Phase 21, not Phase 15.
+- [Phase 16]: After three red CI runs from test timing races on GitHub's runner (not app defects) the owner chose to simplify: a green CI run no longer gates the split; the tool repo stays private until the owner flips it. The 4th run (f8c06b8) went green.
 
 ### Pending Todos
 
