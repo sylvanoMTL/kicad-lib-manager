@@ -1,0 +1,30 @@
+#!/bin/sh
+# pre-push: run the pre-publish scan over the tree and the whole history before anything leaves
+# this checkout (Phase 16, D-09). A non-zero scan status blocks the push. The scan is stdlib only,
+# so any working Python 3 will do. Enable once per clone with:
+#   git config core.hooksPath .githooks
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+py=""
+for candidate in env/Scripts/python.exe env/bin/python python3 python; do
+  case "$candidate" in
+    env/*) [ -f "$candidate" ] || continue ;;
+    *) command -v "$candidate" >/dev/null 2>&1 || continue ;;
+  esac
+  # a Windows Store alias for python exists on PATH but does not run
+  if "$candidate" -c "import sys" >/dev/null 2>&1; then
+    py="$candidate"
+    break
+  fi
+done
+if [ -z "$py" ]; then
+  echo "pre-push: no working Python interpreter found; nothing was pushed" >&2
+  exit 1
+fi
+
+"$py" scripts/prepublish_scan.py --tree --history
+status=$?
+if [ "$status" -ne 0 ]; then
+  echo "pre-push: the pre-publish scan found a problem; nothing was pushed" >&2
+fi
+exit "$status"

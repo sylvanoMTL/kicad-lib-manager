@@ -1,0 +1,127 @@
+#!/usr/bin/env python3
+"""Carry later planning changes from the private repository into the tool checkout (Phase 16, D-05).
+
+Lists what changed under .planning/ between a tag and a ref (git diff --name-status), then, for every
+path the allow-list keeps, copies the added or changed file at the ref into the tool checkout with
+workstation paths scrubbed, and deletes the removed ones. Anything not under .planning/ or not kept
+by the allow-list is reported as `skip <path>` and left alone. Nothing outside .planning/ of the
+destination is ever touched. The script does not commit: the caller scans, commits and pushes.
+
+Usage:
+    python scripts/split/sync_planning.py --source DIR --ref REF --since TAG --dest DIR
+        --allow-list FILE [--map OLD=NEW ...]
+
+Output: one line per changed path in path order: `A <path>`, `M <path>`, `D <path>` or `skip <path>`.
+Exit codes: 0 done, 2 an unknown ref or unusable input. Stdlib only; never imports the application package.
+"""
+
+import argparse
+import subprocess
+import sys
+from pathlib import Path
+
+from scrub import parse_map, scrub_bytes
+from verify_export import AllowList, load_allow_list
+
+PLANNING = ".planning"
+
+
+class SyncError(Exception):
+    """A refusal or failure; main() prints it and exits 2."""
+
+
+def _git(repo: Path, *args: str) -> bytes:
+    """Run git in repo and return stdout; raise SyncError on a failure."""
+    try:
+        done = subprocess.run(
+            ["git", "-C", str(repo), "-c", "core.quotepath=false", *args],
+            capture_output=True,
+            check=False,
+            stdin=subprocess.DEVNULL,
+        )
+    except OSError as error:
+        raise SyncError(f"cannot run git: {error}") from error
+    if done.returncode != 0:
+        reason = done.stderr.decode("utf-8", errors="replace").strip().splitlines()
+        raise SyncError(f"git {args[0]} failed in {repo}: {reason[-1] if reason else 'no detail'}")
+    return done.stdout
+
+
+def _changes(source: Path, ref: str, since: str) -> list[tuple[str, str]]:
+    """(status letter, path) for every path under .planning/ that differs between since and ref."""
+    for name in (ref, since):
+        try:
+            _git(source, "rev-parse", "--verify", "--quiet", f"{name}^{{commit}}")
+        except SyncError as error:
+            raise SyncError(f"unknown ref in {source}: {name}") from error
+    raw = _git(source, "diff", "--name-status", "--no-renames", "-z", since, ref, "--", f"{PLANNING}/")
+    tokens = [token for token in raw.decode("utf-8", errors="replace").split("\0") if token]
+    pairs = list(zip(tokens[0::2], tokens[1::2], strict=False))
+    return sorted(((status[0], path) for status, path in pairs), key=lambda pair: pair[1])
+
+
+def _inside_planning(dest: Path, target: Path) -> bool:
+    return (dest / PLANNING).resolve() in target.resolve().parents
+
+
+def sync(
+    source: Path, ref: str, since: str, dest: Path, allow: AllowList, mapping: list[tuple[str, str]]
+) -> list[str]:
+    """Apply the .planning/ delta between since and ref to dest; return the A/M/D/skip lines in path order."""
+    source, dest = Path(source), Path(dest)
+    if not dest.is_dir():
+        raise SyncError(f"not a folder: {dest}")
+    lines: list[str] = []
+    for status, path in _changes(source, ref, since):
+        target = dest / path
+        if not path.startswith(f"{PLANNING}/") or not allow.allowed(path) or not _inside_planning(dest, target):
+            lines.append(f"skip {path}")
+        elif status in "AMT":
+            data = _git(source, "show", f"{ref}:{path}")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(scrub_bytes(data, mapping))
+            lines.append(f"{'M' if status == 'T' else status} {path}")
+        elif status == "D":
+            target.unlink(missing_ok=True)
+            _prune_empty(target.parent, dest / PLANNING)
+            lines.append(f"D {path}")
+        else:
+            lines.append(f"skip {path}")
+    return lines
+
+
+def _prune_empty(folder: Path, stop: Path) -> None:
+    """Remove folder and its parents while they are empty, never `stop` itself."""
+    stop = stop.resolve()
+    while folder.is_dir() and stop in folder.resolve().parents and not any(folder.iterdir()):
+        folder.rmdir()
+        folder = folder.parent
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Copy the scrubbed .planning/ delta between a tag and a ref into a tool checkout.")
+    parser.add_argument("--source", type=Path, required=True, help="the private repository")
+    parser.add_argument("--ref", required=True, help="the ref holding the newer planning files")
+    parser.add_argument("--since", required=True, help="the tag the tool repository was built from")
+    parser.add_argument("--dest", type=Path, required=True, help="the tool checkout")
+    parser.add_argument("--allow-list", type=Path, required=True, help="allow-list file")
+    parser.add_argument("--map", action="append", default=[], metavar="OLD=NEW", help="folder to scrub from the text (repeatable)")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parser().parse_args(argv)
+    try:
+        allow = load_allow_list(args.allow_list)
+        mapping = parse_map(args.map)
+        lines = sync(args.source, args.ref, args.since, args.dest, allow, mapping)
+    except (OSError, ValueError, SyncError) as error:
+        print(f"sync_planning: {error}", file=sys.stderr)
+        return 2
+    for line in lines:
+        print(line)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

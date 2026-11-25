@@ -1,0 +1,53 @@
+{
+  "contract": "1.0.0",
+  "flavor": "core",
+  "milestone": "v3.0 — Public Library Manager",
+  "phases": [
+    {
+      "number": "14",
+      "name": "Test Suite Speed-Up",
+      "status": "complete"
+    },
+    {
+      "number": "15",
+      "name": "Choose Library Folder and New Collection",
+      "status": "complete"
+    },
+    {
+      "number": "16",
+      "name": "Repo Split",
+      "status": "pending"
+    },
+    {
+      "number": "17",
+      "name": "Library Catalog",
+      "status": "pending"
+    },
+    {
+      "number": "18",
+      "name": "Project-Local Table Model",
+      "status": "pending"
+    },
+    {
+      "number": "19",
+      "name": "Menu Regroup",
+      "status": "pending"
+    },
+    {
+      "number": "20",
+      "name": "Python 3.14 Minimum",
+      "status": "pending"
+    },
+    {
+      "number": "21",
+      "name": "Windows Installer and Release",
+      "status": "pending"
+    }
+  ],
+  "next": {
+    "command": "/gsd-progress --next",
+    "label": "Advance to the next step",
+    "reason": "Phase 3 of 8 · 25% · executing"
+  },
+  "updated_at": "2026-11-24T13:28:15.298Z"
+}

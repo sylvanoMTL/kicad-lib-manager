@@ -1,0 +1,17 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra --strict-markers -n 8 --dist worksteal -m 'not slow'"
+qt_api = "pyside6"
+timeout = 300
+timeout_method = "thread"
+tmp_path_retention_policy = "failed"
+tmp_path_retention_count = 1
+markers = [
+    "wurth: reads the WurthElektronik corpus of the KICAD_TEST_CORPUS collection (implies corpus and slow)",
+    "local_kicad: reads the user's real KiCad config tables under the OS config dir (opt-in, read-only)",
+    "kicad_cli: needs the real kicad-cli 10 binary (skipped with a stated reason otherwise)",
+    "corpus: needs the real vendor samples, the Wurth corpus or the live Custom/ of the collection named by KICAD_TEST_CORPUS; deselected with a printed count when it is not set",
+    "needs_kicad: needs an installed KiCad's stock footprints and symbols; deselected with a printed count when no KiCad install is found or KICAD_TEST_HIDE_KICAD=1",
+    "slow: builds real git repositories, reads the Wurth corpus, runs kicad-cli, or is among the baseline's 50 slowest; skipped by the quick run, included by --full",
+]

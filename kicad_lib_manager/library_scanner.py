@@ -1,0 +1,1037 @@
+import copy
+import fnmatch
+import json
+import os
+import re
+import stat
+import sys
+from collections.abc import Sequence
+from dataclasses import dataclass
+from enum import Enum
+from pathlib import Path
+from typing import Callable
+
+from . import fsutil, kicad_files
+from .atomic_check import check_libraries, summary_line
+from .collection import MODELS_DIR, OWN_DIR, source_of
+from .changes import mark_changes
+from .kicad_process import kicad_running
+from .models import (
+    FootprintLibrary,
+    FootprintRef,
+    Issue,
+    ScanResult,
+    Severity,
+    SymbolLibrary,
+)
+
+FOOTPRINT_RE = re.compile(r'\(property\s+"Footprint"\s+"([^"]*)"')
+CUSTOM_MODEL_PREFIX = "${CUSTOM_3DMODEL_DIR}/"
+
+# downloaded_examples holds vendor packages kept for the importer; never a library source
+SKIP_DIRS = {
+    "env", "venv", ".venv", ".git", ".claude", "__pycache__", "tests",
+    "downloaded_examples",
+}
+
+
+_VERSION_RE = re.compile(r"[0-9]+(?:\.[0-9]+)*")
+
+
+def parse_version(name: str) -> tuple[int, ...] | None:
+    """Parse a dotted-integer folder name such as "10.0"; anything else gives None."""
+    if not _VERSION_RE.fullmatch(name):
+        return None
+    return tuple(int(part) for part in name.split("."))
+
+
+def newest_version_dirs(parent: Path) -> list[Path]:
+    """Version-named subfolders of parent, newest first by numeric order."""
+    try:
+        found = [
+            (version, d.name, d)
+            for d in parent.iterdir()
+            if (version := parse_version(d.name)) is not None and d.is_dir()
+        ]
+    except OSError:
+        return []
+    found.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    return [d for _, _, d in found]
+
+
+def find_kicad_config_dir(base: Path | None = None) -> Path | None:
+    """Find the newest KiCad user config directory (numeric version order)."""
+    if base is None:
+        if sys.platform == "win32":
+            appdata = os.environ.get("APPDATA")
+            if not appdata:
+                return None
+            base = Path(appdata) / "kicad"
+        elif sys.platform == "darwin":
+            base = Path.home() / "Library" / "Preferences" / "kicad"
+        else:
+            base = Path.home() / ".config" / "kicad"
+
+    versions = newest_version_dirs(base)
+    return versions[0] if versions else None
+
+
+_KICAD_COMMON_BACKUPS_KEPT = 10
+
+
+def _only_vars_changed(before: dict, after: dict, desired: dict[str, str]) -> bool:
+    """True when after equals before with just the desired variables set in environment.vars."""
+    expected = copy.deepcopy(before)
+    env = expected.setdefault("environment", {})
+    env["vars"] = {**(env.get("vars") or {}), **desired}
+    return after == expected
+
+
+def _prune_backups(backup_dir: Path, name: str, keep: int) -> list[Issue]:
+    """Delete all but the newest `keep` numbered backups of name; failures only warn."""
+    pattern = re.compile(re.escape(name) + r"_backup_(\d+)$")
+    try:
+        numbered = [
+            (int(m.group(1)), backup_dir / entry)
+            for entry in os.listdir(backup_dir)
+            if (m := pattern.match(entry))
+        ]
+    except OSError:
+        return []
+    numbered.sort(key=lambda item: item[0], reverse=True)
+    issues = []
+    for _, path in numbered[keep:]:
+        try:
+            try:
+                path.unlink()
+            except PermissionError:
+                # A read-only old backup (Windows) cannot be deleted until the bit is cleared
+                os.chmod(path, stat.S_IREAD | stat.S_IWRITE)
+                path.unlink()
+        except OSError as e:
+            issues.append(Issue(
+                Severity.WARNING,
+                "config.prune_failed",
+                f"Could not remove old backup {path.name}: {e.strerror or e}",
+            ))
+    return issues
+
+
+def _path_var_refusal(repo_root: Path, repo_str: str, old_vars: dict) -> Issue | None:
+    """A WARNING when the library folder is a git worktree, else None.
+
+    Another folder than KiCad's KICAD_LIB_GITHUB is no longer refused: the change is
+    offered through the confirm like any other (owner decision 2026-11-23).
+    """
+    if (repo_root / ".git").is_file():
+        configured = old_vars.get("KICAD_LIB_GITHUB")
+        shown = configured if isinstance(configured, str) and configured.strip() else "(not set)"
+        return Issue(
+            Severity.WARNING,
+            "config.worktree_refused",
+            f"Not changing KiCad path variables: the library folder {repo_str} is a git "
+            f"worktree. KICAD_LIB_GITHUB stays {shown}. Choose the library checkout "
+            f"itself as the library folder to update them.",
+        )
+    return None
+
+
+_PATH_VAR_PASSES = 3  # how often the confirm may be asked again when the file keeps changing
+
+
+def _read_config(config_file: Path) -> tuple[fsutil.SourceText, dict, dict] | Issue:
+    """Read kicad_common.json: (source, parsed config, environment.vars) or the reason it cannot be used."""
+    src = fsutil.read_source(config_file)
+    if isinstance(src, Issue):
+        return src
+    try:
+        config = json.loads(src.text)
+    except json.JSONDecodeError as e:
+        return Issue(
+            Severity.ERROR,
+            "config.bad_json",
+            f"Could not read KiCad's settings file: invalid JSON at line {e.lineno}, "
+            f"col {e.colno}; nothing was written",
+        )
+
+    # KiCad 7 and 8 write "vars": null, so None counts as an empty object
+    bad_shape = not isinstance(config, dict)
+    env = {} if bad_shape else config.get("environment", {})
+    bad_shape = bad_shape or not isinstance(env, dict)
+    old_vars = {} if bad_shape else env.get("vars")
+    if old_vars is None:
+        old_vars = {}
+    bad_shape = bad_shape or not isinstance(old_vars, dict)
+    if bad_shape:
+        return Issue(
+            Severity.ERROR,
+            "config.bad_shape",
+            "KiCad's settings file has an unexpected structure "
+            "(its path variables section cannot be read); nothing was written",
+        )
+    return src, config, old_vars
+
+
+def _plan_changes(
+    old_vars: dict, desired: dict[str, str]
+) -> tuple[list[tuple[str, str | None, str]], list[Issue], list[Issue]]:
+    """The variables that would change, the 'already set' lines and the 'set' lines."""
+    changes: list[tuple[str, str | None, str]] = []
+    ok_issues: list[Issue] = []
+    set_issues: list[Issue] = []
+    for key, value in desired.items():
+        old = old_vars.get(key)
+        if old != value:
+            changes.append((key, old, value))
+        if old == value:
+            ok_issues.append(Issue(
+                Severity.INFO, "config.var_ok", f"KiCad path '{key}' already set correctly"
+            ))
+        elif old is None:
+            set_issues.append(Issue(
+                Severity.SUCCESS, "config.var_set", f"KiCad path '{key}' set to: {value}"
+            ))
+        else:
+            set_issues.append(Issue(
+                Severity.SUCCESS,
+                "config.var_set",
+                f"KiCad path '{key}' updated: {old} -> {value}",
+            ))
+    return changes, ok_issues, set_issues
+
+
+class ConfirmAnswer(Enum):
+    """The answer of the path-variable confirm; plain True/False still mean write/decline."""
+
+    WRITE = "write"
+    DECLINE = "decline"
+    RETRY = "retry"
+
+
+def _as_answer(value) -> ConfirmAnswer:
+    if isinstance(value, ConfirmAnswer):
+        return value
+    return ConfirmAnswer.WRITE if value is True else ConfirmAnswer.DECLINE
+
+
+def _desired_path_vars(repo_root: Path) -> dict[str, str]:
+    """The two KiCad path variables this library folder would give."""
+    repo_str = str(repo_root).replace("\\", "/")
+    return {
+        "KICAD_LIB_GITHUB": repo_str,
+        "CUSTOM_3DMODEL_DIR": f"{repo_str}/{OWN_DIR}/{MODELS_DIR}",
+    }
+
+
+def would_change_path_vars(repo_root: Path, *, config_base: Path | None = None) -> bool:
+    """True when the newest kicad_common.json differs from the values repo_root would give.
+
+    Read-only: nothing is written, logged or asked. A missing KiCad config folder or
+    file, or one that cannot be read, gives False.
+    """
+    config_dir = find_kicad_config_dir(config_base)
+    if not config_dir:
+        return False
+    config_file = config_dir / "kicad_common.json"
+    if not config_file.exists():
+        return False
+    read = _read_config(config_file)
+    if isinstance(read, Issue):
+        return False
+    _src, _config, old_vars = read
+    return bool(_plan_changes(old_vars, _desired_path_vars(repo_root))[0])
+
+
+def sync_kicad_path_vars(
+    repo_root: Path,
+    *,
+    config_base: Path | None = None,
+    backup_root: Path | None = None,
+    running: Callable[[], list[str]] | None = None,
+    confirm: Callable[[list[tuple[str, str | None, str]]], bool | ConfirmAnswer] | None = None,
+) -> list[Issue]:
+    """Set KICAD_LIB_GITHUB and CUSTOM_3DMODEL_DIR in the newest kicad_common.json.
+
+    Nothing is written unless the values would change and confirm(changes) answers
+    True or ConfirmAnswer.WRITE. changes lists only the variables that would change,
+    as (variable, old value or None, new value). A missing confirm writes nothing.
+    running() is called once, right before confirm, so the confirm can tell the owner
+    that KiCad is open; ConfirmAnswer.RETRY returns a config.retry note and writes nothing.
+
+    After a yes the file is read again and only the two variables are set on top of its
+    current content, so settings KiCad saved while the owner was asked survive. A different
+    change list asks again (at most _PATH_VAR_PASSES times). The file is backed up first,
+    re-parsed to prove only environment.vars changed, then replaced atomically. Older KiCad
+    versions are never touched.
+    """
+    config_dir = find_kicad_config_dir(config_base)
+    if not config_dir:
+        return [Issue(
+            Severity.WARNING,
+            "config.dir_not_found",
+            "Could not find KiCad config directory; path variables were not set",
+        )]
+
+    config_file = config_dir / "kicad_common.json"
+    if not config_file.exists():
+        return [Issue(
+            Severity.WARNING,
+            "config.not_found",
+            f"KiCad config not found: {config_file} "
+            f"(start and close KiCad {config_dir.name} once, then Generate again)",
+        )]
+
+    read = _read_config(config_file)
+    if isinstance(read, Issue):
+        return [read]
+    src, config, old_vars = read
+
+    repo_str = str(repo_root).replace("\\", "/")
+    desired = _desired_path_vars(repo_root)
+
+    changes, issues, set_issues = _plan_changes(old_vars, desired)
+    if not set_issues:
+        return issues
+
+    refusal = _path_var_refusal(repo_root, repo_str, old_vars)
+    if refusal is not None:
+        return issues + [refusal]
+    if confirm is None:
+        return issues + [Issue(
+            Severity.WARNING,
+            "config.confirm_required",
+            "Not changing KiCad path variables: no confirmation step was provided",
+        )]
+
+    names = (running or kicad_running)()
+    for _ in range(_PATH_VAR_PASSES):
+        answer = _as_answer(confirm(changes))
+        if answer is ConfirmAnswer.RETRY:
+            return issues + [Issue(
+                Severity.INFO, "config.retry", "Checking again whether KiCad is still open..."
+            )]
+        if answer is not ConfirmAnswer.WRITE:
+            return issues + [Issue(
+                Severity.INFO,
+                "config.declined",
+                "KiCad path variables left unchanged (change declined)",
+            )]
+
+        # KiCad may have saved while the owner read the dialog: the write starts from the
+        # file as it is now, never from the copy read before the question (D-11)
+        read = _read_config(config_file)
+        if isinstance(read, Issue):
+            return [read]
+        src, config, old_vars = read
+        fresh_changes, issues, set_issues = _plan_changes(old_vars, desired)
+        if not fresh_changes:
+            return issues
+        refusal = _path_var_refusal(repo_root, repo_str, old_vars)
+        if refusal is not None:
+            return issues + [refusal]
+        if fresh_changes == changes:
+            break
+        changes = fresh_changes
+    else:
+        return [Issue(
+            Severity.WARNING,
+            "config.keeps_changing",
+            "KiCad's settings file kept changing while you were asked; nothing was written. "
+            "Press Generate Tables to try again.",
+        )]
+
+    new_config = copy.deepcopy(config)
+    new_config.setdefault("environment", {})["vars"] = {**old_vars, **desired}
+    new_text = json.dumps(new_config, indent=2, ensure_ascii=False) + "\n"
+    if not _only_vars_changed(config, json.loads(new_text), desired):
+        return issues + [Issue(
+            Severity.ERROR,
+            "config.verify_failed",
+            "Did not write KiCad's settings file: the new content would change "
+            "more than the path variables",
+        )]
+    new_text = fsutil.normalize_eol(new_text, src.eol)
+
+    if names:
+        issues.append(Issue(
+            Severity.WARNING,
+            "config.kicad_running",
+            f"KiCad is open ({', '.join(names)}); it may undo these paths when it exits. "
+            f"If they revert, close KiCad and press Generate Tables.",
+        ))
+
+    backup_dir = (backup_root or fsutil.default_backup_dir()) / "kicad_common" / config_dir.name
+    backup = fsutil.backup_file(config_file, backup_dir)
+    if isinstance(backup, Issue):
+        return issues + [backup]
+    issues.append(Issue(
+        Severity.INFO, "config.backed_up", f"Backed up KiCad's settings file to {backup}"
+    ))
+
+    failure = fsutil.atomic_write_text(config_file, new_text, bom=src.bom)
+    if failure is not None:
+        return issues + [failure]
+
+    issues.extend(set_issues)
+    issues.append(Issue(
+        Severity.SUCCESS, "config.written", f"Updated {config_file} (restart KiCad to apply)"
+    ))
+    issues.extend(_prune_backups(
+        backup_dir, config_file.name, keep=_KICAD_COMMON_BACKUPS_KEPT
+    ))
+    return issues
+
+
+def find_kicad_footprint_dir(base: Path | None = None, *,
+                             platform: str | None = None) -> Path | None:
+    """Auto-detect KiCad's default footprint library directory."""
+    platform = sys.platform if platform is None else platform
+    if base is None:
+        if platform == "win32":
+            base = Path("C:/Program Files/KiCad")
+        elif platform == "darwin":
+            base = Path("/Applications/KiCad")
+        else:
+            base = Path("/usr/share/kicad")
+
+    if not base.exists():
+        return None
+
+    # Newest version first (e.g., 10.0 before 9.0)
+    if platform == "win32":
+        for v in newest_version_dirs(base):
+            fp_dir = v / "share" / "kicad" / "footprints"
+            if fp_dir.is_dir():
+                return fp_dir
+    else:
+        fp_dir = base / "footprints"
+        if fp_dir.is_dir():
+            return fp_dir
+
+    return None
+
+
+def get_kicad_default_fp_nicknames(kicad_fp_dir: Path | None = None) -> set[str]:
+    """Return the set of footprint library nicknames from KiCad's default install."""
+    fp_dir = kicad_fp_dir or find_kicad_footprint_dir()
+    if not fp_dir or not fp_dir.is_dir():
+        return set()
+    return {
+        d.stem for d in fp_dir.iterdir()
+        if d.is_dir() and d.suffix == ".pretty"
+    }
+
+
+def _determine_source(rel_path: str) -> str:
+    return source_of(rel_path)
+
+
+def _walk_matches(root: Path, pattern: str, *, dirs: bool = False) -> list[Path]:
+    """Sorted files (or folders, dirs=True) under root whose name matches pattern.
+
+    Top-level SKIP_DIRS and a ".git" folder at any depth are never entered, so a
+    collection's own repository internals are never read. Symlinked folders are
+    not followed, and the name match follows the platform case rule, as rglob did.
+    """
+    found: list[Path] = []
+    for current, dirnames, filenames in os.walk(root):
+        at_top = Path(current) == root
+        dirnames[:] = [
+            d for d in dirnames
+            if d != ".git" and not (at_top and d in SKIP_DIRS)
+        ]
+        names = dirnames if dirs else filenames
+        found.extend(Path(current, n) for n in names if fnmatch.fnmatch(n, pattern))
+    return sorted(found)
+
+
+def _collect_files(root: Path, pattern: str) -> list[Path]:
+    return _walk_matches(root, pattern)
+
+
+def find_symbol_libs(root: Path, progress: Callable | None = None, *,
+                     checking: Callable[[str | None], None] | None = None) -> list[SymbolLibrary]:
+    """Every symbol library with its footprint links.
+
+    checking is told each source as its first file is reached. It only reports: every file is still
+    parsed, so a skip requested meanwhile never drops a library or a link.
+    """
+    sym_files = _collect_files(root, "*.kicad_sym")
+    libs = []
+    previous: str | None = None
+    for i, f in enumerate(sym_files):
+        if progress:
+            progress(f"Parsing symbol: {f.stem}", i, len(sym_files))
+        rel = f.relative_to(root).as_posix()
+        source = _determine_source(rel)
+        if checking is not None and source != previous:
+            checking(source)
+        previous = source
+        fp_refs, holds_symbol = _symbol_file_facts(f)
+        libs.append(SymbolLibrary(
+            nickname=f.stem,
+            rel_path=rel,
+            source=source,
+            footprint_refs=fp_refs,
+            empty=not holds_symbol,
+        ))
+    return libs
+
+
+def find_footprint_libs(root: Path, progress: Callable | None = None) -> list[FootprintLibrary]:
+    pretty_dirs = _walk_matches(root, "*.pretty", dirs=True)
+    libs = []
+    for i, d in enumerate(pretty_dirs):
+        if progress:
+            progress(f"Scanning footprint: {d.stem}", i, len(pretty_dirs))
+        rel = d.relative_to(root).as_posix()
+        source = _determine_source(rel)
+        libs.append(FootprintLibrary(
+            nickname=d.stem,
+            rel_path=rel,
+            source=source,
+            empty=not _pretty_holds_footprint(d),
+        ))
+    return libs
+
+
+_SYMBOL_RE = re.compile(r'\(\s*symbol\s+"')
+
+
+def _pretty_holds_footprint(folder: Path) -> bool:
+    """True when the .pretty folder holds a .kicad_mod file (also when it cannot be read: not empty)."""
+    try:
+        return any(
+            child.suffix.lower() == ".kicad_mod" and child.is_file() for child in folder.iterdir()
+        )
+    except OSError:
+        return True
+
+
+def _symbol_file_facts(sym_file: Path) -> tuple[list[FootprintRef], bool]:
+    """The footprint links of a symbol file and whether it holds a symbol, from one read.
+
+    A file that cannot be read gives no links and counts as holding a symbol (not empty).
+    """
+    try:
+        text = sym_file.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return [], True
+    return _footprint_refs_in(text), _SYMBOL_RE.search(text) is not None
+
+
+def _footprint_refs_in(text: str) -> list[FootprintRef]:
+    refs = []
+    seen = set()
+    for match in FOOTPRINT_RE.finditer(text):
+        value = match.group(1).strip()
+        if not value or ":" not in value:
+            continue
+        lib_name, fp_name = value.split(":", 1)
+        key = (lib_name, fp_name)
+        if key not in seen:
+            seen.add(key)
+            refs.append(FootprintRef(library_name=lib_name, footprint_name=fp_name))
+    return refs
+
+
+def _collide(libs: list, kind: str) -> list[Issue]:
+    """Fill collision_peers for one library kind and return one Issue per shared nickname."""
+    for lib in libs:
+        lib.collision_peers = []
+    groups: dict[str, list] = {}
+    for lib in libs:
+        groups.setdefault(lib.nickname, []).append(lib)
+
+    issues = []
+    for nickname, group in groups.items():
+        if len(group) < 2:
+            continue
+        rel_paths = sorted(lib.rel_path for lib in group)
+        for lib in group:
+            lib.collision_peers = [p for p in rel_paths if p != lib.rel_path]
+        issues.append(Issue(
+            Severity.WARNING,
+            "scan.nickname_collision",
+            f"[{nickname}] {kind} library nickname is used by "
+            f"{', '.join(rel_paths)}; only one of them can be selected",
+        ))
+    return issues
+
+
+def find_nickname_collisions(sym_libs: list[SymbolLibrary],
+                             fp_libs: list[FootprintLibrary]) -> list[Issue]:
+    """Report nicknames shared within symbols or within footprints and record peers.
+
+    Symbols and footprints are checked separately. Nicknames are never changed.
+    """
+    return _collide(sym_libs, "Symbol") + _collide(fp_libs, "Footprint")
+
+
+def cross_reference(sym_libs: list[SymbolLibrary],
+                    fp_libs: list[FootprintLibrary],
+                    kicad_fp_dir: Path | None = None) -> list[Issue]:
+    fp_nicknames = {lib.nickname for lib in fp_libs}
+    kicad_defaults = get_kicad_default_fp_nicknames(kicad_fp_dir)
+    issues = []
+
+    for sym in sym_libs:
+        for ref in sym.footprint_refs:
+            if ref.library_name in fp_nicknames:
+                ref.found_in_repo = True
+            elif ref.library_name in kicad_defaults:
+                ref.found_in_repo = True  # Available in KiCad's default libraries
+            else:
+                ref.found_in_repo = False
+                issues.append(Issue(
+                    Severity.WARNING,
+                    "scan.footprint_lib_missing",
+                    f"[{sym.nickname}] Footprint library '{ref.library_name}' "
+                    f"not found in repo or KiCad defaults "
+                    f"(referenced by {ref.footprint_name})",
+                ))
+    return issues
+
+
+def _custom_model_names(root: Path) -> set[str]:
+    """Exact relative names of every file under Custom/3DModels, case included."""
+    # Compare against a set of names: a filesystem existence probe ignores case on Windows
+    model_dir = root / OWN_DIR / MODELS_DIR
+    return {
+        p.relative_to(model_dir).as_posix()
+        for p in model_dir.rglob("*") if p.is_file()
+    }
+
+
+def _check_model_files(root: Path, mod_files: list[Path], custom_names: set[str],
+                       progress: Callable | None = None, *,
+                       skip: Callable[[str], bool] | None = None,
+                       checking: Callable[[str | None], None] | None = None,
+                       skipped: set[str] | None = None) -> list[Issue]:
+    """The 3D model path lines for the given footprint files.
+
+    skip is asked for a file's source before the file is read; once it answers True the source goes
+    into skipped, none of its files is read again and none of its lines is returned, even those found
+    before the answer. checking is told each source as its first file is reached, then None at the end.
+    """
+    found: list[tuple[str, Issue]] = []
+    skipped = skipped if skipped is not None else set()
+    previous: str | None = None
+    for i, mod_file in enumerate(mod_files):
+        if progress:
+            progress(f"Checking 3D paths: {mod_file.stem}", i, len(mod_files))
+        rel = mod_file.relative_to(root).as_posix()
+        source = _determine_source(rel)
+        if checking is not None and source != previous:
+            checking(source)
+        previous = source
+        if source in skipped:
+            continue
+        if skip is not None and skip(source):
+            skipped.add(source)
+            continue
+
+        loaded = kicad_files.load(mod_file)
+        if isinstance(loaded, Issue):
+            found.append((source, Issue(Severity.WARNING, "scan.unreadable", f"[{rel}] {loaded.text}")))
+            continue
+        name = kicad_files.footprint_name(loaded.root)
+        if name is None:
+            continue
+
+        is_custom = source == OWN_DIR
+        for model in kicad_files.find_models(name.node):
+            path = model.path
+            if is_custom:
+                if not path.startswith(CUSTOM_MODEL_PREFIX):
+                    found.append((source, Issue(
+                        Severity.WARNING,
+                        "scan.model_var",
+                        f"[{rel}] 3D model path does not use {CUSTOM_MODEL_PREFIX}: {path}",
+                    )))
+                elif path[len(CUSTOM_MODEL_PREFIX):] not in custom_names:
+                    found.append((source, Issue(
+                        Severity.WARNING,
+                        "scan.model_missing",
+                        f"[{rel}] 3D model not found in Custom/3DModels "
+                        f"(names are case-sensitive): {path}",
+                    )))
+            elif not path.startswith("${") and ("/" in path or "\\" in path):
+                found.append((source, Issue(
+                    Severity.WARNING,
+                    "scan.model_absolute",
+                    f"[{rel}] Absolute/non-variable 3D model path: {path}",
+                )))
+    if checking is not None:
+        checking(None)
+    return [issue for source, issue in found if source not in skipped]
+
+
+_SKIP_CODE = "scan.models_skipped"
+
+
+def models_skipped_issue(sources: Sequence[str], rechecked: Sequence[str] = ()) -> Issue:
+    """The plain line saying which sources' 3D model paths were not checked.
+
+    rechecked names the footprint libraries of those sources that were read again since.
+    """
+    names = " and ".join(sorted(sources))
+    if rechecked:
+        libs = ", ".join(sorted(rechecked))
+        text = (f"3D model paths of {names} were not checked, except {libs} (rescanned since): "
+                "skipped while the libraries loaded. Rescan checks them.")
+    else:
+        text = f"3D model paths of {names} were not checked: skipped while the libraries loaded. Rescan checks them."
+    return Issue(Severity.INFO, _SKIP_CODE, text)
+
+
+def models_rechecked(result: ScanResult) -> list[str]:
+    """Sorted nicknames of the footprint libraries of a skipped source that were checked since.
+
+    Counted only for skipped sources that still have an unchecked entry in models_unchecked; a
+    result with skipped sources and an empty record reads as wholly unchecked.
+    """
+    active = {
+        source for source in result.skipped_sources
+        if any(_determine_source(path) == source for path in result.models_unchecked)
+    }
+    return sorted(
+        lib.nickname for lib in result.footprint_libs
+        if lib.source in active and lib.rel_path not in result.models_unchecked
+    )
+
+
+def check_3d_model_paths(root: Path, progress: Callable | None = None) -> list[Issue]:
+    """Check footprint model paths: Custom/ must use ${CUSTOM_3DMODEL_DIR} and point at a real file."""
+    return _check_model_files(
+        root, _collect_files(root, "*.kicad_mod"), _custom_model_names(root), progress
+    )
+
+
+def _unchecked_models(mod_files: list[Path], root: Path, fp_libs: list[FootprintLibrary],
+                      skipped: set[str]) -> list[str]:
+    """Footprint libraries of skipped sources, plus loose footprint files of theirs in no library."""
+    unchecked = {lib.rel_path for lib in fp_libs if lib.source in skipped}
+    for mod_file in mod_files:
+        rel = mod_file.relative_to(root).as_posix()
+        if _determine_source(rel) in skipped and not any(rel.startswith(f"{lib.rel_path}/") for lib in fp_libs):
+            unchecked.add(rel)
+    return sorted(unchecked)
+
+
+def scan_all(repo_root: Path, progress: Callable | None = None,
+             kicad_fp_dir: Path | None = None, *,
+             skip: Callable[[str], bool] | None = None,
+             checking: Callable[[str | None], None] | None = None) -> ScanResult:
+    """Scan the whole repo.
+
+    checking(source) is called as the symbol parse and then the 3D model path check reach each
+    source's first file, then checking(None) at the end of the 3D model path check. skip(source) is
+    asked only by the 3D model path check, before each file of a source not yet skipped; True stops
+    that source's check at once and drops its lines (the result records the source in skipped_sources
+    and what is left unchecked in models_unchecked). A skip requested while the symbols are read takes
+    effect when that source's check starts. Both are plain callables, called from the scanning thread.
+    The symbols are always read in full: a skip never drops a library or a footprint link.
+    """
+    # One 0-100 scale for the whole scan. Measured on the full repo (about 70 s): listing 0.25 s,
+    # symbol links 6 s, the 3D model path check 63 s, so that check gets most of the bar
+    def report(text: str, value: int) -> None:
+        if progress:
+            progress(text, value, 100)
+
+    def banded(low: int, high: int) -> Callable | None:
+        if not progress:
+            return None
+
+        def inner(text: str, i: int, n: int) -> None:
+            progress(text, low + (high - low) * i // max(n, 1), 100)
+        return inner
+
+    report("Discovering files...", 0)
+
+    fp_libs = find_footprint_libs(repo_root, banded(0, 1))
+    sym_libs = find_symbol_libs(repo_root, banded(1, 10), checking=checking)
+
+    report("Cross-referencing...", 10)
+    issues = find_nickname_collisions(sym_libs, fp_libs)
+    issues.extend(cross_reference(sym_libs, fp_libs, kicad_fp_dir))
+    mod_files = _collect_files(repo_root, "*.kicad_mod")
+    skipped: set[str] = set()
+    issues.extend(_check_model_files(
+        repo_root, mod_files, _custom_model_names(repo_root), banded(10, 92),
+        skip=skip, checking=checking, skipped=skipped,
+    ))
+    models_unchecked: list[str] = []
+    if skipped:
+        issues.append(models_skipped_issue(sorted(skipped)))
+        models_unchecked = _unchecked_models(mod_files, repo_root, fp_libs, skipped)
+
+    report("Checking atomic parts...", 92)
+    # The same KiCad libraries the cross-reference sees, so both agree on what exists (D-20)
+    kicad_fp_dir = kicad_fp_dir if kicad_fp_dir is not None else find_kicad_footprint_dir()
+    issues.extend(check_libraries(repo_root, sym_libs, fp_libs, kicad_fp_dir))
+
+    report("Looking for changed parts...", 96)
+    issues.extend(mark_changes(repo_root, sym_libs, fp_libs))
+
+    report("Done", 100)
+
+    return ScanResult(
+        symbol_libs=sym_libs,
+        footprint_libs=fp_libs,
+        issues=issues,
+        skipped_sources=sorted(skipped),
+        models_unchecked=models_unchecked,
+    )
+
+
+# ── Rescan one library ───────────────────────────────────────────────
+
+_MODEL_CODES = frozenset({"scan.unreadable", "scan.model_var", "scan.model_missing", "scan.model_absolute"})
+_GLOBAL_CODES = frozenset({"scan.nickname_collision", "scan.footprint_lib_missing", "atomic.summary"})
+_CHANGE_CODES = frozenset({
+    "scan.symbol_new", "scan.symbol_changed", "scan.footprint_new", "scan.footprint_changed",
+    "scan.changes_skipped",
+})
+# The start of the per-file skip line of changes.py; a test pins it against changes.py
+_SKIP_FOR = "Change highlight skipped for "
+
+_KIND_SYMBOL = "symbol"
+_KIND_FOOTPRINT = "footprint"
+
+
+@dataclass
+class LibraryRescan:
+    """The merged result of rescanning one library.
+
+    issues are that library's own lines (for the one-line warning count); rechecked names the
+    Atomic_ symbol libraries that were read again because they link to a rescanned footprint library.
+    """
+    result: ScanResult
+    issues: list[Issue]
+    rechecked: list[str]
+
+
+def _full_needed(text: str) -> Issue:
+    return Issue(Severity.INFO, "rescan.full_needed", text)
+
+
+def _refresh_symbol_library(repo_root: Path, merged: ScanResult, index: int,
+                            kicad_fp_dir: Path | None) -> tuple[SymbolLibrary, list[Issue]]:
+    """Read one symbol library again in place; returns it and its own lines (never the atomic summary)."""
+    old = merged.symbol_libs[index]
+    refs, holds_symbol = _symbol_file_facts(repo_root / old.rel_path)
+    fresh = SymbolLibrary(
+        nickname=old.nickname,
+        rel_path=old.rel_path,
+        source=old.source,
+        footprint_refs=refs,
+        selected=old.selected,
+        empty=not holds_symbol,
+    )
+    lines = [
+        issue for issue in check_libraries(repo_root, [fresh], merged.footprint_libs, kicad_fp_dir)
+        if issue.code != "atomic.summary"
+    ]
+    lines.extend(mark_changes(repo_root, [fresh], []))
+    merged.symbol_libs[index] = fresh
+    return fresh, lines
+
+
+def _owns_symbol_issue(lib: SymbolLibrary, issue: Issue) -> bool:
+    nickname = lib.nickname
+    if issue.code.startswith("atomic.") and issue.code != "atomic.summary":
+        return issue.text.startswith((f"{nickname} / ", f"{nickname}: "))
+    if issue.code in ("scan.symbol_new", "scan.symbol_changed"):
+        return issue.text.startswith(f"Symbol {nickname} / ")
+    if issue.code == "scan.changes_skipped":
+        return issue.text.startswith(f"{_SKIP_FOR}{Path(lib.rel_path).name}: ")
+    return False
+
+
+def _skip_line_file(issue: Issue) -> str | None:
+    """The file name of a per-file change skip line, else None."""
+    if issue.code != "scan.changes_skipped" or not issue.text.startswith(_SKIP_FOR):
+        return None
+    name, colon, _ = issue.text[len(_SKIP_FOR):].partition(": ")
+    return name if colon else None
+
+
+def _rank(issue: Issue) -> int:
+    """scan_all's order: 3D path lines and the skip line, atomic lines, the atomic summary, then change lines."""
+    if issue.code in _MODEL_CODES or issue.code == _SKIP_CODE:
+        return 0
+    if issue.code == "atomic.summary":
+        return 2
+    if issue.code.startswith("atomic."):
+        return 1
+    if issue.code in _CHANGE_CODES:
+        return 3
+    return 4
+
+
+def rescan_library(
+    repo_root: Path,
+    previous: ScanResult,
+    kind: str,
+    rel_path: str,
+    kicad_fp_dir: Path | None = None,
+) -> LibraryRescan | Issue:
+    """Read one library again and merge it into a copy of the last scan.
+
+    kind is "symbol" or "footprint". The result has the libraries and lines a full scan would give
+    (line order within a kind of line may differ). A footprint library also re-checks the Atomic_
+    symbol libraries that link to it, because their footprint and 3D model verdicts read its files.
+    previous is never mutated; the selected flags of the result are a snapshot the GUI re-applies.
+
+    Returns a rescan.full_needed Issue instead when only a full scan is right: the library is not
+    in the last scan, was deleted or renamed, shares its nickname with another library, or its
+    change lines cannot be told apart from another library's.
+    """
+    repo_root = Path(repo_root)
+    merged = copy.deepcopy(previous)
+    if kicad_fp_dir is None:
+        kicad_fp_dir = find_kicad_footprint_dir()
+
+    if kind == _KIND_SYMBOL:
+        libs = merged.symbol_libs
+    elif kind == _KIND_FOOTPRINT:
+        libs = merged.footprint_libs
+    else:
+        libs = []
+    index = next((i for i, lib in enumerate(libs) if lib.rel_path == rel_path), None)
+    if index is None:
+        return _full_needed(f"{rel_path} is not in the last scan; running a full rescan instead.")
+    target = libs[index]
+    on_disk = (repo_root / rel_path).is_file() if kind == _KIND_SYMBOL else (repo_root / rel_path).is_dir()
+    if not on_disk:
+        return _full_needed(
+            f"{target.nickname} is no longer at {rel_path} (deleted or renamed); running a full rescan instead."
+        )
+    if target.collision_peers:
+        return _full_needed(
+            f"{target.nickname} shares its name with another library; running a full rescan instead."
+        )
+
+    # The Atomic_ symbol libraries whose Footprint links name a rescanned footprint library
+    recheck = [
+        i for i, lib in enumerate(merged.symbol_libs)
+        if kind == _KIND_FOOTPRINT and lib.atomic
+        and any(ref.library_name == target.nickname for ref in lib.footprint_refs)
+    ]
+    for i in recheck:
+        lib = merged.symbol_libs[i]
+        if lib.collision_peers:
+            return _full_needed(
+                f"{lib.nickname} shares its name with another library; running a full rescan instead."
+            )
+        if not (repo_root / lib.rel_path).is_file():
+            return _full_needed(
+                f"{lib.nickname} is no longer at {lib.rel_path} (deleted or renamed); "
+                "running a full rescan instead."
+            )
+
+    refreshed_symbols: list[SymbolLibrary] = []
+    refreshed_footprint: FootprintLibrary | None = None
+    if kind == _KIND_SYMBOL:
+        fresh, own_lines = _refresh_symbol_library(repo_root, merged, index, kicad_fp_dir)
+        refreshed_symbols.append(fresh)
+        fresh_lines = list(own_lines)
+    else:
+        refreshed_footprint = FootprintLibrary(
+            nickname=target.nickname, rel_path=target.rel_path, source=target.source,
+            selected=target.selected, empty=not _pretty_holds_footprint(repo_root / rel_path),
+        )
+        merged.footprint_libs[index] = refreshed_footprint
+        own_lines = _check_model_files(
+            repo_root, sorted((repo_root / rel_path).rglob("*.kicad_mod")), _custom_model_names(repo_root)
+        )
+        own_lines.extend(mark_changes(repo_root, [], [refreshed_footprint]))
+        fresh_lines = list(own_lines)
+        for i in recheck:
+            fresh, extra = _refresh_symbol_library(repo_root, merged, i, kicad_fp_dir)
+            refreshed_symbols.append(fresh)
+            fresh_lines.extend(extra)
+
+    other_custom_folders = [
+        repo_root / lib.rel_path for lib in merged.footprint_libs
+        if lib.source == OWN_DIR and lib.rel_path != rel_path
+    ]
+
+    def footprint_owns(issue: Issue) -> bool | Issue:
+        """True when the old line belongs to the rescanned footprint library; an Issue when it is ambiguous."""
+        if issue.code in _MODEL_CODES:
+            return issue.text.startswith(f"[{rel_path}/")
+        if issue.code in ("scan.footprint_new", "scan.footprint_changed"):
+            return issue.text.startswith(f"Footprint {target.nickname} / ")
+        name = _skip_line_file(issue)
+        if name is None or not name.lower().endswith(".kicad_mod"):
+            return False
+        if not any((folder / name).exists() for folder in other_custom_folders):
+            return True
+        if (repo_root / rel_path / name).exists():
+            return _full_needed(
+                f"The change check for {name} cannot be matched to one library; "
+                "running a full rescan instead."
+            )
+        return False
+
+    # The skip line is taken out and put back after the 3D path lines, so it stays beside them
+    skip_line: Issue | None = None
+    kept: list[Issue] = []
+    for issue in previous.issues:
+        if issue.code == _SKIP_CODE:
+            skip_line = issue
+            continue
+        if issue.code in _GLOBAL_CODES:
+            continue
+        if any(_owns_symbol_issue(lib, issue) for lib in refreshed_symbols):
+            continue
+        if refreshed_footprint is not None:
+            verdict = footprint_owns(issue)
+            if isinstance(verdict, Issue):
+                return verdict
+            if verdict:
+                continue
+        kept.append(issue)
+
+    # A line about the whole change check (no file name) is kept once, not added again
+    for issue in fresh_lines:
+        if issue.code == "scan.changes_skipped" and _skip_line_file(issue) is None and issue in kept:
+            continue
+        kept.append(issue)
+
+    # A footprint library that a skip left unchecked was just checked: update the record and the line
+    if refreshed_footprint is not None and rel_path in merged.models_unchecked:
+        merged.models_unchecked.remove(rel_path)
+        merged.skipped_sources = [
+            source for source in merged.skipped_sources
+            if any(_determine_source(path) == source for path in merged.models_unchecked)
+        ]
+        skip_line = (
+            models_skipped_issue(merged.skipped_sources, models_rechecked(merged))
+            if merged.skipped_sources else None
+        )
+    if skip_line is not None:
+        kept.append(skip_line)
+
+    collisions = find_nickname_collisions(merged.symbol_libs, merged.footprint_libs)
+    cross = cross_reference(merged.symbol_libs, merged.footprint_libs, kicad_fp_dir)
+    summary = summary_line(merged.symbol_libs)
+    if summary is not None:
+        kept.append(summary)
+    kept.sort(key=_rank)
+    merged.issues = collisions + cross + kept
+
+    # The line about the whole change check belongs to no library
+    own_lines = [
+        issue for issue in own_lines
+        if issue.code != "scan.changes_skipped" or _skip_line_file(issue) is not None
+    ]
+    if kind == _KIND_SYMBOL:
+        own_lines.extend(issue for issue in cross if issue.text.startswith(f"[{target.nickname}] "))
+    return LibraryRescan(
+        result=merged,
+        issues=own_lines,
+        rechecked=[lib.nickname for lib in refreshed_symbols if lib.rel_path != rel_path],
+    )

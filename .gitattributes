@@ -1,0 +1,2 @@
+tests/fixtures/** -text
+.githooks/* text eol=lf

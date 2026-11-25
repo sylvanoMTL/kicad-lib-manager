@@ -1,0 +1,46 @@
+# Allow-list of the public tool repository (Phase 16, D-02, D-05, D-16).
+#
+# Only the paths named here are exported from the private repository. Anything not named is absent
+# by construction. A line ending in "/" is a folder prefix and matches whole path segments (tests/ never
+# admits tests_old/); any other line is one file. A line starting with "!" excludes a prefix or a file
+# inside an included one, and an exclusion always wins. Blank lines and "#" lines are ignored.
+#
+# The libraries, the vendor downloads, the reports, the research notes, the submodule list, the
+# milestone archives, the quick and debug notes and the v1/v2 history files are not listed on purpose.
+
+# the application and its tests
+kicad_lib_manager/
+kicad_lib_manager.py
+tests/
+
+# build scripts, git hooks and CI
+scripts/
+.githooks/
+.github/
+
+# project files
+pyproject.toml
+requirements.txt
+requirements-dev.txt
+.gitignore
+.gitattributes
+LICENSE
+README.md
+CLAUDE.md
+
+# the current planning set (D-05)
+.planning/PROJECT.md
+.planning/ROADMAP.md
+.planning/REQUIREMENTS.md
+.planning/STATE.md
+.planning/config.json
+.planning/state.json
+.planning/research/
+.planning/codebase/
+.planning/todos/
+.planning/phases/14-test-suite-speed-up/
+.planning/phases/15-choose-library-folder-and-new-collection/
+.planning/phases/16-repo-split/
+
+# the phase 14 timing logs stay private (BASELINE.md and MEASUREMENTS.md stay)
+!.planning/phases/14-test-suite-speed-up/measurements/

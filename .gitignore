@@ -1,0 +1,40 @@
+# Generated library tables (machine-specific)
+sym-lib-table
+fp-lib-table
+
+# Python virtual environments
+env/
+venv/
+.venv/
+__pycache__/
+
+# Claude Code local config (machine-specific paths)
+.claude/
+
+# Backup files
+*_backup_*
+# ...but not the Restore Backup dialog's test module
+!tests/test_backup_dialog.py
+
+# Dummy KiCad project (local editing convenience)
+_LibraryEditor.kicad_pro
+_LibraryEditor.kicad_sch
+_LibraryEditor.kicad_pcb
+_LibraryEditor.kicad_prl
+_LibraryEditor-backups/
+fp-info-cache
+~*.lck
+_autosave-*
+
+# Notes
+REFLECTION.md
+
+# Vendor downloads: licence-restricted, kept local; the public tests use synthetic samples
+downloaded_examples/*
+
+# Local tool checkout files
+CLAUDE.local.md
+.gsd/
+.pytest_cache/
+.ruff_cache/
+junit.xml

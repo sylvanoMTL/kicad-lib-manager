@@ -1,0 +1,15 @@
+#!/bin/sh
+# commit-msg: keep the claude.ai session line out of every commit (Phase 16, D-13).
+# Deletes lines that start with the session trailer and lines that hold a claude.ai session URL;
+# every other line, the Co-Authored-By trailer included, stays. Enable once per clone with:
+#   git config core.hooksPath .githooks
+msg="$1"
+[ -f "$msg" ] || exit 0
+# grep exits 1 when no line is left (an empty message), which is fine; 2 or more is a real error
+grep -v -e '^Claude-Session:' -e 'claude\.ai/code/session' "$msg" > "$msg.tmp"
+status=$?
+if [ "$status" -gt 1 ]; then
+  rm -f "$msg.tmp"
+  exit "$status"
+fi
+mv -f "$msg.tmp" "$msg"

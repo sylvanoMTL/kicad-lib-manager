@@ -1,0 +1,28 @@
+# Generated library tables (machine-specific)
+sym-lib-table
+fp-lib-table
+
+# Python virtual environments
+env/
+venv/
+.venv/
+__pycache__/
+
+# Claude Code local config (machine-specific paths)
+.claude/
+
+# Backup files
+*_backup_*
+
+# Dummy KiCad project (local editing convenience)
+_LibraryEditor.kicad_pro
+_LibraryEditor.kicad_sch
+_LibraryEditor.kicad_pcb
+_LibraryEditor.kicad_prl
+_LibraryEditor-backups/
+fp-info-cache
+~*.lck
+_autosave-*
+
+# Vendor downloads: licence-restricted, kept local
+downloaded_examples/*

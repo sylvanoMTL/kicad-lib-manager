@@ -1,0 +1,38 @@
+name: ci
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      # Keep line endings as committed, before the checkout writes any file
+      - name: Keep line endings as committed
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      # Before pytest: its junit file and skip reasons can hold the runner's own folder names
+      - name: Pre-publish scan
+        run: python scripts/prepublish_scan.py --tree --history
+
+      - name: Install test dependencies
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Quick test run
+        run: python -m pytest --junitxml=junit.xml
+
+      - name: Skip budget
+        run: python scripts/check_skip_budget.py junit.xml --max-skips 10 --min-passed 3500
