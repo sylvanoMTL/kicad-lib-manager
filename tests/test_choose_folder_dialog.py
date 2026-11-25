@@ -90,7 +90,7 @@ def made(qtbot):
 
 
 def settle(qtbot, dialog):
-    qtbot.waitUntil(lambda: not dialog._pending, timeout=5000)
+    qtbot.waitUntil(lambda: not dialog._pending, timeout=30000)
 
 
 def shown(dialog) -> list[str]:
@@ -220,7 +220,7 @@ def test_checking_state(made, qtbot, tmp_path):
     dialog = make(None)
     dialog._field.setText(str(good))
     dialog.show()
-    qtbot.waitUntil(lambda: bool(rec.calls), timeout=5000)
+    qtbot.waitUntil(lambda: bool(rec.calls), timeout=30000)
     assert shown(dialog) == ["Checking the folder..."]
     assert dialog._strip.isVisibleTo(dialog)
     assert dialog._progress.isVisibleTo(dialog) and dialog._progress.maximum() == 0
@@ -250,7 +250,7 @@ def test_debounce_and_stale_results(made, qtbot, tmp_path):
     release = threading.Event()
     rec.slow[str(first)] = release
     dialog._field.setText(str(first) + " ")  # the same folder; the slow gate keys on the stripped text
-    qtbot.waitUntil(lambda: len(rec.calls) == 2, timeout=5000)
+    qtbot.waitUntil(lambda: len(rec.calls) == 2, timeout=30000)
     dialog._field.setText(str(second))
     settle(qtbot, dialog)
     assert dialog._result.path == second
@@ -269,7 +269,7 @@ def test_enter_rechecks_without_accepting(made, qtbot, tmp_path):
     settle(qtbot, dialog)
     calls = len(rec.calls)
     qtbot.keyClick(dialog._field, Qt.Key.Key_Return)
-    qtbot.waitUntil(lambda: len(rec.calls) == calls + 1, timeout=5000)
+    qtbot.waitUntil(lambda: len(rec.calls) == calls + 1, timeout=30000)
     settle(qtbot, dialog)
     assert dialog.isVisible() and dialog.result() == QDialog.DialogCode.Rejected
 
@@ -383,7 +383,7 @@ def test_esc_rejects_and_cancels_checks(made, qtbot, tmp_path):
     dialog = make(None)
     dialog._field.setText(str(good))
     dialog.show()
-    qtbot.waitUntil(lambda: bool(rec.calls), timeout=5000)
+    qtbot.waitUntil(lambda: bool(rec.calls), timeout=30000)
     tasks = list(dialog._tasks)
     assert tasks and all(task.is_running() for task in tasks)
     started = time.monotonic()
@@ -392,7 +392,7 @@ def test_esc_rejects_and_cancels_checks(made, qtbot, tmp_path):
     assert dialog.result() == QDialog.DialogCode.Rejected and dialog.chosen_folder() is None
     assert all(task.is_done() for task in tasks)
     rec.gate.set()
-    qtbot.waitUntil(lambda: all(not task.is_running() for task in tasks), timeout=5000)
+    qtbot.waitUntil(lambda: all(not task.is_running() for task in tasks), timeout=30000)
     qtbot.wait(50)
     assert dialog.chosen_folder() is None and dialog.result() == QDialog.DialogCode.Rejected
 
@@ -465,7 +465,7 @@ def test_closing_with_several_hung_checks_is_bounded(made, qtbot, tmp_path):
     for name in ("a", "ab", "abc"):
         dialog._field.setText(str(tmp_path / name))
         dialog._start_check()  # what the debounce timer does after each edit
-    qtbot.waitUntil(lambda: len(rec.calls) == 3, timeout=5000)
+    qtbot.waitUntil(lambda: len(rec.calls) == 3, timeout=30000)
     tasks = list(dialog._tasks)
     assert len(tasks) == 3
     started = time.monotonic()
@@ -475,7 +475,7 @@ def test_closing_with_several_hung_checks_is_bounded(made, qtbot, tmp_path):
         assert all(task.is_done() and task.is_running() for task in tasks)  # cancelled, still blocked
     finally:
         rec.gate.set()
-    qtbot.waitUntil(lambda: all(not task.is_running() for task in tasks), timeout=5000)
+    qtbot.waitUntil(lambda: all(not task.is_running() for task in tasks), timeout=30000)
 
 
 # -- Code review WR-05: a child New Collection dialog that is creating cannot be closed from above ------

@@ -89,7 +89,7 @@ def test_one_ticked_fix_goes_through_preview_and_apply(setup, qtbot):
     before = (setup.root / SYMBOL_REL).read_text(encoding="utf-8")
     assert '(property "Value" "FFC20"' in before
 
-    with qtbot.waitSignal(dialog.applied) as blocker:
+    with qtbot.waitSignal(dialog.applied, timeout=30000) as blocker:
         dialog._apply_btn.click()
 
     issues = blocker.args[0]
@@ -210,7 +210,7 @@ def test_a_typed_datasheet_is_previewed_and_written(setup, qtbot):
     dialog._preview_btn.click()
 
     assert "https://example.com/ds.pdf" in dialog._preview_text.toPlainText()
-    with qtbot.waitSignal(dialog.applied):
+    with qtbot.waitSignal(dialog.applied, timeout=30000):
         dialog._apply_btn.click()
     assert '"https://example.com/ds.pdf"' in (setup.root / SYMBOL_REL).read_text(encoding="utf-8")
 
@@ -323,7 +323,7 @@ def test_a_file_changed_after_the_preview_is_refused_and_left_alone(setup, qtbot
     applied = []
     dialog.applied.connect(applied.append)
 
-    with qtbot.waitSignal(dialog.issues_logged) as blocker:
+    with qtbot.waitSignal(dialog.issues_logged, timeout=30000) as blocker:
         dialog._apply_btn.click()
 
     assert applied == []

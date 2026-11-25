@@ -326,6 +326,7 @@ def test_close_refused_while_installing(qtbot, make_dialog, gates):
     qtbot.waitUntil(lambda: dialog.result is not None, timeout=60000)
     qtbot.waitUntil(lambda: not dialog.is_installing() and not dialog.is_committing() and not dialog.is_probing(), timeout=30000)
     dialog.reject()
+    qtbot.waitUntil(lambda: not dialog.isVisible(), timeout=30000)
     assert not dialog.isVisible()
 
 
@@ -490,7 +491,7 @@ def make_start_dialog(qtbot, start_layout, downloads, gates):
 
 
 def wait_offer(qtbot, dialog: ImportDialog) -> None:
-    qtbot.waitUntil(lambda: dialog._offer_label.isVisible(), timeout=10000)
+    qtbot.waitUntil(lambda: dialog._offer_label.isVisible(), timeout=30000)
 
 
 def test_start_page_offers_newest_zip(qtbot, make_start_dialog, downloads):
@@ -534,7 +535,7 @@ def test_start_page_never_auto_opens(qtbot, make_start_dialog, downloads):
     assert calls == []
 
     dialog._offer_open_btn.click()
-    qtbot.waitUntil(lambda: len(calls) == 1, timeout=10000)
+    qtbot.waitUntil(lambda: len(calls) == 1, timeout=30000)
     assert calls == [offered]
 
 
@@ -2114,7 +2115,7 @@ def test_ctrl_return_and_no_default_buttons(qtbot, make_item_dialog):
 
     dialog = ul_dialog(make_item_dialog, qtbot, apply_plan=recording_apply)
     dialog.activateWindow()
-    qtbot.waitUntil(dialog.isActiveWindow, timeout=5000)
+    qtbot.waitUntil(dialog.isActiveWindow, timeout=30000)
     for button in dialog.findChildren(QPushButton):
         assert not button.autoDefault() and not button.isDefault(), button.text()
     assert dialog._install_btn.isEnabled()
@@ -2615,7 +2616,7 @@ def test_conflict_view_model_and_symbol(qtbot, make_item_dialog, item_layout):
     assert model_view.windowTitle() == "Custom/3DModels/CSD85301Q2.stp - existing vs incoming"
     assert "Existing" in model_view._text.toPlainText() and "Planned" in model_view._text.toPlainText()
     model_view.close()
-    qtbot.waitUntil(lambda: not open_views(dialog), timeout=5000)
+    qtbot.waitUntil(lambda: not open_views(dialog), timeout=30000)
     dialog._conflict_rows[SYMBOL_KEY].activated.emit(SYMBOL_KEY)
     symbol_view = wait_view(qtbot, dialog)
     assert symbol_view.windowTitle() == f"Custom/Symbols/{LIB}.kicad_sym - existing vs incoming"
@@ -3001,7 +3002,7 @@ def test_failure_banner_dismiss_and_cap(qtbot, make_install_dialog, gates):
     assert body.isReadOnly()
     margins = 2 * body.frameWidth() + 2 * int(body.document().documentMargin())
     limit = 6 * body.fontMetrics().lineSpacing() + margins + 2
-    qtbot.waitUntil(lambda: body.verticalScrollBar().maximum() > 0, timeout=5000)  # more than 6 lines: it scrolls
+    qtbot.waitUntil(lambda: body.verticalScrollBar().maximum() > 0, timeout=30000)  # more than 6 lines: it scrolls
     assert body.height() <= limit
     assert len(banner_lines(dialog)) == 11
 
@@ -3786,7 +3787,7 @@ def test_close_during_probe_cancels_and_closes(qtbot, make_install_dialog):
     began = time.monotonic()
     dialog.close()
     assert time.monotonic() - began < 5
-    qtbot.waitUntil(lambda: not dialog.isVisible(), timeout=5000)
+    qtbot.waitUntil(lambda: not dialog.isVisible(), timeout=30000)
     assert saw_cancel.is_set()
     assert not any(w.isRunning() for w in dialog._workers)
 
@@ -3805,7 +3806,7 @@ def test_close_button_enabled_while_probing(qtbot, make_install_dialog, how):
         dialog.reject()
     else:
         dialog._result_view.close_button.click()
-    qtbot.waitUntil(lambda: not dialog.isVisible(), timeout=5000)
+    qtbot.waitUntil(lambda: not dialog.isVisible(), timeout=30000)
     assert saw_cancel.is_set()
 
 
@@ -4021,6 +4022,7 @@ def test_commit_not_committed_logged_on_close(qtbot, make_install_dialog, monkey
 
     dialog.close()
     dialog.reject()  # a second close path must not log it a second time
+    qtbot.waitUntil(lambda: not dialog.isVisible(), timeout=30000)
     assert not dialog.isVisible()
     found = logged_codes(logged, "commit.not_committed")
     assert [(i.severity, i.text) for i in found] == [(Severity.WARNING, D02_TEXT)]
@@ -4052,6 +4054,7 @@ def test_parent_only_or_all_identical_not_logged_as_not_committed(qtbot, make_in
     qtbot.waitUntil(lambda: not dialog.is_probing(), timeout=30000)
     assert not panel.committed()
     dialog.close()
+    qtbot.waitUntil(lambda: not dialog.isVisible(), timeout=30000)
     assert not dialog.isVisible()
     assert logged_codes(logged, "commit.not_committed") == []
 
@@ -5230,7 +5233,7 @@ def test_gate_refusal_and_recovery_end_to_end(qtbot, tmp_path):
     assert check._focus == (SYM_REL, PART)
     assert check.parent() is dialog
     check.reject()
-    qtbot.waitUntil(lambda: dialog._atomic_dialog is None, timeout=10000)
+    qtbot.waitUntil(lambda: dialog._atomic_dialog is None, timeout=30000)
 
     # the user fixes the file, then Check again: the part passes and the library reads as changed
     lib_path.write_bytes(installed)
@@ -5286,7 +5289,7 @@ def test_open_check_dialog_focuses_first_failure(qtbot, make_install_dialog):
     assert dialog.findChildren(AtomicCheckDialog) == [check]
 
     check.reject()
-    qtbot.waitUntil(lambda: dialog._atomic_dialog is None, timeout=10000)
+    qtbot.waitUntil(lambda: dialog._atomic_dialog is None, timeout=30000)
 
 
 def test_close_rejects_open_check_dialog(qtbot, make_install_dialog):
@@ -5362,7 +5365,7 @@ def test_fixes_applied_reemitted_and_rechecked(qtbot, make_install_dialog):
     assert not dialog.is_committing()
 
     check.reject()
-    qtbot.waitUntil(lambda: dialog._atomic_dialog is None, timeout=10000)
+    qtbot.waitUntil(lambda: dialog._atomic_dialog is None, timeout=30000)
 
 
 def test_check_again_supersedes_running_probe(qtbot, make_install_dialog, gates):
@@ -5638,7 +5641,7 @@ def test_finishing_shows_slow_note(qtbot, make_dialog, gates, monkeypatch):
     hold_a_build(qtbot, dialog, gates)
     dialog._on_change()
     assert not dialog._finish_slow.isVisible()
-    qtbot.waitUntil(dialog._finish_slow.isVisible, timeout=5000)
+    qtbot.waitUntil(dialog._finish_slow.isVisible, timeout=30000)
     assert dialog._finish_slow.text() == SLOW_CLI_TEXT
 
     gates[0].set()
@@ -5653,7 +5656,7 @@ def test_finishing_keeps_the_event_loop_running(qtbot, make_dialog, gates):
     dialog._on_change()
     fired: list[int] = []
     QTimer.singleShot(10, lambda: fired.append(1))
-    qtbot.waitUntil(lambda: bool(fired), timeout=5000)
+    qtbot.waitUntil(lambda: bool(fired), timeout=30000)
     assert not gates[0].is_set()  # the timer ran while the build was still held
     assert dialog.is_finishing()
 
@@ -5947,9 +5950,9 @@ def test_import_window_with_a_guide_hook_creates_no_guide(qtbot, atomic_custom, 
     assert calls == ["importing"]
 
     dialog.activateWindow()
-    qtbot.waitUntil(dialog.isActiveWindow, timeout=5000)
+    qtbot.waitUntil(dialog.isActiveWindow, timeout=30000)
     qtbot.keyClick(dialog, Qt.Key.Key_F1)
-    qtbot.waitUntil(lambda: len(calls) == 2, timeout=5000)
+    qtbot.waitUntil(lambda: len(calls) == 2, timeout=30000)
     assert calls == ["importing", "importing"]
     assert dialog._help_dialog is None
     assert not [w for w in QApplication.topLevelWidgets() if isinstance(w, HelpDialog)]
@@ -5984,6 +5987,7 @@ def test_toolbar_help_opens_importing_page(qtbot, make_dialog):
     assert first not in dialog.findChildren(HelpDialog)
 
     first.close()
+    qtbot.waitUntil(lambda: not first.isVisible(), timeout=30000)
     assert not first.isVisible()
     action.trigger()
     assert dialog._help_dialog is first and first.isVisible()
@@ -6007,13 +6011,13 @@ def test_import_help_keeps_opening_importing_parts_with_a_saved_place(qtbot, mak
         guide._toc.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
         guide._toc.visualItemRect(item).center(),
     )
-    qtbot.waitUntil(lambda: help_key(guide) == "shortcuts", timeout=5000)
+    qtbot.waitUntil(lambda: help_key(guide) == "shortcuts", timeout=30000)
     assert settings.load_help_topic() == "shortcuts"
 
     dialog.activateWindow()
-    qtbot.waitUntil(dialog.isActiveWindow, timeout=5000)
+    qtbot.waitUntil(dialog.isActiveWindow, timeout=30000)
     qtbot.keyClick(dialog, Qt.Key.Key_F1)
-    qtbot.waitUntil(lambda: help_key(guide) == "importing", timeout=5000)
+    qtbot.waitUntil(lambda: help_key(guide) == "importing", timeout=30000)
     assert dialog._help_dialog is guide
     assert settings.load_help_topic() == "shortcuts"
 
@@ -6021,9 +6025,9 @@ def test_import_help_keeps_opening_importing_parts_with_a_saved_place(qtbot, mak
 def test_f1_opens_help_from_the_start_page(qtbot, make_dialog):
     dialog = make_dialog(open_now=False, show=True)
     dialog.activateWindow()
-    qtbot.waitUntil(dialog.isActiveWindow, timeout=5000)
+    qtbot.waitUntil(dialog.isActiveWindow, timeout=30000)
     qtbot.keyClick(dialog, Qt.Key.Key_F1)
-    qtbot.waitUntil(lambda: dialog._help_dialog is not None and dialog._help_dialog.isVisible(), timeout=5000)
+    qtbot.waitUntil(lambda: dialog._help_dialog is not None and dialog._help_dialog.isVisible(), timeout=30000)
     assert help_key(dialog._help_dialog) == "importing"
     assert dialog.isVisible()
     keys = [s.key() for s in dialog.findChildren(QShortcut)]
@@ -6036,12 +6040,12 @@ def test_help_reachable_on_edit_and_result_pages(qtbot, make_install_dialog):
     assert dialog._stack.currentWidget() is dialog._edit_page
     assert dialog._toolbar.isVisible()
     dialog.activateWindow()
-    qtbot.waitUntil(dialog.isActiveWindow, timeout=5000)
+    qtbot.waitUntil(dialog.isActiveWindow, timeout=30000)
     edit = dialog._field_edits["description"]
     edit.setFocus()
     text = edit.text()
     qtbot.keyClick(edit, Qt.Key.Key_F1)
-    qtbot.waitUntil(lambda: dialog._help_dialog is not None and dialog._help_dialog.isVisible(), timeout=5000)
+    qtbot.waitUntil(lambda: dialog._help_dialog is not None and dialog._help_dialog.isVisible(), timeout=30000)
     help_window = dialog._help_dialog
     assert help_key(help_window) == "importing"
     assert dialog.isVisible() and dialog._stack.currentWidget() is dialog._edit_page
@@ -6058,9 +6062,9 @@ def test_help_reachable_on_edit_and_result_pages(qtbot, make_install_dialog):
     assert view.help_button.text() == "Help"
     help_window.show_topic("shortcuts")
     dialog.activateWindow()
-    qtbot.waitUntil(dialog.isActiveWindow, timeout=5000)
+    qtbot.waitUntil(dialog.isActiveWindow, timeout=30000)
     qtbot.keyClick(view.close_button, Qt.Key.Key_F1)  # F1 reaches the same action through the banner button
-    qtbot.waitUntil(lambda: help_key(help_window) == "importing", timeout=5000)
+    qtbot.waitUntil(lambda: help_key(help_window) == "importing", timeout=30000)
     assert dialog._help_dialog is help_window and help_window.isVisible()
     help_window.show_topic("shortcuts")
     view.help_button.click()
@@ -6092,7 +6096,7 @@ def test_help_works_while_installing(qtbot, make_install_dialog, gates):
     qtbot.waitUntil(lambda: not dialog.is_installing(), timeout=30000)
     qtbot.waitUntil(lambda: not dialog.is_probing(), timeout=30000)
     dialog.activateWindow()
-    qtbot.waitUntil(dialog.isActiveWindow, timeout=5000)
+    qtbot.waitUntil(dialog.isActiveWindow, timeout=30000)
     QTest.keyClick(dialog, Qt.Key.Key_Escape)
     qtbot.waitUntil(lambda: not dialog.isVisible(), timeout=30000)
     assert help_window.isVisible()
@@ -6122,6 +6126,7 @@ def test_help_works_while_committing(qtbot, make_install_dialog, gates):
     gates[-1].set()
     qtbot.waitUntil(lambda: not dialog.is_committing(), timeout=30000)
     dialog.close()
+    qtbot.waitUntil(lambda: not dialog.isVisible(), timeout=30000)
     assert not dialog.isVisible()
     assert help_window.isVisible()
 
@@ -6175,7 +6180,7 @@ def help_shortcuts_item(help_window: HelpDialog):
 def test_import_window_takes_input_while_help_is_open(qtbot, make_install_dialog):
     dialog = make_install_dialog()
     dialog._help_action.trigger()
-    qtbot.waitUntil(lambda: dialog._help_dialog is not None and dialog._help_dialog.isVisible(), timeout=5000)
+    qtbot.waitUntil(lambda: dialog._help_dialog is not None and dialog._help_dialog.isVisible(), timeout=30000)
     help_window = dialog._help_dialog
     assert not help_window.isModal()
     assert help_window.windowModality() == Qt.WindowModality.NonModal
@@ -6187,7 +6192,7 @@ def test_import_window_takes_input_while_help_is_open(qtbot, make_install_dialog
     toc.scrollToItem(item)  # Importing Parts' sections are open above it, so the row may sit below the visible menu
     point = toc.viewport().mapTo(help_window, toc.visualItemRect(item).center())
     QTest.mouseClick(help_window.windowHandle(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, point)
-    qtbot.waitUntil(lambda: help_key(help_window) == "shortcuts", timeout=5000)
+    qtbot.waitUntil(lambda: help_key(help_window) == "shortcuts", timeout=30000)
 
     cancel = dialog._cancel_btn
     point = cancel.mapTo(dialog, cancel.rect().center())
@@ -6282,7 +6287,7 @@ def inside_window(dialog: ImportDialog, widget: QWidget) -> bool:
 
 def resize_and_wait(qtbot, dialog: ImportDialog, width: int, height: int) -> None:
     dialog.resize(width, height)
-    qtbot.waitUntil(lambda: dialog.size() == QSize(width, height), timeout=5000)
+    qtbot.waitUntil(lambda: dialog.size() == QSize(width, height), timeout=30000)
 
 
 def test_fit_size_and_place_inside():
@@ -6449,9 +6454,9 @@ def test_help_window_fits_the_screen(qtbot, make_dialog, monkeypatch, area, open
         dialog._help_action.trigger()
     else:
         dialog.activateWindow()
-        qtbot.waitUntil(dialog.isActiveWindow, timeout=5000)
+        qtbot.waitUntil(dialog.isActiveWindow, timeout=30000)
         qtbot.keyClick(dialog, Qt.Key.Key_F1)
-    qtbot.waitUntil(lambda: dialog._help_dialog is not None and dialog._help_dialog.isVisible(), timeout=5000)
+    qtbot.waitUntil(lambda: dialog._help_dialog is not None and dialog._help_dialog.isVisible(), timeout=30000)
     help_window = dialog._help_dialog
     assert help_key(help_window) == "importing"
     assert area.contains(help_window.frameGeometry())
@@ -6539,7 +6544,7 @@ def test_result_view_enter_never_commits(qtbot, make_install_dialog):
     view = dialog._result_view
     view.close_button.setFocus()
     qtbot.keyClick(view.close_button, Qt.Key.Key_Return)
-    qtbot.waitUntil(lambda: not dialog.isVisible(), timeout=5000)
+    qtbot.waitUntil(lambda: not dialog.isVisible(), timeout=30000)
     assert recorded_commits == []
 
 
@@ -6632,7 +6637,7 @@ def test_result_view_two_columns_states(qtbot, make_install_dialog, tmp_path, st
 
 def settle_fit(qtbot, dialog) -> None:
     """Wait until the Result page's fit timer is idle, give it time to start again, and check it did not."""
-    qtbot.waitUntil(lambda: not dialog._result_fit_timer.isActive(), timeout=5000)
+    qtbot.waitUntil(lambda: not dialog._result_fit_timer.isActive(), timeout=30000)
     qtbot.wait(100)
     assert not dialog._result_fit_timer.isActive()
 

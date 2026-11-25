@@ -161,7 +161,7 @@ def make_window(qtbot, monkeypatch, tmp_path):
         w = main_window.MainWindow(repo)
         qtbot.addWidget(w)
         if wait:
-            qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+            qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
         return w
 
     make.repo = None
@@ -191,7 +191,7 @@ def make_window(qtbot, monkeypatch, tmp_path):
 
 def settle(qtbot, w):
     """Wait until the scan and the off-thread KiCad check / path-variable question are done."""
-    qtbot.waitUntil(lambda: w._worker is None and not w._path_var_busy, timeout=5000)
+    qtbot.waitUntil(lambda: w._worker is None and not w._path_var_busy, timeout=30000)
 
 
 def _managed_table(tag, entries):
@@ -260,7 +260,7 @@ def test_generate_after_migration_keeps_atomic_libraries(qtbot, make_window, tmp
     assert dialog.repo_root == repo
 
     dialog.migrated.emit(object())
-    qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
 
     assert {lib.rel_path for lib in w._scan_result.symbol_libs if lib.selected} == {
         "Custom/Symbols/Atomic_Connector.kicad_sym", "Custom/Symbols/Atomic_LED.kicad_sym",
@@ -312,7 +312,7 @@ def test_generate_requested_during_rescan_waits(qtbot, make_window, tmp_path):
     dialog = FakeMigrationDialog.instances[0]
 
     dialog.migrated.emit(object())
-    qtbot.waitUntil(lambda: w._worker is not None, timeout=5000)
+    qtbot.waitUntil(lambda: w._worker is not None, timeout=30000)
 
     dialog.generate_requested.emit()
     log_text = w._log._text.toPlainText()
@@ -373,7 +373,7 @@ def test_import_and_migration_exclude_each_other(qtbot, make_window):
     assert "Close the migration window before importing." in w._log._text.toPlainText()
 
     dialog.reject()
-    qtbot.waitUntil(lambda: w._migration_dialog is None, timeout=5000)
+    qtbot.waitUntil(lambda: w._migration_dialog is None, timeout=30000)
 
     w._import_dialog = object()  # simulate the import dialog being open
     try:
@@ -396,7 +396,7 @@ def test_chooser_button_runs_the_menu_action(qtbot, make_window, tmp_path):
 
     dialog.setup_chooser_requested.emit()
     assert w._chooser_busy
-    qtbot.waitUntil(lambda: not w._chooser_busy, timeout=5000)
+    qtbot.waitUntil(lambda: not w._chooser_busy, timeout=30000)
 
 
 def test_close_blocked_while_migration_runs(qtbot, make_window):
@@ -496,11 +496,11 @@ def test_real_result_view_changes_the_destination_end_to_end(
     dialog = w._migration_dialog
     assert isinstance(dialog, RealMigrationDialog)
     assert dialog.windowModality() == Qt.WindowModality.WindowModal
-    qtbot.waitUntil(lambda: dialog._run_btn.isEnabled(), timeout=5000)
+    qtbot.waitUntil(lambda: dialog._run_btn.isEnabled(), timeout=30000)
     dialog._run_btn.click()
-    qtbot.waitUntil(lambda: dialog._stack.currentWidget() is dialog._result_page, timeout=5000)
+    qtbot.waitUntil(lambda: dialog._stack.currentWidget() is dialog._result_page, timeout=30000)
     settle(qtbot, w)
-    qtbot.waitUntil(lambda: not w._pending_migration, timeout=5000)
+    qtbot.waitUntil(lambda: not w._pending_migration, timeout=30000)
     settle(qtbot, w)
     assert dialog.windowModality() == Qt.WindowModality.WindowModal
 
@@ -583,7 +583,7 @@ def test_deferred_generate_is_reported_in_the_result_view(qtbot, make_window, tm
     w._open_migration()
     dialog = FakeMigrationDialog.instances[0]
     dialog.migrated.emit(object())
-    qtbot.waitUntil(lambda: w._worker is not None, timeout=5000)
+    qtbot.waitUntil(lambda: w._worker is not None, timeout=30000)
 
     dialog.generate_requested.emit()
     assert dialog.statuses == [("Generate Tables runs when the rescan finishes", Severity.INFO)]

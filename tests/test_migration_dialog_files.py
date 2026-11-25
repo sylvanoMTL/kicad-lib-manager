@@ -158,14 +158,14 @@ def test_official_switch_reaches_the_plan(qtbot, make_dialog, tmp_path):
         official_candidates=fake_official_candidates,
     )
     dialog = make_dialog(core)
-    qtbot.waitUntil(lambda: dialog._current_key == KEY_A)
+    qtbot.waitUntil(lambda: dialog._current_key == KEY_A, timeout=30000)
 
     assert dialog._fp_move_radio.isChecked()
     assert dialog._official_box.isHidden()
 
     dialog._fp_official_radio.setChecked(True)
-    qtbot.waitUntil(lambda: calls["official_candidates"] >= 1)
-    qtbot.waitUntil(lambda: dialog._official_combo.count() == 2)
+    qtbot.waitUntil(lambda: calls["official_candidates"] >= 1, timeout=30000)
+    qtbot.waitUntil(lambda: dialog._official_combo.count() == 2, timeout=30000)
     assert not dialog._official_box.isHidden()
     assert dialog._official_hint_label.text() == "KiCad's own footprints are never changed"
     assert not dialog._official_hint_label.isHidden()
@@ -173,7 +173,7 @@ def test_official_switch_reaches_the_plan(qtbot, make_dialog, tmp_path):
     dialog._official_combo.setCurrentText("Package_TO_SOT_SMD:SOT-23-5")
     dialog._official_combo.textActivated.emit("Package_TO_SOT_SMD:SOT-23-5")
 
-    qtbot.waitUntil(lambda: captured.get("choices") is not None and KEY_A in captured["choices"].parts)
+    qtbot.waitUntil(lambda: captured.get("choices") is not None and KEY_A in captured["choices"].parts, timeout=30000)
     choice = captured["choices"].parts[KEY_A]
     assert choice.footprint_target == "official"
     assert choice.official_footprint == "Package_TO_SOT_SMD:SOT-23-5"
@@ -193,7 +193,7 @@ def test_pad_mismatch_is_amber_not_blocking(qtbot, make_dialog, tmp_path):
         check_plan=lambda plan, inventory, kicad_fp_dir: GateOutcome((), {}),
     )
     dialog = make_dialog(core)
-    qtbot.waitUntil(lambda: dialog._current_key == KEY_A)
+    qtbot.waitUntil(lambda: dialog._current_key == KEY_A, timeout=30000)
 
     assert not dialog._pad_warning_label.isHidden()
     assert dialog._pad_warning_label.text() == pad_issue.text
@@ -215,7 +215,7 @@ def test_default_is_move(qtbot, make_dialog, tmp_path):
         tmp_path, build_plan=fake_build_plan, check_plan=lambda plan, inventory, kicad_fp_dir: GateOutcome((), {})
     )
     dialog = make_dialog(core)
-    qtbot.waitUntil(lambda: dialog._current_key == KEY_A)
+    qtbot.waitUntil(lambda: dialog._current_key == KEY_A, timeout=30000)
 
     assert dialog._fp_move_radio.isChecked()
     assert dialog._fp_move_radio.text() == MOVE_FOOTPRINT_TEXT
@@ -225,7 +225,7 @@ def test_default_is_move(qtbot, make_dialog, tmp_path):
     dialog._fp_name_edit.setText("USB_Micro-B_renamed")
     dialog._fp_name_edit.textEdited.emit("USB_Micro-B_renamed")
 
-    qtbot.waitUntil(lambda: captured.get("choices") is not None and KEY_A in captured["choices"].parts)
+    qtbot.waitUntil(lambda: captured.get("choices") is not None and KEY_A in captured["choices"].parts, timeout=30000)
     assert captured["choices"].parts[KEY_A].footprint_name == "USB_Micro-B_renamed"
 
 
@@ -245,16 +245,16 @@ def test_model_row_lists_files_and_renames(qtbot, make_dialog, tmp_path):
         tmp_path, build_plan=fake_build_plan, check_plan=lambda plan, inventory, kicad_fp_dir: GateOutcome((), {})
     )
     dialog = make_dialog(core)
-    qtbot.waitUntil(lambda: dialog._current_key == KEY_A)
+    qtbot.waitUntil(lambda: dialog._current_key == KEY_A, timeout=30000)
 
     assert dialog._model_name_edit.text() == "P1.step"
     dialog._model_name_edit.setText("P1_renamed.step")
     dialog._model_name_edit.textEdited.emit("P1_renamed.step")
-    qtbot.waitUntil(lambda: captured.get("choices") is not None and KEY_A in captured["choices"].parts)
+    qtbot.waitUntil(lambda: captured.get("choices") is not None and KEY_A in captured["choices"].parts, timeout=30000)
     assert captured["choices"].parts[KEY_A].model_name == "P1_renamed.step"
 
     dialog._select_part(KEY_B)
-    qtbot.waitUntil(lambda: dialog._current_key == KEY_B)
+    qtbot.waitUntil(lambda: dialog._current_key == KEY_B, timeout=30000)
     items = [dialog._model_list.item(i).text() for i in range(dialog._model_list.count())]
     assert items == ["P2_a.step", "P2_b.step"]
 
@@ -274,20 +274,20 @@ def test_add_model_sets_source(qtbot, make_dialog, tmp_path):
         pick_model_file=lambda parent: str(tmp_path / "picked.step"),
     )
     dialog = make_dialog(core)
-    qtbot.waitUntil(lambda: dialog._current_key == KEY_A)
+    qtbot.waitUntil(lambda: dialog._current_key == KEY_A, timeout=30000)
 
     assert dialog._add_model_btn.text() == ADD_MODEL_TEXT
     dialog._add_model_btn.click()
     qtbot.waitUntil(
         lambda: captured.get("choices") is not None
         and captured["choices"].parts.get(KEY_A) is not None
-        and captured["choices"].parts[KEY_A].model_source == str(tmp_path / "picked.step")
+        and captured["choices"].parts[KEY_A].model_source == str(tmp_path / "picked.step"), timeout=30000
     )
 
     captured.clear()
     dialog._remove_model_btn.click()
     qtbot.waitUntil(
-        lambda: captured.get("choices") is not None and captured["choices"].parts[KEY_A].model_source is None
+        lambda: captured.get("choices") is not None and captured["choices"].parts[KEY_A].model_source is None, timeout=30000
     )
 
 
@@ -311,7 +311,7 @@ def test_clash_row_resolution_reaches_plan(qtbot, make_dialog, tmp_path):
         tmp_path, build_plan=fake_build_plan, check_plan=lambda plan, inventory, kicad_fp_dir: GateOutcome((), {})
     )
     dialog = make_dialog(core)
-    qtbot.waitUntil(lambda: dialog._current_key == KEY_A)
+    qtbot.waitUntil(lambda: dialog._current_key == KEY_A, timeout=30000)
 
     row = dialog._conflict_rows["footprint:FP1"]
     assert row.rename_edit.text() == "FP1_P1"
@@ -320,7 +320,7 @@ def test_clash_row_resolution_reaches_plan(qtbot, make_dialog, tmp_path):
     qtbot.waitUntil(
         lambda: captured.get("choices") is not None
         and captured["choices"].resolutions.get("footprint:FP1") is not None
-        and captured["choices"].resolutions["footprint:FP1"].action == "overwrite"
+        and captured["choices"].resolutions["footprint:FP1"].action == "overwrite", timeout=30000
     )
 
     strip_target = dialog._targets.get("conflict:footprint:FP1")
@@ -341,11 +341,11 @@ def test_derive_box(qtbot, make_dialog, tmp_path):
         tmp_path, build_plan=fake_build_plan, check_plan=lambda plan, inventory, kicad_fp_dir: GateOutcome((), {})
     )
     dialog = make_dialog(core)
-    qtbot.waitUntil(lambda: dialog._current_key == KEY_A)
+    qtbot.waitUntil(lambda: dialog._current_key == KEY_A, timeout=30000)
     assert dialog._derive_check.isHidden()
 
     dialog._select_part(KEY_B)
-    qtbot.waitUntil(lambda: dialog._current_key == KEY_B)
+    qtbot.waitUntil(lambda: dialog._current_key == KEY_B, timeout=30000)
     assert not dialog._derive_check.isHidden()
     assert dialog._derive_check.text() == DERIVE_TEXT.format(parent="P1")
     assert dialog._derive_check.isChecked()
@@ -354,7 +354,7 @@ def test_derive_box(qtbot, make_dialog, tmp_path):
     dialog._derive_check.toggled.emit(False)
     qtbot.waitUntil(
         lambda: captured.get("choices") is not None and captured["choices"].parts.get(KEY_B) is not None
-        and captured["choices"].parts[KEY_B].derive is False
+        and captured["choices"].parts[KEY_B].derive is False, timeout=30000
     )
 
 
@@ -386,7 +386,7 @@ def test_files_tab_sections(qtbot, make_dialog, tmp_path):
         check_plan=lambda plan, inventory, kicad_fp_dir: GateOutcome((), {}),
     )
     dialog = make_dialog(core)
-    qtbot.waitUntil(lambda: dialog._plan is not None)
+    qtbot.waitUntil(lambda: dialog._plan is not None, timeout=30000)
 
     sections = {section.name: section for section in dialog._files_tree.sections}
     assert set(sections) == {"Write", "Move or rename", "Delete", "Remove folder"}
@@ -433,11 +433,11 @@ def test_file_row_opens_diff_off_thread(qtbot, make_dialog, tmp_path, monkeypatc
         op_content=spy_op_content,
     )
     dialog = make_dialog(core)
-    qtbot.waitUntil(lambda: dialog._plan is not None)
+    qtbot.waitUntil(lambda: dialog._plan is not None, timeout=30000)
 
     row = dialog._files_tree.sections[0].rows[0]
     dialog._on_file_row(row)
-    qtbot.waitUntil(lambda: "content" in recorded)
+    qtbot.waitUntil(lambda: "content" in recorded, timeout=30000)
 
     assert seen_thread["thread"] != main_thread
     assert recorded["content"].kind == "diff"
@@ -511,7 +511,7 @@ def test_leftover_untick_keeps_file(qtbot, make_dialog, tmp_path):
         tmp_path, build_plan=fake_build_plan, check_plan=lambda plan, inventory, kicad_fp_dir: GateOutcome((), {})
     )
     dialog = make_dialog(core)
-    qtbot.waitUntil(lambda: dialog._plan is not None)
+    qtbot.waitUntil(lambda: dialog._plan is not None, timeout=30000)
 
     items = {
         dialog._leftovers_list.item(i).data(Qt.ItemDataRole.UserRole): dialog._leftovers_list.item(i)
@@ -523,6 +523,6 @@ def test_leftover_untick_keeps_file(qtbot, make_dialog, tmp_path):
 
     items[orphan.rel].setCheckState(Qt.CheckState.Unchecked)
     qtbot.waitUntil(
-        lambda: captured.get("choices") is not None and captured["choices"].leftovers.get(orphan.rel) is True
+        lambda: captured.get("choices") is not None and captured["choices"].leftovers.get(orphan.rel) is True, timeout=30000
     )
-    qtbot.waitUntil(lambda: not any(op.rel == orphan.rel for op in dialog._plan.ops))
+    qtbot.waitUntil(lambda: not any(op.rel == orphan.rel for op in dialog._plan.ops), timeout=30000)

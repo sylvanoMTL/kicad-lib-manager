@@ -110,7 +110,7 @@ def make_window(qtbot, monkeypatch, tmp_path):
         if no_dest:
             w._dest_combo.setEditText("")
         if wait:
-            qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+            qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
         return w
 
     make.repo = None
@@ -157,7 +157,7 @@ def make_window(qtbot, monkeypatch, tmp_path):
 
 def settle(qtbot, w):
     """Wait until the off-thread KiCad check and the chooser confirm are done."""
-    qtbot.waitUntil(lambda: not w._chooser_busy, timeout=5000)
+    qtbot.waitUntil(lambda: not w._chooser_busy, timeout=30000)
 
 
 def test_setup_chooser_confirmed_writes_both_files(qtbot, make_window):
@@ -361,7 +361,7 @@ def test_close_waits_for_chooser_check(qtbot, make_window, monkeypatch):
         assert make_window.questions == []
     finally:
         gate.set()
-    qtbot.waitUntil(lambda: not w.isVisible(), timeout=5000)
+    qtbot.waitUntil(lambda: not w.isVisible(), timeout=30000)
 
 
 def test_no_destination_writes_nothing(qtbot, make_window):

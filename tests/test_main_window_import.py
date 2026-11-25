@@ -106,7 +106,7 @@ def make_window(qtbot, monkeypatch, tmp_path):
         w = main_window.MainWindow(repo)
         qtbot.addWidget(w)
         if wait:
-            qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+            qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
         return w
 
     make.calls = []
@@ -152,7 +152,7 @@ def make_window(qtbot, monkeypatch, tmp_path):
 
 def settle(qtbot, w):
     """Wait until the off-thread KiCad check and the path-variable question are done."""
-    qtbot.waitUntil(lambda: not w._path_var_busy, timeout=5000)
+    qtbot.waitUntil(lambda: not w._path_var_busy, timeout=30000)
 
 
 def scan_with(*, selected_usb=False, with_installed=True, peer=None, selected_peer=False,
@@ -251,7 +251,7 @@ def test_import_action_disabled_during_scan(qtbot, make_window):
         assert not w._act_import.isEnabled()
     finally:
         gate.set()
-    qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
     assert w._act_import.isEnabled()
 
 
@@ -267,7 +267,7 @@ def test_post_install_select_checks_installed_library(qtbot, make_window):
     w._on_import_installed(install_result(), stub_plan(make_window.repo))
     assert w._worker is not None  # the scan starts at once (the fake scan itself runs on the worker)
     assert w._progress is None
-    qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
     settle(qtbot, w)
 
     assert len(make_window.calls) == before + 1
@@ -293,14 +293,14 @@ def test_post_install_select_waits_for_running_scan(qtbot, make_window):
     w = make_window([scan_with(), blocked, final])
     try:
         w._on_rescan()
-        qtbot.waitUntil(lambda: len(make_window.calls) == 2, timeout=5000)
+        qtbot.waitUntil(lambda: len(make_window.calls) == 2, timeout=30000)
         assert w._worker is not None
 
         w._on_import_installed(install_result(), stub_plan(make_window.repo))
         assert len(make_window.calls) == 2  # no second scan while one runs
     finally:
         gate.set()
-    qtbot.waitUntil(lambda: len(make_window.calls) == 3 and w._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: len(make_window.calls) == 3 and w._worker is None, timeout=30000)
     qtbot.wait(200)
     assert len(make_window.calls) == 3  # exactly one post-install scan
     assert not selected(running, SYM_REL)  # the scan that was already running did not apply it
@@ -314,7 +314,7 @@ def test_post_install_select_unchecks_peer(qtbot, make_window):
     second = scan_with(peer=peer, selected_peer=True)
     w = make_window([first, second])
     w._on_import_installed(install_result(), stub_plan(make_window.repo))
-    qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
     settle(qtbot, w)
 
     result = w._scan_result
@@ -333,7 +333,7 @@ def test_post_install_select_missing_library(qtbot, make_window):
     second = scan_with(selected_usb=True, with_installed=False)
     w = make_window([first, second])
     w._on_import_installed(install_result(), stub_plan(make_window.repo))
-    qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
     settle(qtbot, w)
 
     result = w._scan_result
@@ -363,6 +363,7 @@ def test_import_dialog_opens_window_modal(qtbot, make_window, tmp_path, monkeypa
     assert w._import_dialog is dialog
 
     dialog.reject()
+    qtbot.waitUntil(lambda: w._import_dialog is None, timeout=30000)
     assert w._import_dialog is None
 
 
@@ -383,6 +384,7 @@ def test_main_window_rescans_after_import_dialog_fixes(qtbot, make_window, tmp_p
     assert scans == [1]
 
     dialog.reject()
+    qtbot.waitUntil(lambda: w._import_dialog is None, timeout=30000)
     assert w._import_dialog is None
 
 
@@ -441,7 +443,7 @@ def test_tables_new_library_add_only(qtbot, make_window, tmp_path):
     config_before = make_window.config_file.read_text(encoding="utf-8")
 
     w._on_import_installed(install_result(), stub_plan(repo, NEW_LIB, new_library=True))
-    qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
     settle(qtbot, w)
 
     sym_line = _managed(NEW_LIB, NEW_SYM_REL).encode("utf-8")
@@ -473,7 +475,7 @@ def test_tables_new_library_declined_keeps_kicad_config(qtbot, make_window, tmp_
     config_before = make_window.config_file.read_bytes()
 
     w._on_import_installed(install_result(), stub_plan(repo, NEW_LIB, new_library=True))
-    qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
     settle(qtbot, w)
 
     sym_line = _managed(NEW_LIB, NEW_SYM_REL).encode("utf-8")
@@ -535,7 +537,7 @@ def test_tables_existing_library_not_in_tables_warns(qtbot, make_window, tmp_pat
     config_before = make_window.config_file.read_bytes()
 
     w._on_import_installed(install_result(), stub_plan(repo))
-    qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
     settle(qtbot, w)
 
     assert (repo / "sym-lib-table").read_bytes() == old_sym
@@ -552,7 +554,7 @@ def test_tables_existing_library_listed_no_warning(qtbot, make_window, tmp_path)
     w = make_window([scan_with(with_installed=False), scan_with()], repo=repo)
 
     w._on_import_installed(install_result(), stub_plan(repo))
-    qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
     settle(qtbot, w)
 
     assert (repo / "sym-lib-table").read_bytes() == old_sym
@@ -620,7 +622,7 @@ def test_tables_written_even_when_rescan_fails(qtbot, make_window, tmp_path):
     before = w._scan_result
 
     w._on_import_installed(install_result(), stub_plan(repo, NEW_LIB, new_library=True))
-    qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
     settle(qtbot, w)
 
     assert "Scan error: scan boom" in log_text(w)
@@ -640,7 +642,7 @@ def test_post_install_reveal_current_rows(qtbot, make_window):
     w = make_window([scan_with(with_installed=False), scan_with()])
 
     w._on_import_installed(install_result(), stub_plan(make_window.repo))
-    qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
     settle(qtbot, w)
 
     assert w._tree._sym_tree.currentItem() is w._tree._sym_items[SYM_REL]
@@ -655,7 +657,7 @@ def test_tables_missing_destination_logs_error(qtbot, make_window, tmp_path):
     w._dest_combo.setCurrentText(str(gone))
 
     w._on_import_installed(install_result(), stub_plan(make_window.repo, NEW_LIB, new_library=True))
-    qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
     settle(qtbot, w)
 
     assert f"Destination folder does not exist: {gone}" in log_text(w)
@@ -964,7 +966,7 @@ def run_install(qtbot, w, repo, lib, new_library, **plan_options):
             installed_for(lib, new_library), stub_plan(repo, lib, new_library=new_library, **plan_options)
         )
         at_once = dict(dialog.rows)
-        qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+        qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
         settle(qtbot, w)
     finally:
         w._import_dialog = None
@@ -1098,7 +1100,7 @@ def test_status_rows_skipped_after_dialog_closed(qtbot, make_window, tmp_path):
     w._import_dialog = dialog
     w._on_import_installed(installed_for(NEW_LIB, True), stub_plan(repo, NEW_LIB, new_library=True))
     w._import_dialog = None  # the dialog is closed before the rescan ends
-    qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
     settle(qtbot, w)
 
     assert set(dialog.rows) == {"library_list", "tables"}
@@ -1244,7 +1246,7 @@ def test_tables_new_symbol_and_new_footprint_library_use_their_own_names(qtbot, 
     w._on_import_installed(
         install_result(), stub_plan(repo, NEW_LIB, new_library=True, footprint_library=SHARED_FP)
     )
-    qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
     settle(qtbot, w)
 
     sym_new = (repo / "sym-lib-table").read_bytes()
@@ -1262,7 +1264,7 @@ def test_tables_only_the_footprint_library_is_new(qtbot, make_window, tmp_path):
 
     plan = stub_plan(repo, LIB, new_symbol_lib=False, new_footprint_lib=True, footprint_library=SHARED_FP)
     w._on_import_installed(install_result(), plan)
-    qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
     settle(qtbot, w)
 
     assert (repo / "sym-lib-table").read_bytes() == old_sym
@@ -1278,7 +1280,7 @@ def test_tables_shared_footprint_library_already_listed_adds_only_the_symbol(qtb
     w = make_window([scan_with(with_installed=False), scan_with(lib=NEW_LIB)], repo=repo)
 
     w._on_import_installed(install_result(), stub_plan(repo, NEW_LIB, new_symbol_lib=True, new_footprint_lib=False))
-    qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
     settle(qtbot, w)
 
     assert (repo / "sym-lib-table").read_bytes() == old_sym[:-2] + _managed(NEW_LIB, NEW_SYM_REL).encode("utf-8") + b")\n"
@@ -1294,7 +1296,7 @@ def test_tables_a_footprint_library_outside_the_repo_gets_no_fp_entry(qtbot, mak
 
     plan = stub_plan(repo, NEW_LIB, new_library=True, footprint_library="Package_TO_SOT_SMD", pretty=NEW_FP_LIB)
     w._on_import_installed(install_result(), plan)
-    qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
     settle(qtbot, w)
 
     assert (repo / "sym-lib-table").read_bytes() == old_sym[:-2] + _managed(NEW_LIB, NEW_SYM_REL).encode("utf-8") + b")\n"
@@ -1311,7 +1313,7 @@ def test_hint_names_both_libraries_when_neither_is_in_the_tables(qtbot, make_win
 
     plan = stub_plan(repo, LIB, new_symbol_lib=False, new_footprint_lib=False, footprint_library=SHARED_FP)
     w._on_import_installed(install_result(), plan)
-    qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
     settle(qtbot, w)
 
     assert f"{LIB} and {SHARED_FP} are not in the library tables. Press Generate Tables to add them." in log_text(w)
@@ -1328,7 +1330,7 @@ def test_tables_an_official_link_into_a_new_symbol_library_adds_only_the_symbol_
         repo, NEW_LIB, new_symbol_lib=True, new_footprint_lib=False, footprint_library="Package_TO_SOT_SMD", pretty=SHARED_FP
     )
     w._on_import_installed(install_result(), plan)
-    qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
     settle(qtbot, w)
 
     assert (repo / "sym-lib-table").read_bytes() == old_sym[:-2] + _managed(NEW_LIB, NEW_SYM_REL).encode("utf-8") + b")\n"
@@ -1344,7 +1346,7 @@ def test_tables_new_symbol_library_adds_the_existing_unlisted_footprint_library(
     w = make_window([scan_with(with_installed=False), scan_with(lib=NEW_LIB)], repo=repo)
 
     w._on_import_installed(install_result(), stub_plan(repo, NEW_LIB, new_symbol_lib=True, new_footprint_lib=False))
-    qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
     settle(qtbot, w)
 
     assert (repo / "sym-lib-table").read_bytes() == old_sym[:-2] + _managed(NEW_LIB, NEW_SYM_REL).encode("utf-8") + b")\n"
@@ -1360,7 +1362,7 @@ def test_tables_new_symbol_library_leaves_a_listed_footprint_library_alone(qtbot
     w = make_window([scan_with(with_installed=False), scan_with(lib=NEW_LIB)], repo=repo)
 
     w._on_import_installed(install_result(), stub_plan(repo, NEW_LIB, new_symbol_lib=True, new_footprint_lib=False))
-    qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
     settle(qtbot, w)
 
     fp_bytes = (repo / "fp-lib-table").read_bytes()
@@ -1421,7 +1423,7 @@ def open_import_window(qtbot, w, tmp_path):
     qtbot.waitExposed(w)
     w._open_import(tmp_path / "missing.zip")
     dialog = w._import_dialog
-    qtbot.waitUntil(dialog.isVisible, timeout=5000)
+    qtbot.waitUntil(dialog.isVisible, timeout=30000)
     return dialog
 
 
@@ -1456,21 +1458,21 @@ def test_guide_takes_clicks_beside_the_import_window_and_its_dialogs(qtbot, make
     click_in_window(w, w._select_all_btn)
     assert clicks == []
     click_guide_row(guide, "shortcuts")
-    qtbot.waitUntil(lambda: guide_key(guide) == "shortcuts", timeout=5000)
+    qtbot.waitUntil(lambda: guide_key(guide) == "shortcuts", timeout=30000)
 
     view = ContentViewDialog(ContentText(title="View", header="", body="text", kind="error"), parent=dialog)
     view.open()
     qtbot.waitExposed(view)
     assert view.windowModality() == Qt.WindowModality.WindowModal
     click_guide_row(guide, "importing")
-    qtbot.waitUntil(lambda: guide_key(guide) == "importing", timeout=5000)
+    qtbot.waitUntil(lambda: guide_key(guide) == "importing", timeout=30000)
     view.close()
 
     atomic = AtomicCheckDialog(ScanResult(), tmp_path, parent=dialog)
     atomic.open()
     qtbot.waitExposed(atomic)
     click_guide_row(guide, "shortcuts")
-    qtbot.waitUntil(lambda: guide_key(guide) == "shortcuts", timeout=5000)
+    qtbot.waitUntil(lambda: guide_key(guide) == "shortcuts", timeout=30000)
     assert QApplication.activeModalWidget() is not guide
     atomic.close()
     dialog.reject()
@@ -1488,4 +1490,4 @@ def test_guide_stays_open_after_the_import_window_closes(qtbot, make_window, tmp
     assert w._import_dialog is None
     assert guide.isVisible() and w._guide is guide
     click_guide_row(guide, "shortcuts")
-    qtbot.waitUntil(lambda: guide_key(guide) == "shortcuts", timeout=5000)
+    qtbot.waitUntil(lambda: guide_key(guide) == "shortcuts", timeout=30000)

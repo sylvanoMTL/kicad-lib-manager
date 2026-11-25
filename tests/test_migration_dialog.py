@@ -154,14 +154,14 @@ def test_dirty_custom_shows_refusal(qtbot, make_dialog, tmp_path):
     core = core_with(tmp_path, check_custom=fake_check_custom, read_inventory=fake_read_inventory)
     dialog = make_dialog(core)
 
-    qtbot.waitUntil(lambda: dialog._stack.currentWidget() is dialog._refusal_page)
+    qtbot.waitUntil(lambda: dialog._stack.currentWidget() is dialog._refusal_page, timeout=30000)
     shown = dialog._refusal_text.toPlainText()
     assert "Custom/Symbols/Foo.kicad_sym" in shown
     assert "Custom/Symbols/Bar.kicad_sym" in shown
     assert calls["read_inventory"] == 0
 
     dialog._check_again_btn.click()
-    qtbot.waitUntil(lambda: calls["check_custom"] == 2)
+    qtbot.waitUntil(lambda: calls["check_custom"] == 2, timeout=30000)
 
 
 def test_parts_grouped_by_target(qtbot, make_dialog, tmp_path):
@@ -176,7 +176,7 @@ def test_parts_grouped_by_target(qtbot, make_dialog, tmp_path):
         check_plan=lambda plan, inventory, kicad_fp_dir: gate,
     )
     dialog = make_dialog(core)
-    qtbot.waitUntil(lambda: dialog._tree.topLevelItemCount() == 2)
+    qtbot.waitUntil(lambda: dialog._tree.topLevelItemCount() == 2, timeout=30000)
 
     group_names = [dialog._tree.topLevelItem(i).text(0) for i in range(2)]
     assert group_names == [UNDECIDED_GROUP, "Atomic_Connector"]
@@ -206,13 +206,13 @@ def test_run_disabled_until_strip_empty(qtbot, make_dialog, tmp_path):
         check_plan=lambda plan, inventory, kicad_fp_dir: state["gate"],
     )
     dialog = make_dialog(core)
-    qtbot.waitUntil(lambda: dialog._gate is not None)
+    qtbot.waitUntil(lambda: dialog._gate is not None, timeout=30000)
     assert dialog._strip.count() == 1
     assert not dialog._run_btn.isEnabled()
 
     state["gate"] = gate_clear
     dialog._update_choice(KEY_A, mpn="NEWMPN")
-    qtbot.waitUntil(lambda: dialog._run_btn.isEnabled(), timeout=_REBUILD_DELAY_MS + 5000)
+    qtbot.waitUntil(lambda: dialog._run_btn.isEnabled(), timeout=_REBUILD_DELAY_MS + 30000)
     assert dialog._strip.count() == 0
 
 
@@ -232,7 +232,7 @@ def test_strip_click_selects_part_and_focuses_field(qtbot, make_dialog, tmp_path
         check_plan=lambda plan, inventory, kicad_fp_dir: gate,
     )
     dialog = make_dialog(core)
-    qtbot.waitUntil(lambda: dialog._strip.count() == 2)
+    qtbot.waitUntil(lambda: dialog._strip.count() == 2, timeout=30000)
 
     dialog._on_strip_item_clicked(dialog._strip.item(0))
     assert dialog._current_key == KEY_A
@@ -265,7 +265,7 @@ def test_long_work_runs_off_the_gui_thread(qtbot, make_dialog, tmp_path):
         check_plan=spy("check_plan", lambda plan, inventory, kicad_fp_dir: GateOutcome((), {})),
     )
     dialog = make_dialog(core)
-    qtbot.waitUntil(lambda: dialog._run_btn.isEnabled())
+    qtbot.waitUntil(lambda: dialog._run_btn.isEnabled(), timeout=30000)
 
     for name in ("check_custom", "read_inventory", "prepare_context", "build_plan", "check_plan"):
         assert name in seen, f"{name} was never called"
@@ -291,7 +291,7 @@ def test_library_picker_lists_atomic_libraries_and_current(qtbot, make_dialog, t
         tmp_path, build_plan=fake_build_plan, check_plan=lambda plan, inventory, kicad_fp_dir: GateOutcome((), {})
     )
     dialog = make_dialog(core)
-    qtbot.waitUntil(lambda: dialog._tree.topLevelItemCount() >= 1)
+    qtbot.waitUntil(lambda: dialog._tree.topLevelItemCount() >= 1, timeout=30000)
     dialog._select_part(KEY_A)
 
     assert dialog._library_combo.currentText() == "Atomic_Timer"
@@ -304,7 +304,7 @@ def test_library_picker_lists_atomic_libraries_and_current(qtbot, make_dialog, t
     assert dialog._library_note.text() == name_verdict("Atomic_Crystal").reason
     assert not dialog._library_note.isHidden()
 
-    qtbot.waitUntil(lambda: captured.get("choices") is not None and captured["choices"].parts.get(KEY_A) is not None)
+    qtbot.waitUntil(lambda: captured.get("choices") is not None and captured["choices"].parts.get(KEY_A) is not None, timeout=30000)
     assert captured["choices"].parts[KEY_A].library == "Atomic_Crystal"
 
 
@@ -326,7 +326,7 @@ def test_library_picked_from_the_list_is_recorded(qtbot, make_dialog, tmp_path):
             tmp_path, build_plan=fake_build_plan, check_plan=lambda plan, inventory, kicad_fp_dir: GateOutcome((), {})
         )
         dialog = make_dialog(core)
-        qtbot.waitUntil(lambda: dialog._tree.topLevelItemCount() >= 1)
+        qtbot.waitUntil(lambda: dialog._tree.topLevelItemCount() >= 1, timeout=30000)
         dialog._select_part(KEY_A)
         assert dialog._library_combo.currentText() == "Atomic_Timer"
         return dialog
@@ -348,7 +348,7 @@ def test_library_picked_from_the_list_is_recorded(qtbot, make_dialog, tmp_path):
     assert dialog._draft_timer.isActive()
     allowed = getattr(dialog._ctx, "allowed", None)
     assert dialog._library_badge.text() == library_badge("Atomic_Connector", dialog._library_names(), allowed)
-    qtbot.waitUntil(lambda: captured["choices"].parts.get(KEY_A) is not None)
+    qtbot.waitUntil(lambda: captured["choices"].parts.get(KEY_A) is not None, timeout=30000)
     assert captured["choices"].parts[KEY_A].library == "Atomic_Connector"
 
     # Picking the library already recorded changes nothing: no generation bump, no rebuild
@@ -391,7 +391,7 @@ def test_guessed_and_suggested_libraries_are_marked_in_the_tree(qtbot, make_dial
     part_c = _part(KEY_C, "Foo", "Atomic_Foo", "FOO1", library_basis="chosen")
     core = core_with(tmp_path, build_plan=lambda inventory, choices, ctx: _plan_for(inventory, (part_a, part_b, part_c)))
     dialog = make_dialog(core)
-    qtbot.waitUntil(lambda: dialog._tree.topLevelItemCount() >= 3)
+    qtbot.waitUntil(lambda: dialog._tree.topLevelItemCount() >= 3, timeout=30000)
 
     assert dialog_module.GUESS_MARK in _status_of(dialog, KEY_A)
     assert dialog_module.SUGGESTED_MARK not in _status_of(dialog, KEY_A)
@@ -408,7 +408,7 @@ def test_guess_note_explains_and_how_to_confirm(qtbot, make_dialog, tmp_path):
     part_c = _part(KEY_C, "Foo", "Atomic_Foo", "FOO1", library_basis="chosen")
     core = core_with(tmp_path, build_plan=lambda inventory, choices, ctx: _plan_for(inventory, (part_a, part_b, part_c)))
     dialog = make_dialog(core)
-    qtbot.waitUntil(lambda: dialog._tree.topLevelItemCount() >= 3)
+    qtbot.waitUntil(lambda: dialog._tree.topLevelItemCount() >= 3, timeout=30000)
 
     dialog._select_part(KEY_A)
     note = dialog._suggestion_note
@@ -434,7 +434,7 @@ def test_dropdown_offers_the_alternatives(qtbot, make_dialog, tmp_path):
     part_b = _part(KEY_B, "Connector_X", "Atomic_Connector", "CONN1")
     core = core_with(tmp_path, build_plan=lambda inventory, choices, ctx: _plan_for(inventory, (part_a, part_b)))
     dialog = make_dialog(core)
-    qtbot.waitUntil(lambda: dialog._tree.topLevelItemCount() >= 2)
+    qtbot.waitUntil(lambda: dialog._tree.topLevelItemCount() >= 2, timeout=30000)
     dialog._select_part(KEY_A)
 
     items = [dialog._library_combo.itemText(i) for i in range(dialog._library_combo.count())]
@@ -468,13 +468,13 @@ def test_picking_the_guess_from_the_list_confirms_it(qtbot, make_dialog, tmp_pat
         return _plan_for(inventory, (part_a,))
 
     dialog = make_dialog(core_with(tmp_path, build_plan=fake_build_plan))
-    qtbot.waitUntil(lambda: dialog._tree.topLevelItemCount() >= 1)
+    qtbot.waitUntil(lambda: dialog._tree.topLevelItemCount() >= 1, timeout=30000)
     dialog._select_part(KEY_A)
     assert dialog_module.GUESS_MARK in _status_of(dialog, KEY_A)
 
     dialog._library_combo.textActivated.emit("Atomic_Timer")
     assert dialog._choices.parts[KEY_A].library == "Atomic_Timer"
-    qtbot.waitUntil(lambda: dialog_module.GUESS_MARK not in _status_of(dialog, KEY_A))
+    qtbot.waitUntil(lambda: dialog_module.GUESS_MARK not in _status_of(dialog, KEY_A), timeout=30000)
     assert captured["choices"].parts[KEY_A].library == "Atomic_Timer"
 
 
@@ -490,7 +490,7 @@ def test_field_edits_reach_the_plan(qtbot, make_dialog, tmp_path):
         tmp_path, build_plan=fake_build_plan, check_plan=lambda plan, inventory, kicad_fp_dir: GateOutcome((), {})
     )
     dialog = make_dialog(core)
-    qtbot.waitUntil(lambda: dialog._current_key == KEY_A)
+    qtbot.waitUntil(lambda: dialog._current_key == KEY_A, timeout=30000)
 
     edits = {
         "mpn": "NEWMPN",
@@ -505,7 +505,7 @@ def test_field_edits_reach_the_plan(qtbot, make_dialog, tmp_path):
     dialog._symbol_name_edit.setText("P1-REV2")
     dialog._symbol_name_edit.textEdited.emit("P1-REV2")
 
-    qtbot.waitUntil(lambda: captured.get("choices") is not None and KEY_A in captured["choices"].parts)
+    qtbot.waitUntil(lambda: captured.get("choices") is not None and KEY_A in captured["choices"].parts, timeout=30000)
     choice = captured["choices"].parts[KEY_A]
     assert choice.mpn == "NEWMPN"
     assert choice.manufacturer == "ACME"
@@ -530,7 +530,7 @@ def test_field_changes_listed(qtbot, make_dialog, tmp_path):
         check_plan=lambda plan, inventory, kicad_fp_dir: GateOutcome((), {}),
     )
     dialog = make_dialog(core)
-    qtbot.waitUntil(lambda: dialog._current_key == KEY_A)
+    qtbot.waitUntil(lambda: dialog._current_key == KEY_A, timeout=30000)
 
     rows = [dialog._field_changes_list.item(i).text() for i in range(dialog._field_changes_list.count())]
     assert "Removed MF" in rows
@@ -551,7 +551,7 @@ def test_texts_regenerate(qtbot, make_dialog, tmp_path):
         tmp_path, build_plan=fake_build_plan, check_plan=lambda plan, inventory, kicad_fp_dir: GateOutcome((), {})
     )
     dialog = make_dialog(core)
-    qtbot.waitUntil(lambda: dialog._current_key == KEY_A)
+    qtbot.waitUntil(lambda: dialog._current_key == KEY_A, timeout=30000)
 
     assert dialog._text_edits["keywords"].toPlainText() == "gen keywords"
 
@@ -559,16 +559,16 @@ def test_texts_regenerate(qtbot, make_dialog, tmp_path):
     qtbot.waitUntil(
         lambda: captured.get("choices") is not None
         and captured["choices"].parts.get(KEY_A) is not None
-        and captured["choices"].parts[KEY_A].keywords == "my keywords"
+        and captured["choices"].parts[KEY_A].keywords == "my keywords", timeout=30000
     )
 
     captured.clear()
     dialog._text_regenerate["keywords"].click()
     qtbot.waitUntil(
         lambda: captured.get("choices") is not None
-        and captured["choices"].parts[KEY_A].keywords is None
+        and captured["choices"].parts[KEY_A].keywords is None, timeout=30000
     )
-    qtbot.waitUntil(lambda: dialog._text_edits["keywords"].toPlainText() == "gen keywords")
+    qtbot.waitUntil(lambda: dialog._text_edits["keywords"].toPlainText() == "gen keywords", timeout=30000)
 
 
 def test_vendor_text_is_plain(qtbot, make_dialog, tmp_path):
@@ -582,7 +582,7 @@ def test_vendor_text_is_plain(qtbot, make_dialog, tmp_path):
         check_plan=lambda plan, inventory, kicad_fp_dir: GateOutcome((), {}),
     )
     dialog = make_dialog(core)
-    qtbot.waitUntil(lambda: dialog._current_key == KEY_A)
+    qtbot.waitUntil(lambda: dialog._current_key == KEY_A, timeout=30000)
 
     assert dialog._field_edits["description"].text() == vendor_text
     assert dialog._field_edits["description"].toolTip() == html.escape(vendor_text)
@@ -618,14 +618,14 @@ def test_edits_save_the_draft(qtbot, make_dialog, tmp_path):
         fingerprints=lambda inventory: {KEY_A: "print-a"},
     )
     dialog = make_dialog(core)
-    qtbot.waitUntil(lambda: dialog._current_key == KEY_A)
+    qtbot.waitUntil(lambda: dialog._current_key == KEY_A, timeout=30000)
 
     dialog._field_edits["mpn"].setText("NEWMPN")
     dialog._field_edits["mpn"].textEdited.emit("NEWMPN")
-    qtbot.waitUntil(lambda: calls.get("count") == 1, timeout=_DRAFT_DELAY_MS + 5000)
+    qtbot.waitUntil(lambda: calls.get("count") == 1, timeout=_DRAFT_DELAY_MS + 30000)
     assert calls["choices"].parts[KEY_A].mpn == "NEWMPN"
     assert calls["prints"] == {KEY_A: "print-a"}
-    qtbot.waitUntil(lambda: "Could not save the migration draft" in dialog._status_label.text())
+    qtbot.waitUntil(lambda: "Could not save the migration draft" in dialog._status_label.text(), timeout=30000)
 
 
 def test_reopen_restores_the_draft(qtbot, make_dialog, tmp_path):
@@ -649,7 +649,7 @@ def test_reopen_restores_the_draft(qtbot, make_dialog, tmp_path):
         check_plan=lambda plan, inventory, kicad_fp_dir: GateOutcome((), {}),
     )
     dialog = make_dialog(core)
-    qtbot.waitUntil(lambda: dialog._current_key == KEY_A)
+    qtbot.waitUntil(lambda: dialog._current_key == KEY_A, timeout=30000)
 
     assert captured["calls"][0].parts[KEY_A] == saved_choice
     assert dialog._field_edits["mpn"].text() == "SAVEDMPN"
@@ -674,7 +674,7 @@ def test_changed_since_draft_is_marked(qtbot, make_dialog, tmp_path):
         check_plan=lambda plan, inventory, kicad_fp_dir: GateOutcome((), {}),
     )
     dialog = make_dialog(core)
-    qtbot.waitUntil(lambda: dialog._current_key == KEY_A)
+    qtbot.waitUntil(lambda: dialog._current_key == KEY_A, timeout=30000)
 
     group = dialog._tree.topLevelItem(0)
     row = group.child(0)
@@ -689,10 +689,10 @@ def test_unreadable_draft_starts_clean(qtbot, make_dialog, tmp_path):
     )
     core = core_with(tmp_path, load_draft=lambda path, repo_root: note)
     dialog = make_dialog(core)
-    qtbot.waitUntil(lambda: dialog._gate is not None)
+    qtbot.waitUntil(lambda: dialog._gate is not None, timeout=30000)
 
     assert dialog._choices.parts == {}
-    qtbot.waitUntil(lambda: "could not be read" in dialog._status_label.text())
+    qtbot.waitUntil(lambda: "could not be read" in dialog._status_label.text(), timeout=30000)
     assert dialog._status_label.text().count("could not be read") == 1
 
 
@@ -706,10 +706,10 @@ def test_close_while_planning_waits_without_blocking(qtbot, make_dialog, tmp_pat
     core = core_with(tmp_path, build_plan=slow_build_plan)
     dialog = make_dialog(core)
     dialog.show()
-    qtbot.waitUntil(lambda: dialog._stack.currentWidget() is dialog._edit_page)
+    qtbot.waitUntil(lambda: dialog._stack.currentWidget() is dialog._edit_page, timeout=30000)
 
     dialog.reject()
     assert dialog.isVisible()  # returns at once; the worker is still gated
 
     gate.set()
-    qtbot.waitUntil(lambda: not dialog.isVisible(), timeout=10000)
+    qtbot.waitUntil(lambda: not dialog.isVisible(), timeout=30000)

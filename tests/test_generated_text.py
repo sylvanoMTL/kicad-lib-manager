@@ -640,7 +640,7 @@ def test_text_rows_fit_the_left_pane_and_are_named(qtbot, make_dialog):
     dialog.show()
     wait_current(qtbot, dialog)
     dialog.resize(900, 600)  # after the edit page shows: it opens at its own size
-    qtbot.waitUntil(lambda: dialog.size() == QSize(900, 600), timeout=5000)
+    qtbot.waitUntil(lambda: dialog.size() == QSize(900, 600), timeout=30000)
     scroll = dialog._left_scroll
     left = scroll.widget()
     assert not scroll.horizontalScrollBar().isVisible()

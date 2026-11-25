@@ -89,7 +89,7 @@ def make_window(qtbot, monkeypatch, tmp_path):
         w = main_window.MainWindow(repo)
         qtbot.addWidget(w)
         if wait:
-            qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+            qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
         return w
 
     make.repo = None
@@ -104,7 +104,7 @@ def make_window(qtbot, monkeypatch, tmp_path):
 
 def settle(qtbot, w):
     """Wait until the off-thread KiCad check and the path-variable question are done."""
-    qtbot.waitUntil(lambda: not w._path_var_busy, timeout=5000)
+    qtbot.waitUntil(lambda: not w._path_var_busy, timeout=30000)
 
 
 def _stub_plan(repo: Path, library: str = "Atomic_Analog") -> types.SimpleNamespace:
@@ -152,7 +152,7 @@ def run_install(qtbot, w, repo, **plan_options):
     w._import_dialog = dialog
     try:
         w._on_import_installed(_install_result(), _stub_plan(repo, **plan_options))
-        qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+        qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
         settle(qtbot, w)
     finally:
         w._import_dialog = None

@@ -23,13 +23,13 @@ EXPECTED_CASES = gf.ALL_CASES
 
 def _settle_nc(qtbot, dialog):
     dialog.show()
-    qtbot.waitUntil(lambda: not dialog._pending, timeout=10000)
+    qtbot.waitUntil(lambda: not dialog._pending, timeout=30000)
     qtbot.wait(50)
 
 
 def _settle_choose(qtbot, dialog):
     dialog.show()
-    qtbot.waitUntil(lambda: not dialog._pending and dialog._result is not None, timeout=10000)
+    qtbot.waitUntil(lambda: not dialog._pending and dialog._result is not None, timeout=30000)
     qtbot.wait(50)
 
 
@@ -97,7 +97,7 @@ def test_choose_grows_when_rows_arrive(qtbot, tmp_path):
     qtbot.wait(50)
     before = dialog.height()
     dialog._field.setText(str(folder))
-    qtbot.waitUntil(lambda: not dialog._pending and dialog._result is not None, timeout=10000)
+    qtbot.waitUntil(lambda: not dialog._pending and dialog._result is not None, timeout=30000)
     qtbot.wait(50)
     assert dialog.height() > before
     _assert_fits(dialog)

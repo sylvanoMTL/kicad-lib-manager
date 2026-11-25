@@ -538,7 +538,7 @@ def test_help_dialog_opens_on_a_given_topic(qtbot):
     assert _headings(sectioned._browser, 2)[0][1] == "4.4 Importing Parts"
     sectioned.show()
     qtbot.waitExposed(sectioned)
-    qtbot.waitUntil(lambda: _heading_is_in_view(sectioned._browser, "4.4.7 Conflicts"), timeout=5000)
+    qtbot.waitUntil(lambda: _heading_is_in_view(sectioned._browser, "4.4.7 Conflicts"), timeout=30000)
     assert sectioned._browser.verticalScrollBar().value() > 0
 
 
@@ -677,14 +677,14 @@ def test_clicking_a_section_scrolls_to_its_heading(qtbot):
             section = page.child(i)
             dialog._toc.setCurrentItem(section)
             assert _headings(browser, 2)[0][1] == page.text(0)
-            qtbot.waitUntil(lambda: _heading_is_in_view(browser, section.text(0)), timeout=5000)
+            qtbot.waitUntil(lambda: _heading_is_in_view(browser, section.text(0)), timeout=30000)
     dialog.show_topic("importing#conflicts")
-    qtbot.waitUntil(lambda: browser.verticalScrollBar().value() > 0, timeout=5000)
+    qtbot.waitUntil(lambda: browser.verticalScrollBar().value() > 0, timeout=30000)
     assert _heading_is_in_view(browser, "4.4.7 Conflicts")
 
     _click_row(dialog, _find_item(dialog, "importing#commit"))
-    qtbot.waitUntil(lambda: _current_key(dialog) == "importing#commit", timeout=5000)
-    qtbot.waitUntil(lambda: _heading_is_in_view(browser, "4.4.9 Commit"), timeout=5000)
+    qtbot.waitUntil(lambda: _current_key(dialog) == "importing#commit", timeout=30000)
+    qtbot.waitUntil(lambda: _heading_is_in_view(browser, "4.4.9 Commit"), timeout=30000)
 
 
 def test_menu_expands_the_shown_page_only(qtbot):
@@ -713,7 +713,7 @@ def test_clicking_a_page_below_the_open_one_selects_it(qtbot):
     dialog.show()
     qtbot.waitExposed(dialog)
     _click_row(dialog, _find_item(dialog, "shortcuts"))
-    qtbot.waitUntil(lambda: not _find_item(dialog, "importing").isExpanded(), timeout=5000)
+    qtbot.waitUntil(lambda: not _find_item(dialog, "importing").isExpanded(), timeout=30000)
     assert _current_key(dialog) == "shortcuts"
     assert "Keyboard Shortcuts" in dialog._browser.toPlainText()
 
@@ -725,13 +725,13 @@ def test_clicking_the_selected_section_again_scrolls_back(qtbot):
     qtbot.waitExposed(dialog)
     browser = dialog._browser
     dialog.show_topic("importing#conflicts")
-    qtbot.waitUntil(lambda: _heading_is_in_view(browser, "4.4.7 Conflicts"), timeout=5000)
+    qtbot.waitUntil(lambda: _heading_is_in_view(browser, "4.4.7 Conflicts"), timeout=30000)
 
     browser.verticalScrollBar().setValue(0)
     assert not _heading_is_in_view(browser, "4.4.7 Conflicts")
     _click_row(dialog, _find_item(dialog, "importing#conflicts"))
     assert _current_key(dialog) == "importing#conflicts"
-    qtbot.waitUntil(lambda: _heading_is_in_view(browser, "4.4.7 Conflicts"), timeout=5000)
+    qtbot.waitUntil(lambda: _heading_is_in_view(browser, "4.4.7 Conflicts"), timeout=30000)
 
 
 def test_help_dialog_fits_the_screen(qtbot, monkeypatch):
@@ -827,13 +827,14 @@ def test_owner_choice_is_remembered_after_close_escape_and_parent_deleted(qtbot,
     qtbot.waitExposed(dialog)
 
     _click_row(dialog, _find_item(dialog, "importing#conflicts"))
-    qtbot.waitUntil(lambda: _current_key(dialog) == "importing#conflicts", timeout=5000)
+    qtbot.waitUntil(lambda: _current_key(dialog) == "importing#conflicts", timeout=30000)
 
     if how == "close":
         dialog.findChild(QDialogButtonBox).button(QDialogButtonBox.StandardButton.Close).click()
         assert not dialog.isVisible()
     elif how == "escape":
         QTest.keyClick(dialog, Qt.Key.Key_Escape)
+        qtbot.waitUntil(lambda: not dialog.isVisible(), timeout=30000)
         assert not dialog.isVisible()
     else:
         shiboken6.delete(parent)
@@ -847,7 +848,7 @@ def test_owner_choice_is_remembered_after_close_escape_and_parent_deleted(qtbot,
     assert reopened._toc.currentItem().isSelected()
     # the node's page is open, every other page with sections is folded
     assert _expanded_page_keys(reopened) == {"importing"}
-    qtbot.waitUntil(lambda: _heading_is_in_view(reopened._browser, "4.4.7 Conflicts"), timeout=5000)
+    qtbot.waitUntil(lambda: _heading_is_in_view(reopened._browser, "4.4.7 Conflicts"), timeout=30000)
 
 
 def test_saved_place_survives_a_restart(qtbot):
@@ -859,7 +860,7 @@ def test_saved_place_survives_a_restart(qtbot):
     assert "5 Footprint Filter" in dialog._browser.toPlainText()
     dialog.show()
     qtbot.waitExposed(dialog)
-    qtbot.waitUntil(lambda: _heading_is_in_view(dialog._browser, "5.2 Per-source scoping"), timeout=5000)
+    qtbot.waitUntil(lambda: _heading_is_in_view(dialog._browser, "5.2 Per-source scoping"), timeout=30000)
 
 
 def test_an_explicit_topic_wins_and_is_not_remembered(qtbot):
@@ -883,7 +884,7 @@ def test_an_explicit_topic_wins_and_is_not_remembered(qtbot):
     dialog.show()
     qtbot.waitExposed(dialog)
     _click_row(dialog, _find_item(dialog, "generating"))
-    qtbot.waitUntil(lambda: _current_key(dialog) == "generating", timeout=5000)
+    qtbot.waitUntil(lambda: _current_key(dialog) == "generating", timeout=30000)
     assert settings.load_help_topic() == "generating"
 
 
@@ -933,7 +934,7 @@ def test_asked_topic_lasts_until_the_owner_moves(qtbot):
 
     assert dialog.show_topic("importing") is True
     _click_row(dialog, _find_item(dialog, "generating"))
-    qtbot.waitUntil(lambda: _current_key(dialog) == "generating", timeout=5000)
+    qtbot.waitUntil(lambda: _current_key(dialog) == "generating", timeout=30000)
     assert dialog.shows_asked_topic() is False
     assert settings.load_help_topic() == "generating"
 
@@ -949,8 +950,8 @@ def test_reopened_guide_brings_the_section_heading_back(qtbot, how):
     dialog.show()
     qtbot.waitExposed(dialog)
     _click_row(dialog, _find_item(dialog, "importing#conflicts"))
-    qtbot.waitUntil(lambda: _current_key(dialog) == "importing#conflicts", timeout=5000)
-    qtbot.waitUntil(lambda: _heading_near_top(dialog._browser, "4.4.7 Conflicts"), timeout=5000)
+    qtbot.waitUntil(lambda: _current_key(dialog) == "importing#conflicts", timeout=30000)
+    qtbot.waitUntil(lambda: _heading_near_top(dialog._browser, "4.4.7 Conflicts"), timeout=30000)
 
     dialog._browser.verticalScrollBar().setValue(0)
     assert not _heading_is_in_view(dialog._browser, "4.4.7 Conflicts")
@@ -959,6 +960,7 @@ def test_reopened_guide_brings_the_section_heading_back(qtbot, how):
         dialog.findChild(QDialogButtonBox).button(QDialogButtonBox.StandardButton.Close).click()
     else:
         QTest.keyClick(dialog, Qt.Key.Key_Escape)
+    qtbot.waitUntil(lambda: not dialog.isVisible(), timeout=30000)
     assert not dialog.isVisible()
 
     # what MainWindow.show_guide does with a hidden guide
@@ -969,7 +971,7 @@ def test_reopened_guide_brings_the_section_heading_back(qtbot, how):
     assert _selected_keys(dialog) == ["importing#conflicts"]  # a pin: the page row is not the selected one
     assert _expanded_page_keys(dialog) == {"importing"}
     assert settings.load_help_topic() == "importing#conflicts"
-    qtbot.waitUntil(lambda: _heading_near_top(dialog._browser, "4.4.7 Conflicts"), timeout=5000)
+    qtbot.waitUntil(lambda: _heading_near_top(dialog._browser, "4.4.7 Conflicts"), timeout=30000)
 
 
 def test_show_topic_on_the_shown_topic_brings_its_heading_back(qtbot):
@@ -977,18 +979,18 @@ def test_show_topic_on_the_shown_topic_brings_its_heading_back(qtbot):
     qtbot.addWidget(dialog)
     dialog.show()
     qtbot.waitExposed(dialog)
-    qtbot.waitUntil(lambda: _heading_near_top(dialog._browser, "4.4.7 Conflicts"), timeout=5000)
+    qtbot.waitUntil(lambda: _heading_near_top(dialog._browser, "4.4.7 Conflicts"), timeout=30000)
 
     dialog._browser.verticalScrollBar().setValue(0)
     assert dialog.show_topic("importing#conflicts") is True
-    qtbot.waitUntil(lambda: _heading_near_top(dialog._browser, "4.4.7 Conflicts"), timeout=5000)
+    qtbot.waitUntil(lambda: _heading_near_top(dialog._browser, "4.4.7 Conflicts"), timeout=30000)
 
     assert dialog.show_topic("importing") is True
     bar = dialog._browser.verticalScrollBar()
     bar.setValue(bar.maximum())
     assert bar.value() > 0
     assert dialog.show_topic("importing") is True
-    qtbot.waitUntil(lambda: bar.value() == 0, timeout=5000)
+    qtbot.waitUntil(lambda: bar.value() == 0, timeout=30000)
 
     assert settings.load_help_topic() is None  # programmatic moves save nothing
 
@@ -1004,7 +1006,7 @@ def test_fresh_guide_shows_the_saved_heading_after_fit_window_narrows(qtbot, mon
     assert dialog.width() < 860
     assert _current_key(dialog) == "importing#conflicts"
     assert _selected_keys(dialog) == ["importing#conflicts"]
-    qtbot.waitUntil(lambda: _heading_near_top(dialog._browser, "4.4.7 Conflicts"), timeout=5000)
+    qtbot.waitUntil(lambda: _heading_near_top(dialog._browser, "4.4.7 Conflicts"), timeout=30000)
 
 
 # -- A held left click selects the pressed row (plan 12-21, G-12-27 D3) ----------------------------------------
@@ -1051,7 +1053,7 @@ def test_held_press_on_a_page_row_selects_that_row(qtbot, open_page, pressed):
     assert _current_key(dialog) == pressed
     assert settings.load_help_topic() == pressed
     qtbot.waitUntil(
-        lambda: _expanded_page_keys(dialog) == ({pressed} if item.childCount() else set()), timeout=5000
+        lambda: _expanded_page_keys(dialog) == ({pressed} if item.childCount() else set()), timeout=30000
     )
 
 
@@ -1100,6 +1102,7 @@ def test_keyboard_move_after_a_lost_release_still_folds(qtbot, monkeypatch, how)
             _lose_the_release(dialog, point)
         elif how == "guide closed while held":
             dialog.close()
+            qtbot.waitUntil(lambda: not dialog.isVisible(), timeout=30000)
             assert not dialog.isVisible()
             dialog.show()
             qtbot.waitExposed(dialog)

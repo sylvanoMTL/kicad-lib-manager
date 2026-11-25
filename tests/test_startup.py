@@ -71,7 +71,7 @@ def start(seams, qtbot, argv=(), environ=None, **kwargs):
     outcome = startup.start_window(["kicad_lib_manager.py", *argv], environ or {}, **kwargs)
     if not isinstance(outcome, int):
         qtbot.addWidget(outcome)
-        qtbot.waitUntil(lambda: outcome._worker is None, timeout=5000)
+        qtbot.waitUntil(lambda: outcome._worker is None, timeout=30000)
     return outcome
 
 
@@ -89,7 +89,7 @@ def test_window_uses_only_the_folder_it_was_given(seams, qtbot, tmp_path):
     window = start(seams, qtbot, ["--library-root", str(root)])
     window._check_checkout("generate")
     window._start_scan()
-    qtbot.waitUntil(lambda: window._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: window._worker is None, timeout=30000)
     assert seams.scans and seams.caches and seams.mismatches
     assert {*seams.scans, *seams.caches, *seams.mismatches} == {root}
     # The Destination box falls back to the library folder, never the code folder

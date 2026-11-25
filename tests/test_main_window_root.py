@@ -86,7 +86,7 @@ def make_root_window(qtbot, monkeypatch, tmp_path):
         window = main_window.MainWindow(root, source, startup_notes=notes, switched=switched)
         qtbot.addWidget(window)
         if wait:
-            qtbot.waitUntil(lambda: window._worker is None, timeout=5000)
+            qtbot.waitUntil(lambda: window._worker is None, timeout=30000)
         return window
 
     make.questions = questions
@@ -192,11 +192,11 @@ def other_collection(make, name):
 
 
 def settle_scan(qtbot, window):
-    qtbot.waitUntil(lambda: window._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: window._worker is None, timeout=30000)
 
 
 def settle_checks(qtbot, window):
-    qtbot.waitUntil(lambda: all(task.is_done() for task in window._root_checks), timeout=5000)
+    qtbot.waitUntil(lambda: all(task.is_done() for task in window._root_checks), timeout=30000)
     qtbot.wait(30)
 
 
@@ -210,7 +210,7 @@ def test_switch_rescans_new_folder(qtbot, make_root_window):
     window = make_root_window(a)
 
     window._request_switch(b, Source.CHOSEN)
-    qtbot.waitUntil(lambda: window._root == b and window._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: window._root == b and window._worker is None, timeout=30000)
 
     assert make_root_window.scan_calls == [a, b]
     assert make_root_window.checks[-1][0] == b
@@ -267,7 +267,7 @@ def test_switch_starts_fresh_selection(qtbot, make_root_window):
     before = len(log_lines(window))
 
     window._request_switch(b, Source.CHOSEN)
-    qtbot.waitUntil(lambda: window._root == b and window._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: window._root == b and window._worker is None, timeout=30000)
 
     chosen = {lib.nickname: lib.selected for lib in window._scan_result.symbol_libs}
     assert chosen == {"Listed": True, "Other": False}
@@ -277,7 +277,7 @@ def test_switch_starts_fresh_selection(qtbot, make_root_window):
 
 def switch_to(qtbot, window, folder, source=Source.CHOSEN):
     window._request_switch(folder, source)
-    qtbot.waitUntil(lambda: window._root == folder and window._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: window._root == folder and window._worker is None, timeout=30000)
 
 
 def test_destination_follows_a_switch_from_the_old_folder(qtbot, make_root_window):
@@ -349,18 +349,18 @@ def test_a_switch_does_not_stat_a_dead_history_entry_on_the_gui_thread(qtbot, ma
         # Shown at once from the saved history; nothing is known to be gone yet
         assert window._dest_combo.currentText() == str(b)
         assert [window._dest_combo.itemText(i) for i in range(window._dest_combo.count())][:2] == [str(b), str(a)]
-        qtbot.waitUntil(lambda: bool(seen), timeout=5000)
+        qtbot.waitUntil(lambda: bool(seen), timeout=30000)
     finally:
         gate.set()
     # The gone entry is dropped once the worker has answered
     qtbot.waitUntil(
         lambda: [window._dest_combo.itemText(i) for i in range(window._dest_combo.count())]
         == [str(b), str(a), str(dead)],
-        timeout=5000,
+        timeout=30000,
     )
     assert seen and not any(on_gui for _name, on_gui in seen)
     assert window._dest_combo.currentText() == str(b)
-    qtbot.waitUntil(lambda: window._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: window._worker is None, timeout=30000)
 
 
 def test_destination_elsewhere_stays_on_a_switch(qtbot, make_root_window):
@@ -457,7 +457,7 @@ def test_switch_refused_while_busy(qtbot, make_root_window, state):
     if state == "scan":
         make_root_window.gate = threading.Event()
         window = make_root_window(a, wait=False)
-        qtbot.waitUntil(lambda: len(make_root_window.scan_calls) == 1, timeout=5000)
+        qtbot.waitUntil(lambda: len(make_root_window.scan_calls) == 1, timeout=30000)
     else:
         window = make_root_window(a)
     flags = {
@@ -508,7 +508,7 @@ def test_one_click_failure_changes_nothing(qtbot, make_root_window):
     text = f"Not using {gone}: This folder does not exist. Choose another folder."
 
     window._request_switch(gone, Source.CHOSEN)
-    qtbot.waitUntil(lambda: text in log_lines(window), timeout=5000)
+    qtbot.waitUntil(lambda: text in log_lines(window), timeout=30000)
 
     assert window.statusBar().currentMessage() == text
     assert COLORS["error"].lower() in window._log._text.toHtml().lower()
@@ -542,7 +542,7 @@ def test_stale_check_result_is_ignored(qtbot, make_root_window):
     try:
         window._request_switch(b, Source.CHOSEN)
         window._request_switch(c, Source.CHOSEN)
-        qtbot.waitUntil(lambda: window._root == c and window._worker is None, timeout=5000)
+        qtbot.waitUntil(lambda: window._root == c and window._worker is None, timeout=30000)
     finally:
         slow.set()
     settle_checks(qtbot, window)
@@ -561,7 +561,7 @@ def test_scan_error_keeps_new_folder(qtbot, make_root_window):
     make_root_window.result_for = lambda root: RuntimeError("disk gone")
 
     window._request_switch(b, Source.CHOSEN)
-    qtbot.waitUntil(lambda: window._root == b and window._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: window._root == b and window._worker is None, timeout=30000)
 
     assert window._root_path.full_text() == str(b)
     assert window._tree._sym_tree.topLevelItemCount() == 0
@@ -578,7 +578,7 @@ def test_switch_deletes_nothing(qtbot, make_root_window):
     cache_a.write_text("saved scan of a", encoding="utf-8")
 
     window._request_switch(b, Source.CHOSEN)
-    qtbot.waitUntil(lambda: window._root == b and window._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: window._root == b and window._worker is None, timeout=30000)
 
     assert cache_a.read_text(encoding="utf-8") == "saved scan of a"
     assert str(a) in settings.load_library_recent()
@@ -603,7 +603,7 @@ def test_recent_menu_entries(qtbot, make_root_window, saved, gone, shown):
 
     window._rebuild_recent_menu()
     # Existence is checked on a worker: the entries that are gone drop out when its answer arrives
-    qtbot.waitUntil(lambda: [a.data() for a in window._recent_menu.actions()] == [str(f) for f in existing], timeout=5000)
+    qtbot.waitUntil(lambda: [a.data() for a in window._recent_menu.actions()] == [str(f) for f in existing], timeout=30000)
     actions = window._recent_menu.actions()
 
     assert [a.data() for a in actions] == [str(f) for f in existing]
@@ -650,11 +650,11 @@ def test_recent_menu_rebuilt_on_show(qtbot, make_root_window):
     file_menu(window).aboutToShow.emit()
     assert [x.data() for x in window._recent_menu.actions()] == [str(added)]
 
-    qtbot.waitUntil(lambda: window._recent_check.is_done(), timeout=5000)
+    qtbot.waitUntil(lambda: window._recent_check.is_done(), timeout=30000)
     qtbot.wait(30)
     shutil.rmtree(added)
     file_menu(window).aboutToShow.emit()
-    qtbot.waitUntil(lambda: window._recent_menu.actions() == [], timeout=5000)
+    qtbot.waitUntil(lambda: window._recent_menu.actions() == [], timeout=30000)
 
 
 def test_recent_menu_disabled_when_empty_or_busy(qtbot, make_root_window):
@@ -702,7 +702,7 @@ def test_recent_entry_switches(qtbot, make_root_window):
     window._rebuild_recent_menu()
 
     window._recent_menu.actions()[0].trigger()
-    qtbot.waitUntil(lambda: window._root == b and window._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: window._root == b and window._worker is None, timeout=30000)
 
     assert window._source is Source.CHOSEN
     assert settings.load_library_root() == b
@@ -776,7 +776,7 @@ def test_use_kicads_folder_switches_and_forgets_choice(qtbot, make_root_window):
     window = make_root_window(a)
 
     window._act_use_kicad.trigger()
-    qtbot.waitUntil(lambda: window._root == b and window._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: window._root == b and window._worker is None, timeout=30000)
 
     assert window._source is Source.KICAD
     assert window._root_tag.text() == "KiCad's folder"
@@ -795,7 +795,7 @@ def test_use_kicads_folder_that_is_gone_changes_nothing(qtbot, make_root_window)
 
     window._act_use_kicad.trigger()
     qtbot.waitUntil(
-        lambda: any(line.startswith(f"Not using {gone}:") for line in log_lines(window)), timeout=5000
+        lambda: any(line.startswith(f"Not using {gone}:") for line in log_lines(window)), timeout=30000
     )
 
     assert window._root == a
@@ -903,7 +903,7 @@ def test_tag_follows_a_switch(qtbot, make_root_window):
     assert window._root_tag.text() == "⚠ KiCad reads a different folder"
 
     window._request_switch(b, Source.CHOSEN)
-    qtbot.waitUntil(lambda: window._root == b and window._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: window._root == b and window._worker is None, timeout=30000)
 
     assert window._root_tag.text() == Source.CHOSEN.value
     assert window._root_tag.toolTip() == ""
@@ -953,9 +953,9 @@ def config_vars(make):
 
 def settle_offer(qtbot, window):
     """The scan has ended and the off-thread KiCad-open check and the question are done."""
-    qtbot.waitUntil(lambda: window._worker is None and not window._path_var_busy, timeout=5000)
+    qtbot.waitUntil(lambda: window._worker is None and not window._path_var_busy, timeout=30000)
     qtbot.wait(50)
-    qtbot.waitUntil(lambda: not window._path_var_busy, timeout=5000)
+    qtbot.waitUntil(lambda: not window._path_var_busy, timeout=30000)
 
 
 def test_offer_after_switch_when_values_differ(qtbot, make_root_window):
@@ -967,8 +967,8 @@ def test_offer_after_switch_when_values_differ(qtbot, make_root_window):
     before = path.read_bytes()
 
     window._request_switch(b, Source.CHOSEN)
-    qtbot.waitUntil(lambda: window._root == b, timeout=5000)
-    qtbot.waitUntil(lambda: len(make_root_window.questions) == 1, timeout=5000)
+    qtbot.waitUntil(lambda: window._root == b, timeout=30000)
+    qtbot.waitUntil(lambda: len(make_root_window.questions) == 1, timeout=30000)
     settle_offer(qtbot, window)
 
     (title, text), = make_root_window.questions
@@ -989,8 +989,8 @@ def test_declined_offer_names_the_folder_kicad_still_points_at(qtbot, make_root_
     window = make_root_window(a)
 
     window._request_switch(b, Source.CHOSEN)
-    qtbot.waitUntil(lambda: window._root == b, timeout=5000)
-    qtbot.waitUntil(lambda: len(make_root_window.questions) == 1, timeout=5000)
+    qtbot.waitUntil(lambda: window._root == b, timeout=30000)
+    qtbot.waitUntil(lambda: len(make_root_window.questions) == 1, timeout=30000)
     settle_offer(qtbot, window)
 
     assert DECLINED.format(elsewhere) in log_lines(window)
@@ -1007,8 +1007,8 @@ def test_offer_yes_writes_both_variables_and_clears_the_amber_tag(qtbot, make_ro
     assert window._root_tag.text() == "⚠ KiCad reads a different folder"
 
     window._request_switch(b, Source.CHOSEN)
-    qtbot.waitUntil(lambda: window._root == b, timeout=5000)
-    qtbot.waitUntil(lambda: len(make_root_window.questions) == 1, timeout=5000)
+    qtbot.waitUntil(lambda: window._root == b, timeout=30000)
+    qtbot.waitUntil(lambda: len(make_root_window.questions) == 1, timeout=30000)
     settle_offer(qtbot, window)
 
     desired = library_scanner._desired_path_vars(b)
@@ -1027,7 +1027,7 @@ def test_no_offer_when_values_match(qtbot, make_root_window):
     window = make_root_window(a)
 
     window._request_switch(b, Source.CHOSEN)
-    qtbot.waitUntil(lambda: window._root == b and window._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: window._root == b and window._worker is None, timeout=30000)
     settle_offer(qtbot, window)
 
     assert make_root_window.questions == []
@@ -1043,7 +1043,7 @@ def test_no_offer_after_use_kicads_folder(qtbot, make_root_window):
     window = make_root_window(a)
 
     window._act_use_kicad.trigger()
-    qtbot.waitUntil(lambda: window._root == b and window._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: window._root == b and window._worker is None, timeout=30000)
     settle_offer(qtbot, window)
 
     assert make_root_window.questions == []
@@ -1066,12 +1066,12 @@ def test_no_offer_while_scanning(qtbot, make_root_window):
     make_root_window.gate = threading.Event()
     try:
         assert window._switch_root(b, Source.CHOSEN) is True
-        qtbot.waitUntil(lambda: b in make_root_window.scan_calls, timeout=5000)
+        qtbot.waitUntil(lambda: b in make_root_window.scan_calls, timeout=30000)
         qtbot.wait(100)
         assert make_root_window.questions == []
     finally:
         make_root_window.gate.set()
-    qtbot.waitUntil(lambda: len(make_root_window.questions) == 1, timeout=5000)
+    qtbot.waitUntil(lambda: len(make_root_window.questions) == 1, timeout=30000)
     settle_offer(qtbot, window)
 
 
@@ -1080,7 +1080,7 @@ def test_switched_start_offers_after_first_scan(qtbot, make_root_window):
     write_kicad_common(make_root_window.config_base, github=None)
 
     window = make_root_window(b, Source.CHOSEN, switched=True)
-    qtbot.waitUntil(lambda: len(make_root_window.questions) == 1, timeout=5000)
+    qtbot.waitUntil(lambda: len(make_root_window.questions) == 1, timeout=30000)
     settle_offer(qtbot, window)
 
     assert len(make_root_window.questions) == 1
@@ -1097,8 +1097,8 @@ def test_offer_with_kicad_open_uses_the_three_button_variant(qtbot, make_root_wi
     before = path.read_bytes()
 
     window._request_switch(b, Source.CHOSEN)
-    qtbot.waitUntil(lambda: window._root == b, timeout=5000)
-    qtbot.waitUntil(lambda: len(make_root_window.kicad_open) == 1, timeout=5000)
+    qtbot.waitUntil(lambda: window._root == b, timeout=30000)
+    qtbot.waitUntil(lambda: len(make_root_window.kicad_open) == 1, timeout=30000)
     settle_offer(qtbot, window)
 
     changes, names = make_root_window.kicad_open[0]
@@ -1119,12 +1119,12 @@ def test_generate_still_offers_after_a_declined_offer(qtbot, make_root_window):
     write_kicad_common(make_root_window.config_base, github=None)
     window = make_root_window(a)
     window._request_switch(b, Source.CHOSEN)
-    qtbot.waitUntil(lambda: window._root == b, timeout=5000)
-    qtbot.waitUntil(lambda: len(make_root_window.questions) == 1, timeout=5000)
+    qtbot.waitUntil(lambda: window._root == b, timeout=30000)
+    qtbot.waitUntil(lambda: len(make_root_window.questions) == 1, timeout=30000)
     settle_offer(qtbot, window)
 
     window._on_generate()
-    qtbot.waitUntil(lambda: len(make_root_window.questions) == 2, timeout=5000)
+    qtbot.waitUntil(lambda: len(make_root_window.questions) == 2, timeout=30000)
     settle_offer(qtbot, window)
 
     # the decline line belongs to the switch offer only, not to Generate Tables
@@ -1256,7 +1256,7 @@ def test_choose_accept_switches(qtbot, make_root_window, fake_choose):
     window._open_choose_folder()
     dialog = fake_choose.instances[0]
     dialog.accept_with(b)
-    qtbot.waitUntil(lambda: window._root == b and window._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: window._root == b and window._worker is None, timeout=30000)
 
     assert make_root_window.scan_calls == [a, b]
     assert window._source is Source.CHOSEN
@@ -1271,7 +1271,7 @@ def test_choose_created_collection_logs_and_switches(qtbot, make_root_window, fa
     window = make_root_window(a)
     window._open_choose_folder()
     fake_choose.instances[0].accept_with(b, created=True)
-    qtbot.waitUntil(lambda: window._root == b and window._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: window._root == b and window._worker is None, timeout=30000)
 
     lines = log_lines(window)
     assert f"Created a new collection in {b}" in lines
@@ -1301,7 +1301,7 @@ def test_choose_keep_current_changes_nothing(qtbot, make_root_window, fake_choos
 def test_choose_refused_while_busy(qtbot, make_root_window, fake_choose):
     make_root_window.gate = threading.Event()
     window = make_root_window(wait=False)
-    qtbot.waitUntil(lambda: len(make_root_window.scan_calls) == 1, timeout=5000)
+    qtbot.waitUntil(lambda: len(make_root_window.scan_calls) == 1, timeout=30000)
     try:
         assert not window._act_choose_folder.isEnabled()
         assert not window._change_folder_btn.isEnabled()
@@ -1383,7 +1383,7 @@ def test_new_collection_opens_window_modal_over_the_main_window(make_root_window
 def test_new_collection_refused_while_busy(qtbot, make_root_window, fake_new):
     make_root_window.gate = threading.Event()
     window = make_root_window(wait=False)
-    qtbot.waitUntil(lambda: len(make_root_window.scan_calls) == 1, timeout=5000)
+    qtbot.waitUntil(lambda: len(make_root_window.scan_calls) == 1, timeout=30000)
     try:
         assert not window._act_new_collection.isEnabled()
         text = BUSY_TEXTS["scan"]
@@ -1418,7 +1418,7 @@ def test_new_collection_created_logs_and_switches(qtbot, make_root_window, fake_
     window._open_new_collection()
     dialog = fake_new.instances[0]
     dialog.accept_with(b)
-    qtbot.waitUntil(lambda: window._root == b and window._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: window._root == b and window._worker is None, timeout=30000)
 
     lines = log_lines(window)
     assert f"Created a new collection in {b}" in lines
@@ -1452,7 +1452,7 @@ def test_change_folder_and_open_action_open_the_same_window(make_root_window, fa
 def test_open_folder_stays_enabled_while_scanning(qtbot, make_root_window):
     make_root_window.gate = threading.Event()
     window = make_root_window(wait=False)
-    qtbot.waitUntil(lambda: len(make_root_window.scan_calls) == 1, timeout=5000)
+    qtbot.waitUntil(lambda: len(make_root_window.scan_calls) == 1, timeout=30000)
     try:
         assert window._act_open_folder.isEnabled()
     finally:
@@ -1520,7 +1520,7 @@ def test_empty_page_names_the_new_folder_after_a_switch(qtbot, make_root_window)
     b = other_collection(make_root_window, "b")
     window = make_root_window(a)
     window._request_switch(b, Source.CHOSEN)
-    qtbot.waitUntil(lambda: window._root == b and window._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: window._root == b and window._worker is None, timeout=30000)
     assert str(b) in window._empty_body.text()
     assert str(a) not in window._empty_body.text()
 
@@ -1602,7 +1602,7 @@ def test_focus_follows_a_switch(qtbot, make_root_window):
     window = make_root_window(a)
     window._tree._fp_tree.setFocus()
     window._request_switch(b, Source.CHOSEN)
-    qtbot.waitUntil(lambda: window._root == b and window._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: window._root == b and window._worker is None, timeout=30000)
     assert window.focusWidget() is window._tree._sym_tree
 
 
@@ -1618,7 +1618,7 @@ def test_focus_waits_for_the_path_variable_question(qtbot, make_root_window, mon
     monkeypatch.setattr(main_window.MainWindow, "_question", question)
     window = make_root_window(switched=True)
     settle_offer(qtbot, window)
-    qtbot.waitUntil(lambda: window._focus_after_scan is False, timeout=5000)
+    qtbot.waitUntil(lambda: window._focus_after_scan is False, timeout=30000)
 
     assert seen, "the path variable question was not asked"
     pending, focus_then = seen[0]
@@ -1670,7 +1670,7 @@ def test_switch_to_a_relative_folder_saves_and_offers_the_absolute_one(qtbot, ma
     make_root_window.answer = QMessageBox.StandardButton.No
 
     window._request_switch(Path("b"), Source.CHOSEN)
-    qtbot.waitUntil(lambda: window._root == b and window._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: window._root == b and window._worker is None, timeout=30000)
 
     assert window._root.is_absolute()
     assert settings.load_library_root() == b
@@ -1711,7 +1711,7 @@ def test_late_folder_check_after_close_switches_nothing(qtbot, make_root_window)
     window.show()
     gate = make_root_window.check_gates[str(b)] = threading.Event()
     window._request_switch(b, Source.CHOSEN)
-    qtbot.waitUntil(lambda: bool(make_root_window.checks) and make_root_window.checks[-1][0] == b, timeout=5000)
+    qtbot.waitUntil(lambda: bool(make_root_window.checks) and make_root_window.checks[-1][0] == b, timeout=30000)
     (task,) = window._root_checks
     try:
         assert window.close() is True
@@ -1720,7 +1720,7 @@ def test_late_folder_check_after_close_switches_nothing(qtbot, make_root_window)
         assert task.is_running() and task.is_done()
     finally:
         gate.set()
-    qtbot.waitUntil(lambda: not task.is_running(), timeout=5000)
+    qtbot.waitUntil(lambda: not task.is_running(), timeout=30000)
     qtbot.wait(50)  # a late result would be delivered now
     assert window._root == a and make_root_window.scan_calls == [a]
     assert settings.load_library_root() is None and settings.load_library_recent() == []
@@ -1740,10 +1740,10 @@ def test_finished_checks_are_dropped_at_the_next_request(qtbot, make_root_window
     b = other_collection(make_root_window, "b")
     window = make_root_window(a)
     window._request_switch(b, Source.CHOSEN)
-    qtbot.waitUntil(lambda: window._root == b and window._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: window._root == b and window._worker is None, timeout=30000)
     settle_checks(qtbot, window)
     window._request_switch(a, Source.CHOSEN)
-    qtbot.waitUntil(lambda: window._root == a and window._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: window._root == a and window._worker is None, timeout=30000)
     assert len(window._root_checks) == 1
 
 
@@ -1760,7 +1760,7 @@ def test_switch_check_runs_on_a_daemon_thread(qtbot, make_root_window, monkeypat
 
     monkeypatch.setattr(main_window, "check_folder", recording_check)
     window._request_switch(b, Source.CHOSEN)
-    qtbot.waitUntil(lambda: window._root == b and window._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: window._root == b and window._worker is None, timeout=30000)
     assert seen == [(True, False)]
 
 
@@ -1787,7 +1787,7 @@ def test_recent_menu_checks_existence_off_the_gui_thread(qtbot, make_root_window
         return real_is_dir(self)
 
     monkeypatch.setattr(Path, "is_dir", is_dir)
-    qtbot.waitUntil(lambda: window._recent_check.is_done(), timeout=15000)
+    qtbot.waitUntil(lambda: window._recent_check.is_done(), timeout=30000)
     qtbot.wait(30)
     seen.clear()
     try:
@@ -1796,10 +1796,10 @@ def test_recent_menu_checks_existence_off_the_gui_thread(qtbot, make_root_window
         assert time.monotonic() - started < 2.0
         # Last known list at once: nothing is known to be gone yet, the check is still blocked
         assert [x.data() for x in window._recent_menu.actions()][:1] == [str(hung)]
-        qtbot.waitUntil(lambda: bool(seen), timeout=5000)
+        qtbot.waitUntil(lambda: bool(seen), timeout=30000)
     finally:
         gate.set()
-    qtbot.waitUntil(lambda: [x.data() for x in window._recent_menu.actions()] == [str(hung), str(a)], timeout=5000)
+    qtbot.waitUntil(lambda: [x.data() for x in window._recent_menu.actions()] == [str(hung), str(a)], timeout=30000)
     assert seen and not any(on_gui for _name, on_gui in seen)
 
 

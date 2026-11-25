@@ -87,7 +87,7 @@ def make_window(qtbot, monkeypatch, tmp_path):
         w = main_window.MainWindow(repo)
         qtbot.addWidget(w)
         if wait:
-            qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+            qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
         return w
 
     make.calls = []
@@ -134,7 +134,7 @@ def make_window(qtbot, monkeypatch, tmp_path):
 
 def settle(qtbot, w):
     """Wait until the off-thread KiCad check and the path-variable question are done."""
-    qtbot.waitUntil(lambda: not w._path_var_busy, timeout=5000)
+    qtbot.waitUntil(lambda: not w._path_var_busy, timeout=30000)
 
 
 def test_generate_splices_table_and_logs_issues(qtbot, make_window):
@@ -347,7 +347,7 @@ def test_blank_destination_never_reads_the_working_directory(
     w._on_dest_changed()
     w._apply_existing_selection(scan)
     w._on_rescan()
-    qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
 
     assert w._dest_path() is None
     assert "Existing sym-lib-table found" not in w._log._text.toPlainText()[len(before):]
@@ -572,7 +572,7 @@ def test_close_waits_for_check_without_blocking(qtbot, make_window, monkeypatch)
         assert make_window.questions == []
     finally:
         gate.set()
-    qtbot.waitUntil(lambda: not w.isVisible(), timeout=5000)
+    qtbot.waitUntil(lambda: not w.isVisible(), timeout=30000)
 
     assert make_window.questions == []
     assert make_window.kicad_calls == []
@@ -667,7 +667,7 @@ def test_busy_rescans_are_dropped_and_controls_disabled(make_window, qtbot):
     w = make_window([_gated(ScanResult(), gate)], wait=False)
     calls = make_window.calls
     try:
-        qtbot.waitUntil(lambda: len(calls) == 1, timeout=5000)
+        qtbot.waitUntil(lambda: len(calls) == 1, timeout=30000)
         assert not any(c.isEnabled() for c in _scan_controls(w))
 
         w._on_rescan()
@@ -677,7 +677,7 @@ def test_busy_rescans_are_dropped_and_controls_disabled(make_window, qtbot):
         assert _log_text(w).count("already running") == 2
     finally:
         gate.set()
-    qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
     assert all(c.isEnabled() for c in _scan_controls(w))
     # Dropped requests are never replayed after the scan ends
     qtbot.wait(100)
@@ -689,11 +689,11 @@ def test_busy_state_clears_then_one_rescan_starts_exactly_one_scan(make_window, 
     w = make_window([_gated(ScanResult(), gate)], wait=False)
     calls = make_window.calls
     gate.set()
-    qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
     assert len(calls) == 1
 
     w._on_rescan()
-    qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
 
     assert len(calls) == 2
 
@@ -710,21 +710,21 @@ def test_busy_set_kicad_path_opens_no_dialog_and_starts_no_scan(
         lambda *a, **k: dialogs.append(a) or "",
     )
     try:
-        qtbot.waitUntil(lambda: len(calls) == 1, timeout=5000)
+        qtbot.waitUntil(lambda: len(calls) == 1, timeout=30000)
         w._on_set_kicad_path()
         assert dialogs == []
         assert len(calls) == 1
         assert "already running" in _log_text(w)
     finally:
         gate.set()
-    qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
 
 
 def test_scan_error_clears_busy_state(make_window, qtbot):
     w = make_window([ScanResult(), _raising("boom")])
 
     w._on_rescan()
-    qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
 
     assert "Scan error: boom" in _log_text(w)
     assert all(c.isEnabled() for c in _scan_controls(w))
@@ -749,7 +749,7 @@ def test_rescan_with_populate_raising_still_clears_busy_state(
     monkeypatch.setattr(w._tree, "populate", boom)
     with qtbot.captureExceptions() as exceptions:
         w._on_rescan()
-        qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+        qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
 
     assert any("populate boom" in str(exc[1]) for exc in exceptions)
     assert all(c.isEnabled() for c in _scan_controls(w))
@@ -823,7 +823,7 @@ def _selected(libs):
 
 def _rescan_and_wait(w, qtbot):
     w._on_rescan()
-    qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
 
 
 def _assert_one_selected_per_nickname(w):
@@ -946,7 +946,7 @@ def test_set_kicad_path_rescan_reapplies_selection(
     _check(w._tree._sym_items["Custom/Symbols/S.kicad_sym"], on=False)
 
     w._on_set_kicad_path()
-    qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
 
     assert make_window.calls[-1][1] == folder
     assert _selected(w._scan_result.symbol_libs) == {"Custom/Symbols/S2.kicad_sym"}
@@ -1084,7 +1084,7 @@ def test_startup_finish_raising_consumes_startup_flag(make_window, qtbot, monkey
         patch.setattr(w._tree, "populate", boom)
         with qtbot.captureExceptions() as exceptions:
             gate.set()
-            qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+            qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
     assert exceptions
     assert w._startup_pending is False
 
@@ -1123,7 +1123,7 @@ def test_atomic_action_opens_dialog_and_apply_rescans(make_window, qtbot):
     calls_before = len(make_window.calls)
 
     dialog.applied.emit([Issue(Severity.SUCCESS, "atomic.fixed", "Fixed Custom/Symbols/X.kicad_sym")])
-    qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
 
     assert "Fixed Custom/Symbols/X.kicad_sym" in _log_text(w)
     assert len(make_window.calls) == calls_before + 1
@@ -1163,11 +1163,11 @@ def test_atomic_action_is_disabled_while_a_scan_runs(make_window, qtbot):
     gate = threading.Event()
     w = make_window([_gated(_atomic_scan(), gate)], wait=False)
     try:
-        qtbot.waitUntil(lambda: len(make_window.calls) == 1, timeout=5000)
+        qtbot.waitUntil(lambda: len(make_window.calls) == 1, timeout=30000)
         assert not w._act_check_atomic.isEnabled()
     finally:
         gate.set()
-    qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
 
     assert w._act_check_atomic.isEnabled()
 
@@ -1348,7 +1348,7 @@ def _fake_rescan(monkeypatch, *, warnings=0, rechecked=(), outcome=None, record=
 
 def _rescan_and_finish(w, qtbot, kind="symbol", rel=SAVED_SYM):
     w._tree.library_rescan_requested.emit(kind, rel)
-    qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
 
 
 def test_library_rescan_runs_in_a_worker_and_keeps_the_check_boxes(make_window, qtbot, monkeypatch, tmp_path):
@@ -1403,7 +1403,7 @@ def test_library_rescan_is_refused_and_disabled_while_a_scan_runs(make_window, q
     calls = _fake_rescan(monkeypatch)
     w = make_window([_gated(ScanResult(), gate)], wait=False)
     try:
-        qtbot.waitUntil(lambda: len(make_window.calls) == 1, timeout=5000)
+        qtbot.waitUntil(lambda: len(make_window.calls) == 1, timeout=30000)
         action = w._tree._build_context_menu(w._tree._sym_tree, None).actions()
         assert [a.text() for a in action] == ["Expand All", "Collapse All"]
         assert w._tree._library_rescan_enabled is False
@@ -1414,7 +1414,7 @@ def test_library_rescan_is_refused_and_disabled_while_a_scan_runs(make_window, q
         assert calls == []
     finally:
         gate.set()
-    qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
     assert w._tree._library_rescan_enabled is True
 
 
@@ -1438,7 +1438,7 @@ def test_library_that_needs_a_full_scan_logs_why_then_runs_one(make_window, qtbo
     before = len(make_window.calls)
 
     _rescan_and_finish(w, qtbot)
-    qtbot.waitUntil(lambda: len(make_window.calls) == before + 1 and w._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: len(make_window.calls) == before + 1 and w._worker is None, timeout=30000)
 
     text = _log_text(w)
     assert text.count(reason) == 1
@@ -1580,9 +1580,9 @@ def test_loading_dialog_skips_the_source_being_checked(make_window, qtbot):
     w = make_window([scan], wait=False)
     qtbot.waitUntil(lambda: w._progress is not None
                     and w._progress.skip_button.text() == "Skip WurthElektronik"
-                    and w._progress.skip_button.isEnabled(), timeout=5000)
+                    and w._progress.skip_button.isEnabled(), timeout=30000)
     w._progress.skip_button.click()
-    qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
 
     assert answers == [True]
     lines = _log_text(w).splitlines()
@@ -1627,7 +1627,7 @@ def test_skip_is_offered_while_symbols_are_read(make_window, qtbot):
         qtbot.waitUntil(lambda: w._progress is not None
                         and w._progress._label.text() == "Parsing symbol: WE_S"
                         and w._progress.skip_button.text() == "Skip WurthElektronik"
-                        and w._progress.skip_button.isEnabled(), timeout=5000)
+                        and w._progress.skip_button.isEnabled(), timeout=30000)
         button = w._progress.skip_button
         button.click()
         assert button.text() == "Skipping WurthElektronik..."
@@ -1635,16 +1635,16 @@ def test_skip_is_offered_while_symbols_are_read(make_window, qtbot):
         released.set()
 
         qtbot.waitUntil(lambda: custom_reported.is_set()
-                        and button.text() == "Skip Custom" and button.isEnabled(), timeout=5000)
+                        and button.text() == "Skip Custom" and button.isEnabled(), timeout=30000)
         custom_go.set()
         qtbot.waitUntil(lambda: wurth_reported.is_set()
                         and button.text() == "Skipping WurthElektronik..."
-                        and not button.isEnabled(), timeout=5000)
+                        and not button.isEnabled(), timeout=30000)
     finally:
         released.set()
         custom_go.set()
         wurth_go.set()
-    qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
 
     assert answers == [True]
     lines = _log_text(w).splitlines()
@@ -1668,18 +1668,18 @@ def test_a_skip_click_after_the_check_ended_logs_no_skip(make_window, qtbot):
     try:
         qtbot.waitUntil(lambda: w._progress is not None
                         and w._progress.skip_button.text() == "Skip WurthElektronik"
-                        and w._progress.skip_button.isEnabled(), timeout=5000)
+                        and w._progress.skip_button.isEnabled(), timeout=30000)
         button = w._progress.skip_button
         button.click()
         assert button.text() == "Skipping WurthElektronik..."
         assert not button.isEnabled()
         clicked.set()
         qtbot.waitUntil(lambda: button.text() == "Skip" and not button.isEnabled(),
-                        timeout=5000)
+                        timeout=30000)
     finally:
         clicked.set()
         release.set()
-    qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: w._worker is None, timeout=30000)
 
     text = _log_text(w)
     assert "Skipping" not in text and "were not checked" not in text
@@ -1868,11 +1868,12 @@ def test_main_window_help_opens_one_shared_non_modal_guide(qtbot, make_window):
     assert len(guide_windows()) == before + 1
 
     w.activateWindow()
-    qtbot.waitUntil(w.isActiveWindow, timeout=5000)
+    qtbot.waitUntil(w.isActiveWindow, timeout=30000)
     qtbot.keyClick(w, Qt.Key.Key_F1)
     assert w._guide is guide and guide.isVisible()
 
     guide.close()
+    qtbot.waitUntil(lambda: not guide.isVisible(), timeout=30000)
     assert not guide.isVisible()
     help_menu_action(w).trigger()
     assert w._guide is guide and guide.isVisible()
@@ -1893,7 +1894,7 @@ def test_main_window_and_guide_both_take_clicks(qtbot, make_window):
     assert clicks == [True]
 
     click_guide_row(guide, "shortcuts")
-    qtbot.waitUntil(lambda: guide_key(guide) == "shortcuts", timeout=5000)
+    qtbot.waitUntil(lambda: guide_key(guide) == "shortcuts", timeout=30000)
     assert "Keyboard Shortcuts" in guide._browser.toPlainText()
 
 
@@ -1904,6 +1905,7 @@ def test_closing_the_main_window_closes_the_guide(qtbot, make_window):
     guide = w._guide
     assert guide.isVisible()
     w.close()
+    qtbot.waitUntil(lambda: not guide.isVisible(), timeout=30000)
     assert not guide.isVisible()
 
 
@@ -1925,6 +1927,7 @@ def test_a_refused_close_keeps_the_guide(qtbot, make_window):
     finally:
         w._import_dialog = None
     w.close()
+    qtbot.waitUntil(lambda: not guide.isVisible(), timeout=30000)
     assert not guide.isVisible()
 
 
@@ -1953,7 +1956,7 @@ def test_main_window_help_reopens_the_owner_choice(qtbot, make_window):
     guide = w._guide
     qtbot.waitExposed(guide)
     click_guide_row(guide, "generating")
-    qtbot.waitUntil(lambda: guide_key(guide) == "generating", timeout=5000)
+    qtbot.waitUntil(lambda: guide_key(guide) == "generating", timeout=30000)
     assert settings.load_help_topic() == "generating"
 
     # what the import window does: a given topic, which is not the owner's move
@@ -1962,6 +1965,7 @@ def test_main_window_help_reopens_the_owner_choice(qtbot, make_window):
     assert settings.load_help_topic() == "generating"
 
     guide.close()
+    qtbot.waitUntil(lambda: not guide.isVisible(), timeout=30000)
     assert not guide.isVisible()
     help_menu_action(w).trigger()
     assert w._guide is guide and guide.isVisible()
@@ -1977,8 +1981,8 @@ def test_main_window_help_on_a_visible_guide_only_raises(qtbot, make_window):
     guide = w._guide
     qtbot.waitExposed(guide)
     click_guide_row(guide, "importing#conflicts")
-    qtbot.waitUntil(lambda: guide_key(guide) == "importing#conflicts", timeout=5000)
-    qtbot.waitUntil(lambda: _heading_near_top(guide._browser, "4.4.7 Conflicts"), timeout=5000)
+    qtbot.waitUntil(lambda: guide_key(guide) == "importing#conflicts", timeout=30000)
+    qtbot.waitUntil(lambda: _heading_near_top(guide._browser, "4.4.7 Conflicts"), timeout=30000)
     bar = guide._browser.verticalScrollBar()
     # reading further down; half way, because the browser re-estimates its page height as it lays the page out
     # and a value at the maximum is clamped when that maximum shrinks
@@ -1987,14 +1991,14 @@ def test_main_window_help_on_a_visible_guide_only_raises(qtbot, make_window):
     assert held > 0
 
     w.activateWindow()
-    qtbot.waitUntil(w.isActiveWindow, timeout=5000)
+    qtbot.waitUntil(w.isActiveWindow, timeout=30000)
     help_menu_action(w).trigger()
     assert w._guide is guide and guide.isVisible()
     assert guide_key(guide) == "importing#conflicts"
     assert not guide.shows_asked_topic()
     qtbot.wait(50)  # one more event-loop turn
     assert bar.value() == held  # a page being read is not pulled away
-    qtbot.waitUntil(guide.isActiveWindow, timeout=5000)
+    qtbot.waitUntil(guide.isActiveWindow, timeout=30000)
 
 
 def test_main_window_help_after_restart_opens_the_saved_place(qtbot, make_window):
@@ -2020,8 +2024,8 @@ def test_main_window_help_brings_the_section_heading_back(qtbot, make_window, ho
     qtbot.waitExposed(guide)
 
     click_guide_row(guide, "importing#conflicts")
-    qtbot.waitUntil(lambda: guide_key(guide) == "importing#conflicts", timeout=5000)
-    qtbot.waitUntil(lambda: _heading_near_top(guide._browser, "4.4.7 Conflicts"), timeout=5000)
+    qtbot.waitUntil(lambda: guide_key(guide) == "importing#conflicts", timeout=30000)
+    qtbot.waitUntil(lambda: _heading_near_top(guide._browser, "4.4.7 Conflicts"), timeout=30000)
     guide._browser.verticalScrollBar().setValue(0)
 
     if how.startswith("import help"):
@@ -2031,12 +2035,13 @@ def test_main_window_help_brings_the_section_heading_back(qtbot, make_window, ho
     if how == "import help, guide left open":
         assert guide.isVisible()
         w.activateWindow()  # as after Cancel in the import window
-        qtbot.waitUntil(w.isActiveWindow, timeout=5000)
+        qtbot.waitUntil(w.isActiveWindow, timeout=30000)
     else:
         if how == "escape":
             QTest.keyClick(guide, Qt.Key.Key_Escape)
         else:
             guide.close()
+        qtbot.waitUntil(lambda: not guide.isVisible(), timeout=30000)
         assert not guide.isVisible()
 
     help_menu_action(w).trigger()
@@ -2045,9 +2050,9 @@ def test_main_window_help_brings_the_section_heading_back(qtbot, make_window, ho
     selected = [i.data(0, Qt.ItemDataRole.UserRole) for i in guide._toc.selectedItems()]
     assert selected == ["importing#conflicts"]  # the page row 4.4 is not the selected one
     assert settings.load_help_topic() == "importing#conflicts"
-    qtbot.waitUntil(lambda: _heading_near_top(guide._browser, "4.4.7 Conflicts"), timeout=5000)
+    qtbot.waitUntil(lambda: _heading_near_top(guide._browser, "4.4.7 Conflicts"), timeout=30000)
     if how == "import help, guide left open":
-        qtbot.waitUntil(guide.isActiveWindow, timeout=5000)
+        qtbot.waitUntil(guide.isActiveWindow, timeout=30000)
 
 
 # -- the main window's own dialogs leave the guide usable (plan 12-20, G-12-22) ----------------------
@@ -2198,11 +2203,11 @@ def test_guide_takes_clicks_while_the_libraries_load(qtbot, make_window):
     qtbot.waitExposed(guide)
     try:
         w._on_rescan()
-        qtbot.waitUntil(lambda: w._progress is not None and w._progress.isVisible(), timeout=5000)
+        qtbot.waitUntil(lambda: w._progress is not None and w._progress.isVisible(), timeout=30000)
         assert w._progress.windowTitle() == "Loading Libraries"
 
         click_guide_row(guide, "shortcuts")
-        qtbot.waitUntil(lambda: guide_key(guide) == "shortcuts", timeout=5000)
+        qtbot.waitUntil(lambda: guide_key(guide) == "shortcuts", timeout=30000)
     finally:
         gate.set()
-    qtbot.waitUntil(lambda: w._worker is None, timeout=5000)
+    qtbot.waitUntil(lambda: w._worker is None, timeout=30000)

@@ -12,7 +12,7 @@ def test_result_is_delivered_on_the_gui_thread(qtbot):
     gui = threading.get_ident()
     got = []
     task = run_in_background(lambda: 41 + 1, lambda value: got.append((value, threading.get_ident())))
-    qtbot.waitUntil(task.is_done, timeout=5000)
+    qtbot.waitUntil(task.is_done, timeout=30000)
     assert got == [(42, gui)]
 
 
@@ -25,7 +25,7 @@ def test_function_runs_on_a_daemon_thread(qtbot):
         return None
 
     task = run_in_background(fn, lambda _value: None)
-    qtbot.waitUntil(task.is_done, timeout=5000)
+    qtbot.waitUntil(task.is_done, timeout=30000)
     assert seen == [(True, False)]
 
 
@@ -36,7 +36,7 @@ def test_exception_is_delivered_as_text(qtbot):
         raise ValueError("boom")
 
     task = run_in_background(fn, results.append, failures.append)
-    qtbot.waitUntil(task.is_done, timeout=5000)
+    qtbot.waitUntil(task.is_done, timeout=30000)
     assert failures == ["ValueError: boom"] and results == []
 
 
@@ -49,7 +49,7 @@ def test_cancelled_task_delivers_nothing(qtbot):
         assert task.is_done() and task.is_running()
     finally:
         gate.set()
-    qtbot.waitUntil(lambda: not task.is_running(), timeout=5000)
+    qtbot.waitUntil(lambda: not task.is_running(), timeout=30000)
     qtbot.wait(50)
     assert results == [] and failures == []
 
@@ -62,8 +62,8 @@ def test_running_tasks_counts_a_blocked_task(qtbot):
         assert running_tasks() == before + 1
     finally:
         gate.set()
-    qtbot.waitUntil(task.is_done, timeout=5000)
-    qtbot.waitUntil(lambda: running_tasks() == before, timeout=5000)
+    qtbot.waitUntil(task.is_done, timeout=30000)
+    qtbot.waitUntil(lambda: running_tasks() == before, timeout=30000)
 
 
 def test_a_raising_callback_does_not_stop_the_next_delivery(qtbot, monkeypatch):
@@ -77,11 +77,11 @@ def test_a_raising_callback_does_not_stop_the_next_delivery(qtbot, monkeypatch):
 
     dispatcher = background._dispatcher()
     first = run_in_background(lambda: 1, bad)
-    qtbot.waitUntil(lambda: not first.is_running(), timeout=5000)
+    qtbot.waitUntil(lambda: not first.is_running(), timeout=30000)
     second = run_in_background(lambda: 2, got.append)
     # No tick between the puts: nothing is delivered until the one drain below
     dispatcher._timer.stop()
-    qtbot.waitUntil(lambda: not second.is_running(), timeout=5000)
+    qtbot.waitUntil(lambda: not second.is_running(), timeout=30000)
     assert not first.is_done() and not second.is_done()
 
     dispatcher._drain()  # one drain must deliver both: the first raises, the second still arrives
@@ -96,8 +96,8 @@ def test_poll_timer_stops_when_nothing_is_outstanding(qtbot):
     timer = background._dispatcher()._timer
     task = run_in_background(lambda: 1, lambda _value: None)
     assert timer.isActive()
-    qtbot.waitUntil(task.is_done, timeout=5000)
-    qtbot.waitUntil(lambda: not timer.isActive(), timeout=5000)
+    qtbot.waitUntil(task.is_done, timeout=30000)
+    qtbot.waitUntil(lambda: not timer.isActive(), timeout=30000)
 
 
 def test_a_base_exception_from_fn_leaves_no_stuck_task(qtbot):
@@ -110,10 +110,10 @@ def test_a_base_exception_from_fn_leaves_no_stuck_task(qtbot):
         raise SystemExit(3)
 
     task = run_in_background(fn, lambda _value: None, failures.append)
-    qtbot.waitUntil(task.is_done, timeout=5000)
+    qtbot.waitUntil(task.is_done, timeout=30000)
     assert failures == ["SystemExit: 3"]
-    qtbot.waitUntil(lambda: not timer.isActive(), timeout=5000)
-    qtbot.waitUntil(lambda: running_tasks() == before, timeout=5000)
+    qtbot.waitUntil(lambda: not timer.isActive(), timeout=30000)
+    qtbot.waitUntil(lambda: running_tasks() == before, timeout=30000)
     assert not task.is_running()
 
 

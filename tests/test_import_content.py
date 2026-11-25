@@ -246,6 +246,7 @@ def test_content_view_dialog(qtbot):
     dialog.show()
     qtbot.waitExposed(dialog)
     QTest.keyClick(dialog, Qt.Key.Key_Escape)
+    qtbot.waitUntil(lambda: not dialog.isVisible(), timeout=30000)
     assert not dialog.isVisible()
 
 

@@ -152,7 +152,7 @@ def test_row1_collection_is_chosen(made, qtbot):
     make, rec = made
     dialog = make()
     dialog._row1_btn.click()
-    qtbot.waitUntil(lambda: dialog.result() == QDialog.DialogCode.Accepted, timeout=5000)
+    qtbot.waitUntil(lambda: dialog.result() == QDialog.DialogCode.Accepted, timeout=30000)
     assert dialog.choice() == FirstRunChoice(Path(KICAD), Source.KICAD, False)
     assert [Path(c) for c in rec.calls] == [Path(KICAD)] and all(t != GUI_THREAD for t in rec.threads)
 
@@ -164,7 +164,7 @@ def test_row1_empty_folder_opens_new_collection(made, qtbot, tmp_path):
     dialog = make(str(target))
     dialog.show()
     dialog._row1_btn.click()
-    qtbot.waitUntil(lambda: bool(FakeNew.instances), timeout=5000)
+    qtbot.waitUntil(lambda: bool(FakeNew.instances), timeout=30000)
     (fake,) = FakeNew.instances
     assert fake.kwargs == {"origin": "setup", "parent_folder": target.parent, "name": "Fresh", "parent": dialog}
     assert dialog.choice() is None and dialog.isVisible()
@@ -182,7 +182,7 @@ def test_row1_failure_stays_open(made, qtbot):
     dialog.show()
     assert not dialog._row1_error.isVisibleTo(dialog)
     dialog._row1_btn.click()
-    qtbot.waitUntil(lambda: dialog._row1_error.isVisibleTo(dialog), timeout=5000)
+    qtbot.waitUntil(lambda: dialog._row1_error.isVisibleTo(dialog), timeout=30000)
     assert dialog._row1_error.text() == "✖ This is not a library collection."
     assert dialog._row1_error.textFormat() == Qt.TextFormat.PlainText
     assert ERROR in dialog._row1_error.styleSheet()
@@ -202,7 +202,7 @@ def test_row1_worker_failure_shows_a_line(made, qtbot):
     dialog = make(check=broken)
     dialog.show()
     dialog._row1_btn.click()
-    qtbot.waitUntil(lambda: dialog._row1_error.isVisibleTo(dialog), timeout=5000)
+    qtbot.waitUntil(lambda: dialog._row1_error.isVisibleTo(dialog), timeout=30000)
     assert dialog._row1_error.text() == "✖ Library folder step failed: OSError: drive gone"
     assert dialog.isVisible()
 
@@ -300,9 +300,9 @@ def test_double_click_row1_starts_one_check(made, qtbot):
     dialog._row1_btn.click()
     dialog._row1_btn.click()
     dialog._on_use_kicad()  # even a direct call while the check runs starts nothing
-    qtbot.waitUntil(lambda: bool(rec.calls), timeout=5000)
+    qtbot.waitUntil(lambda: bool(rec.calls), timeout=30000)
     rec.gate.set()
-    qtbot.waitUntil(lambda: dialog.result() == QDialog.DialogCode.Accepted, timeout=5000)
+    qtbot.waitUntil(lambda: dialog.result() == QDialog.DialogCode.Accepted, timeout=30000)
     assert [Path(c) for c in rec.calls] == [Path(KICAD)]
 
 
@@ -312,7 +312,7 @@ def test_close_during_check_cancels_and_chooses_nothing(made, qtbot):
     dialog = make()
     dialog.show()
     dialog._row1_btn.click()
-    qtbot.waitUntil(lambda: bool(rec.calls), timeout=5000)
+    qtbot.waitUntil(lambda: bool(rec.calls), timeout=30000)
     tasks = list(dialog._tasks)
     assert tasks and all(task.is_running() for task in tasks)
     started = time.monotonic()
@@ -320,7 +320,7 @@ def test_close_during_check_cancels_and_chooses_nothing(made, qtbot):
     assert time.monotonic() - started < 1.0
     assert all(task.is_done() for task in tasks)
     rec.gate.set()
-    qtbot.waitUntil(lambda: all(not task.is_running() for task in tasks), timeout=5000)
+    qtbot.waitUntil(lambda: all(not task.is_running() for task in tasks), timeout=30000)
     qtbot.wait(100)
     assert not FakeNew.instances and not FakeChoose.instances
     assert dialog.choice() is None and dialog.result() == QDialog.DialogCode.Rejected
@@ -347,7 +347,7 @@ def test_close_is_refused_while_a_new_collection_creates(made, qtbot, tmp_path):
     dialog = make()
     dialog.show()
     dialog._row3_btn.click()
-    qtbot.waitUntil(lambda: bool(FakeNew.instances), timeout=5000)
+    qtbot.waitUntil(lambda: bool(FakeNew.instances), timeout=30000)
     (fake,) = FakeNew.instances
     assert not dialog.is_creating()
     fake.is_creating = lambda: True

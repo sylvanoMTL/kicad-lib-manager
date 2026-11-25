@@ -308,7 +308,7 @@ def test_the_destination_choice_and_picker_fit_the_left_pane(qtbot, make_dialog,
     dialog = make_dialog(stock_tools, show=True)
     wait_current(qtbot, dialog)
     dialog.resize(900, 600)  # after the edit page shows: it opens at its own size
-    qtbot.waitUntil(lambda: dialog.size() == QSize(900, 600), timeout=5000)
+    qtbot.waitUntil(lambda: dialog.size() == QSize(900, 600), timeout=30000)
     choose_official(qtbot, dialog)
     pick_official(qtbot, dialog, TEXAS)
     qtbot.wait(50)

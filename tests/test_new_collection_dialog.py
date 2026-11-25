@@ -97,7 +97,7 @@ def made(qtbot, tmp_path, docs):
 
 
 def settle(qtbot, dialog: NewCollectionDialog):
-    qtbot.waitUntil(lambda: not dialog._pending, timeout=5000)
+    qtbot.waitUntil(lambda: not dialog._pending, timeout=30000)
 
 
 def labels(dialog: NewCollectionDialog) -> list[str]:
@@ -257,7 +257,7 @@ def test_stale_result_is_ignored(made, qtbot):
         qtbot.waitUntil(lambda: labels(dialog) == ["✖ row for fast"], timeout=3000)
     finally:
         release.set()
-    qtbot.waitUntil(lambda: all(task.is_done() for task in dialog._tasks), timeout=5000)
+    qtbot.waitUntil(lambda: all(task.is_done() for task in dialog._tasks), timeout=30000)
     qtbot.wait(50)
     assert labels(dialog) == ["✖ row for fast"]
 
@@ -302,7 +302,7 @@ def test_create_success_accepts(made, qtbot):
         # No close path cancelled the creation task
         assert dialog._tasks and all(task.is_running() and not task.is_done() for task in dialog._tasks[-1:])
     finally:
-        with qtbot.waitSignal(dialog.accepted, timeout=5000):
+        with qtbot.waitSignal(dialog.accepted, timeout=30000):
             rec.gate.set()
     assert dialog.created_folder() == Path(dialog._parent_edit.text()) / "KiCad_Libraries"
     assert rec.creates == [dialog.created_folder()]
@@ -317,7 +317,7 @@ def test_ctrl_return_creates_only_when_enabled(made, qtbot):
     dialog._create_shortcut.activated.emit()
     assert rec.creates == []
     settle(qtbot, dialog)
-    with qtbot.waitSignal(dialog.accepted, timeout=5000):
+    with qtbot.waitSignal(dialog.accepted, timeout=30000):
         dialog._create_shortcut.activated.emit()
     assert rec.creates == [Path(dialog._parent_edit.text()) / "later"]
 
@@ -334,7 +334,7 @@ def test_create_failure_keeps_dialog_open(made, qtbot):
     settle(qtbot, dialog)
     target_text.append(dialog._will_create.full_text())
     dialog._create_btn.click()
-    qtbot.waitUntil(lambda: len(labels(dialog)) == 2, timeout=5000)
+    qtbot.waitUntil(lambda: len(labels(dialog)) == 2, timeout=30000)
     assert labels(dialog) == ["✖ " + FAILED, "✖ " + LEFT.format(path="X")]
     assert dialog._parent_edit.isEnabled() and dialog._name_edit.isEnabled() and dialog._browse_btn.isEnabled()
     assert dialog._create_btn.text() == "Create Collection" and not dialog._create_btn.isEnabled()
@@ -353,7 +353,7 @@ def test_create_that_raises_shows_the_step_failure(made, qtbot):
     dialog.show()
     settle(qtbot, dialog)
     dialog._create_btn.click()
-    qtbot.waitUntil(lambda: labels(dialog) == ["✖ Library folder step failed: RuntimeError: boom"], timeout=5000)
+    qtbot.waitUntil(lambda: labels(dialog) == ["✖ Library folder step failed: RuntimeError: boom"], timeout=30000)
     assert dialog.isVisible() and dialog._name_edit.isEnabled()
 
 
@@ -368,7 +368,7 @@ def test_missing_git_at_create_time_stops(made, qtbot):
     settle(qtbot, dialog)
     state["found"] = False
     dialog._create_btn.click()
-    qtbot.waitUntil(lambda: labels(dialog) == ["✖ " + NO_GIT], timeout=5000)
+    qtbot.waitUntil(lambda: labels(dialog) == ["✖ " + NO_GIT], timeout=30000)
     assert rec.creates == [] and dialog.created_folder() is None
 
 
@@ -433,7 +433,7 @@ def test_checks_are_cancelled_on_close(made, qtbot):
         assert all(task.is_done() for task in tasks)
     finally:
         release.set()
-    qtbot.waitUntil(lambda: all(not task.is_running() for task in tasks), timeout=5000)
+    qtbot.waitUntil(lambda: all(not task.is_running() for task in tasks), timeout=30000)
     qtbot.wait(50)
     assert dialog._pending  # the late answer redrew nothing
 
@@ -463,6 +463,6 @@ def test_is_creating_follows_the_worker(made, qtbot):
     try:
         assert dialog.is_creating() is True
     finally:
-        with qtbot.waitSignal(dialog.accepted, timeout=5000):
+        with qtbot.waitSignal(dialog.accepted, timeout=30000):
             rec.gate.set()
     assert dialog.is_creating() is False

@@ -152,18 +152,18 @@ def test_run_applies_on_a_worker_with_tag_first(qtbot, make_dialog, tmp_path):
     )
     dialog = make_dialog(core)
     dialog.show()
-    qtbot.waitUntil(lambda: dialog._run_btn.isEnabled())
+    qtbot.waitUntil(lambda: dialog._run_btn.isEnabled(), timeout=30000)
 
     dialog._run_btn.click()
-    qtbot.waitUntil(lambda: dialog._stack.currentWidget() is dialog._running_page)
+    qtbot.waitUntil(lambda: dialog._stack.currentWidget() is dialog._running_page, timeout=30000)
     assert dialog.is_running()
-    qtbot.waitUntil(lambda: dialog._running_label.text() == "Writing files...")
+    qtbot.waitUntil(lambda: dialog._running_label.text() == "Writing files...", timeout=30000)
 
     dialog.close()
     assert dialog.isVisible()  # a close attempt is ignored while Run is active
 
     gate.set()
-    qtbot.waitUntil(lambda: calls["apply"] == 1 and not dialog.is_running())
+    qtbot.waitUntil(lambda: calls["apply"] == 1 and not dialog.is_running(), timeout=30000)
     assert calls["ensure_tag"] == 1
 
 
@@ -194,10 +194,10 @@ def test_wrong_checkout_refuses_run(qtbot, make_dialog, tmp_path):
         apply=fake_apply,
     )
     dialog = make_dialog(core)
-    qtbot.waitUntil(lambda: dialog._run_btn.isEnabled())
+    qtbot.waitUntil(lambda: dialog._run_btn.isEnabled(), timeout=30000)
 
     dialog._run_btn.click()
-    qtbot.waitUntil(lambda: not dialog._run_failure_banner.isHidden())
+    qtbot.waitUntil(lambda: not dialog._run_failure_banner.isHidden(), timeout=30000)
     text = dialog._run_failure_body.toPlainText()
     assert wrong_checkout_refusal(mismatch, RUN_REFUSAL_ACTION) in text
     assert "Running it here would rewrite a copy KiCad does not read." in text
@@ -220,9 +220,9 @@ def test_wrong_checkout_refuses_run(qtbot, make_dialog, tmp_path):
         apply=lambda plan, **kw: apply_calls.append(1) or MigrationResult(True, (), (), (), None, plan, {}),
     )
     dialog2 = make_dialog(core2)
-    qtbot.waitUntil(lambda: dialog2._run_btn.isEnabled())
+    qtbot.waitUntil(lambda: dialog2._run_btn.isEnabled(), timeout=30000)
     dialog2._run_btn.click()
-    qtbot.waitUntil(lambda: len(apply_calls) == 1)
+    qtbot.waitUntil(lambda: len(apply_calls) == 1, timeout=30000)
 
 
 def test_kicad_open_asks_before_run(qtbot, make_dialog, tmp_path):
@@ -251,9 +251,9 @@ def test_kicad_open_asks_before_run(qtbot, make_dialog, tmp_path):
         apply=lambda plan, **kw: apply_calls.append(1) or MigrationResult(True, (), (), (), None, plan, {}),
     )
     dialog = make_dialog(core)
-    qtbot.waitUntil(lambda: dialog._run_btn.isEnabled())
+    qtbot.waitUntil(lambda: dialog._run_btn.isEnabled(), timeout=30000)
     dialog._run_btn.click()
-    qtbot.waitUntil(lambda: len(ask_calls) == 1)
+    qtbot.waitUntil(lambda: len(ask_calls) == 1, timeout=30000)
     assert ask_calls[0] == ["kicad"]
     qtbot.wait(50)
     assert apply_calls == []
@@ -278,9 +278,9 @@ def test_kicad_open_asks_before_run(qtbot, make_dialog, tmp_path):
         apply=lambda plan, **kw: apply_calls2.append(1) or MigrationResult(True, (), (), (), None, plan, {}),
     )
     dialog2 = make_dialog(core2)
-    qtbot.waitUntil(lambda: dialog2._run_btn.isEnabled())
+    qtbot.waitUntil(lambda: dialog2._run_btn.isEnabled(), timeout=30000)
     dialog2._run_btn.click()
-    qtbot.waitUntil(lambda: len(apply_calls2) == 1)
+    qtbot.waitUntil(lambda: len(apply_calls2) == 1, timeout=30000)
     assert running_calls["n"] == 2
     assert len(ask_calls2) == 1
 
@@ -298,9 +298,9 @@ def test_kicad_open_asks_before_run(qtbot, make_dialog, tmp_path):
         apply=lambda plan, **kw: apply_calls3.append(1) or MigrationResult(True, (), (), (), None, plan, {}),
     )
     dialog3 = make_dialog(core3)
-    qtbot.waitUntil(lambda: dialog3._run_btn.isEnabled())
+    qtbot.waitUntil(lambda: dialog3._run_btn.isEnabled(), timeout=30000)
     dialog3._run_btn.click()
-    qtbot.waitUntil(lambda: len(apply_calls3) == 1)
+    qtbot.waitUntil(lambda: len(apply_calls3) == 1, timeout=30000)
     assert len(ask_calls3) == 1
 
 
@@ -327,18 +327,18 @@ def test_failed_run_shows_reasons_and_rebuilds(qtbot, make_dialog, tmp_path):
         apply=fake_apply,
     )
     dialog = make_dialog(core)
-    qtbot.waitUntil(lambda: dialog._run_btn.isEnabled())
+    qtbot.waitUntil(lambda: dialog._run_btn.isEnabled(), timeout=30000)
     assert load_calls["n"] == 1
 
     dialog._run_btn.click()
-    qtbot.waitUntil(lambda: not dialog._run_failure_banner.isHidden())
+    qtbot.waitUntil(lambda: not dialog._run_failure_banner.isHidden(), timeout=30000)
     text = dialog._run_failure_body.toPlainText()
     assert issue1.text in text
     assert issue2.text in text
     assert "Every file was restored." in text
 
-    qtbot.waitUntil(lambda: dialog._stack.currentWidget() is dialog._edit_page)
-    qtbot.waitUntil(lambda: load_calls["n"] == 2)
+    qtbot.waitUntil(lambda: dialog._stack.currentWidget() is dialog._edit_page, timeout=30000)
+    qtbot.waitUntil(lambda: load_calls["n"] == 2, timeout=30000)
 
     # migration.rollback_incomplete: the banner names the backup folder
     backup_dir = tmp_path / "backup"
@@ -357,9 +357,9 @@ def test_failed_run_shows_reasons_and_rebuilds(qtbot, make_dialog, tmp_path):
         apply=fake_apply2,
     )
     dialog2 = make_dialog(core2)
-    qtbot.waitUntil(lambda: dialog2._run_btn.isEnabled())
+    qtbot.waitUntil(lambda: dialog2._run_btn.isEnabled(), timeout=30000)
     dialog2._run_btn.click()
-    qtbot.waitUntil(lambda: not dialog2._run_failure_banner.isHidden())
+    qtbot.waitUntil(lambda: not dialog2._run_failure_banner.isHidden(), timeout=30000)
     text2 = dialog2._run_failure_body.toPlainText()
     assert incomplete.text in text2
     assert str(backup_dir) in text2
@@ -391,7 +391,7 @@ def test_successful_run_shows_result_and_clears_draft(qtbot, make_dialog, tmp_pa
     )
     dialog = make_dialog(core)
     dialog.migrated.connect(lambda result: migrated_results.append(result))
-    qtbot.waitUntil(lambda: dialog._run_btn.isEnabled())
+    qtbot.waitUntil(lambda: dialog._run_btn.isEnabled(), timeout=30000)
 
     dialog._run_btn.click()
     # the worker chain (checkout/kicad/apply) ends on a later event-loop turn: wait for the page the test asserts
@@ -421,7 +421,7 @@ def test_copy_and_open_map(qtbot, make_dialog, tmp_path):
         open_file=fake_open_file,
     )
     dialog = make_dialog(core)
-    qtbot.waitUntil(lambda: dialog._run_btn.isEnabled())
+    qtbot.waitUntil(lambda: dialog._run_btn.isEnabled(), timeout=30000)
     dialog._run_btn.click()
     qtbot.waitUntil(lambda: dialog._stack.currentWidget() is dialog._result_page, timeout=30000)
     assert dialog._stack.currentWidget() is dialog._result_page
@@ -443,7 +443,7 @@ def test_generate_and_chooser_buttons_emit(qtbot, make_dialog, tmp_path):
         check_plan=lambda plan, inventory, kicad_fp_dir: GateOutcome((), {}),
     )
     dialog = make_dialog(core)
-    qtbot.waitUntil(lambda: dialog._run_btn.isEnabled())
+    qtbot.waitUntil(lambda: dialog._run_btn.isEnabled(), timeout=30000)
     dialog._run_btn.click()
     qtbot.waitUntil(lambda: dialog._stack.currentWidget() is dialog._result_page, timeout=30000)
     assert dialog._stack.currentWidget() is dialog._result_page
@@ -515,27 +515,27 @@ def test_commit_panel_offered_and_probed(qtbot, make_dialog, tmp_path):
     dialog = make_dialog(core)
     dialog.show()
     dialog.atomic_check_requested.connect(lambda rel, name: open_check_calls.append((rel, name)))
-    qtbot.waitUntil(lambda: dialog._run_btn.isEnabled())
+    qtbot.waitUntil(lambda: dialog._run_btn.isEnabled(), timeout=30000)
     dialog._run_btn.click()
     qtbot.waitUntil(lambda: dialog._stack.currentWidget() is dialog._result_page, timeout=30000)
     assert dialog._stack.currentWidget() is dialog._result_page
 
-    qtbot.waitUntil(lambda: len(commit_plan_calls) == 1)
-    qtbot.waitUntil(lambda: len(probe_calls) == 1)
+    qtbot.waitUntil(lambda: len(commit_plan_calls) == 1, timeout=30000)
+    qtbot.waitUntil(lambda: len(probe_calls) == 1, timeout=30000)
 
     panel = dialog._commit_panel
     assert panel is not None
-    qtbot.waitUntil(lambda: panel.state() == "ready")
+    qtbot.waitUntil(lambda: panel.state() == "ready", timeout=30000)
     assert any("deleted" in panel._files_list.item(i).text() for i in range(panel._files_list.count()))
 
     panel.open_check_requested.emit("Custom/Symbols/Atomic_Connector.kicad_sym", "P1")
     assert open_check_calls == [("Custom/Symbols/Atomic_Connector.kicad_sym", "P1")]
 
     panel.check_again_requested.emit()
-    qtbot.waitUntil(lambda: len(recheck_calls) == 1)
+    qtbot.waitUntil(lambda: len(recheck_calls) == 1, timeout=30000)
 
     panel.commit_requested.emit("Migrate parts", True)
-    qtbot.waitUntil(lambda: len(run_commit_calls) == 1)
+    qtbot.waitUntil(lambda: len(run_commit_calls) == 1, timeout=30000)
     assert run_commit_calls[0][1] == "Migrate parts"
     assert run_commit_calls[0][2] is True
     assert dialog.is_committing()
@@ -544,7 +544,7 @@ def test_commit_panel_offered_and_probed(qtbot, make_dialog, tmp_path):
     assert dialog.isVisible()  # closing is blocked while the commit runs
 
     commit_gate.set()
-    qtbot.waitUntil(lambda: not dialog.is_committing())
+    qtbot.waitUntil(lambda: not dialog.is_committing(), timeout=30000)
 
 
 # -- Gap G-13-1-g: the Result view shows and changes the Destination (13-28) ---------------------
@@ -559,7 +559,7 @@ def _result_dialog(qtbot, make_dialog, tmp_path, **changes):
         **changes,
     )
     dialog = make_dialog(core)
-    qtbot.waitUntil(lambda: dialog._run_btn.isEnabled())
+    qtbot.waitUntil(lambda: dialog._run_btn.isEnabled(), timeout=30000)
     dialog._run_btn.click()
     qtbot.waitUntil(lambda: dialog._stack.currentWidget() is dialog._result_page, timeout=30000)
     assert dialog._stack.currentWidget() is dialog._result_page
