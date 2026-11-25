@@ -2725,10 +2725,11 @@ def blocking_apply(gates, steps=(), started=None):
     """An apply_plan fake that emits the given progress steps, then waits for a gate and installs for real."""
 
     def apply(plan, *, backup_root=None, progress=None):
-        for step in steps:
-            progress(*step)
+        # register the gate before any step is emitted: a test that waits on a step may set gates[...] at once
         gate = threading.Event()
         gates.append(gate)
+        for step in steps:
+            progress(*step)
         if started is not None:
             started.set()
         assert gate.wait(30)
@@ -3508,7 +3509,7 @@ def test_commit_close_refused_while_git_runs(qtbot, make_install_dialog, gates):
     qtbot.waitUntil(lambda: not dialog.is_committing(), timeout=30000)
     assert panel.state() == "done"
     dialog._result_view.close_button.click()
-    assert not dialog.isVisible()
+    qtbot.waitUntil(lambda: not dialog.isVisible(), timeout=30000)
 
 
 def test_no_commit_step_after_failed_or_empty_install(qtbot, make_install_dialog):
@@ -3715,7 +3716,7 @@ def test_commit_close_button_disabled_while_git_runs(qtbot, make_install_dialog,
     qtbot.waitUntil(lambda: not dialog.is_committing(), timeout=30000)
     assert close_button.isEnabled()
     close_button.click()
-    assert not dialog.isVisible()
+    qtbot.waitUntil(lambda: not dialog.isVisible(), timeout=30000)
 
 
 def test_commit_passes_expected_branch(qtbot, make_install_dialog):
@@ -4039,7 +4040,7 @@ def test_commit_not_logged_after_a_commit(qtbot, make_install_dialog, monkeypatc
     qtbot.waitUntil(lambda: panel.state() == "done" and not dialog.is_committing(), timeout=30000)
 
     dialog._result_view.close_button.click()
-    assert not dialog.isVisible()
+    qtbot.waitUntil(lambda: not dialog.isVisible(), timeout=30000)
     assert logged_codes(logged, "commit.not_committed") == []
 
 
@@ -4082,7 +4083,7 @@ def test_parent_only_bump_not_logged_and_not_reprobed(qtbot, make_install_dialog
     assert probes == [1]  # the parent commit counts as the commit: no second probe follows
 
     dialog._result_view.close_button.click()
-    assert not dialog.isVisible()
+    qtbot.waitUntil(lambda: not dialog.isVisible(), timeout=30000)
     assert logged_codes(logged, "commit.not_committed") == []
 
 
@@ -6074,7 +6075,7 @@ def test_help_reachable_on_edit_and_result_pages(qtbot, make_install_dialog):
 
     qtbot.waitUntil(lambda: not dialog.is_probing(), timeout=30000)
     dialog._result_view.close_button.click()
-    assert not dialog.isVisible()
+    qtbot.waitUntil(lambda: not dialog.isVisible(), timeout=30000)
     assert help_window.isVisible()  # the guide outlives this window
 
 

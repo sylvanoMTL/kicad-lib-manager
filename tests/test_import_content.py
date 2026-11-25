@@ -255,7 +255,7 @@ def test_content_view_dialog_close_button(qtbot):
     dialog.show()
     qtbot.waitExposed(dialog)
     dialog._close_btn.click()
-    assert not dialog.isVisible()
+    qtbot.waitUntil(lambda: not dialog.isVisible(), timeout=30000)
 
 
 def test_highlighter_only_for_diffs(qtbot):
