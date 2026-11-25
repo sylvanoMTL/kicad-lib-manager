@@ -2797,6 +2797,8 @@ def test_install_close_esc_reject_ignored(qtbot, make_install_dialog, gates):
     qtbot.waitUntil(lambda: dialog.result is not None and not dialog.is_installing() and not dialog.is_committing() and not dialog.is_probing(), timeout=60000)
     assert dialog.isVisible()
     dialog.close()
+    # a worker still ending turns the close into Finishing, then the close by itself (D-06): wait for the state asserted
+    qtbot.waitUntil(lambda: not dialog.isVisible(), timeout=30000)
     assert not dialog.isVisible()
 
 
@@ -4462,6 +4464,8 @@ def test_add_model_tracer_snapeda_end_to_end(qtbot, make_item_dialog, item_layou
 
     qtbot.waitUntil(lambda: not dialog.is_committing() and not dialog.is_probing(), timeout=30000)
     dialog.reject()
+    # the close may go through Finishing (D-06): wait for the staging folder to go
+    qtbot.waitUntil(lambda: not staging.exists(), timeout=30000)
     assert not staging.exists()
 
 
@@ -4862,6 +4866,8 @@ def test_add_model_package_open_until_install_ends(qtbot, make_install_dialog, g
     assert staging.is_dir() and "close" not in events  # still open after apply_plan returned
 
     dialog.reject()
+    # the close may go through Finishing (D-06): wait for the staging folder to go
+    qtbot.waitUntil(lambda: not staging.exists(), timeout=30000)
     assert not staging.exists()
     assert events.index("apply_end") < events.index("close")
     assert events.count("close") == 1

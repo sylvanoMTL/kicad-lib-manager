@@ -394,7 +394,8 @@ def test_successful_run_shows_result_and_clears_draft(qtbot, make_dialog, tmp_pa
     qtbot.waitUntil(lambda: dialog._run_btn.isEnabled())
 
     dialog._run_btn.click()
-    qtbot.wait(200)  # let the worker chain (checkout/kicad/apply) finish on this trivial fake plan
+    # the worker chain (checkout/kicad/apply) ends on a later event-loop turn: wait for the page the test asserts
+    qtbot.waitUntil(lambda: dialog._stack.currentWidget() is dialog._result_page, timeout=30000)
 
     assert dialog._stack.currentWidget() is dialog._result_page
     assert len(clear_calls) == 1
@@ -422,7 +423,7 @@ def test_copy_and_open_map(qtbot, make_dialog, tmp_path):
     dialog = make_dialog(core)
     qtbot.waitUntil(lambda: dialog._run_btn.isEnabled())
     dialog._run_btn.click()
-    qtbot.wait(200)
+    qtbot.waitUntil(lambda: dialog._stack.currentWidget() is dialog._result_page, timeout=30000)
     assert dialog._stack.currentWidget() is dialog._result_page
 
     dialog._copy_map_btn.click()
@@ -444,7 +445,7 @@ def test_generate_and_chooser_buttons_emit(qtbot, make_dialog, tmp_path):
     dialog = make_dialog(core)
     qtbot.waitUntil(lambda: dialog._run_btn.isEnabled())
     dialog._run_btn.click()
-    qtbot.wait(200)
+    qtbot.waitUntil(lambda: dialog._stack.currentWidget() is dialog._result_page, timeout=30000)
     assert dialog._stack.currentWidget() is dialog._result_page
 
     generate_calls = []
@@ -516,7 +517,7 @@ def test_commit_panel_offered_and_probed(qtbot, make_dialog, tmp_path):
     dialog.atomic_check_requested.connect(lambda rel, name: open_check_calls.append((rel, name)))
     qtbot.waitUntil(lambda: dialog._run_btn.isEnabled())
     dialog._run_btn.click()
-    qtbot.wait(200)
+    qtbot.waitUntil(lambda: dialog._stack.currentWidget() is dialog._result_page, timeout=30000)
     assert dialog._stack.currentWidget() is dialog._result_page
 
     qtbot.waitUntil(lambda: len(commit_plan_calls) == 1)
@@ -560,7 +561,7 @@ def _result_dialog(qtbot, make_dialog, tmp_path, **changes):
     dialog = make_dialog(core)
     qtbot.waitUntil(lambda: dialog._run_btn.isEnabled())
     dialog._run_btn.click()
-    qtbot.wait(200)
+    qtbot.waitUntil(lambda: dialog._stack.currentWidget() is dialog._result_page, timeout=30000)
     assert dialog._stack.currentWidget() is dialog._result_page
     return dialog
 
