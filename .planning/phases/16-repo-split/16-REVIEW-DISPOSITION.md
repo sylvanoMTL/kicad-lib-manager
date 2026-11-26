@@ -5,55 +5,55 @@ titles: json
 findings:
   - id: CR-01
     severity: critical
-    disposition: open
+    disposition: fixed
     title: "The history scan never inspects annotated tag objects"
   - id: CR-02
     severity: critical
-    disposition: open
+    disposition: fixed
     title: "An email or drive-letter path right after a JSON escape sequence is invisible to the scan"
   - id: WR-01
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "Owner-specific rules switch off silently, and CI never has them"
   - id: WR-02
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "History walk decides the vendor-file check from one path per blob"
   - id: WR-03
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "The commit-msg hook is weaker than the scan that will later reject the history"
   - id: WR-04
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "Text rules are skipped for any blob with a NUL in its first 8 KiB, for UTF-16 without a BOM, and for other encodings"
   - id: WR-05
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "File names, folder names and ref names are not run through the text rules"
   - id: WR-06
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "Vendor-file detection is by suffix and two magic prefixes only"
   - id: WR-07
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "Workstation-path patterns miss WSL, URL-encoded and UNC spellings"
   - id: WR-08
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "`cutover_collection.py` reads its templates from inside the folder it is about to delete"
   - id: WR-09
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "The cutover never checks the safety net its messages promise"
   - id: WR-10
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "`sync_planning.py` overwrites uncommitted work in the tool checkout and cannot see conflicts"
   - id: WR-11
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "`build_tool_repo.py` writes any `--email` into the first public commit"
   - id: WR-12
     severity: warning
@@ -131,28 +131,28 @@ findings:
     severity: info
     disposition: open
     title: "Debounce tests assert \"nothing started yet\" after a 100 ms wall-clock wait against a 300 ms debounce (reviewer C)"
-open: 32
+open: 19
 total: 32
-recorded: 2026-11-26T11:15:31.153Z
+recorded: 2026-11-26T17:11:37.513Z
 ---
 
 # Phase 16: Code Review Disposition
 
 | Finding | Severity | Disposition | Source |
 |---------|----------|-------------|--------|
-| CR-01 | critical | open | - |
-| CR-02 | critical | open | - |
-| WR-01 | warning | open | - |
-| WR-02 | warning | open | - |
-| WR-03 | warning | open | - |
-| WR-04 | warning | open | - |
-| WR-05 | warning | open | - |
-| WR-06 | warning | open | - |
-| WR-07 | warning | open | - |
-| WR-08 | warning | open | - |
-| WR-09 | warning | open | - |
-| WR-10 | warning | open | - |
-| WR-11 | warning | open | - |
+| CR-01 | critical | fixed | 16-REVIEW-FIX.md |
+| CR-02 | critical | fixed | 16-REVIEW-FIX.md |
+| WR-01 | warning | fixed | 16-REVIEW-FIX.md |
+| WR-02 | warning | fixed | 16-REVIEW-FIX.md |
+| WR-03 | warning | fixed | 16-REVIEW-FIX.md |
+| WR-04 | warning | fixed | 16-REVIEW-FIX.md |
+| WR-05 | warning | fixed | 16-REVIEW-FIX.md |
+| WR-06 | warning | fixed | 16-REVIEW-FIX.md |
+| WR-07 | warning | fixed | 16-REVIEW-FIX.md |
+| WR-08 | warning | fixed | 16-REVIEW-FIX.md |
+| WR-09 | warning | fixed | 16-REVIEW-FIX.md |
+| WR-10 | warning | fixed | 16-REVIEW-FIX.md |
+| WR-11 | warning | fixed | 16-REVIEW-FIX.md |
 | WR-12 | warning | open | - |
 | WR-13 | warning | open | - |
 | WR-14 | warning | open | - |
