@@ -8,7 +8,7 @@ Usage:
 
 With neither --tree nor --history both run. --tree scans the working tree (tracked and untracked
 files that are not ignored); --history scans every blob reachable from any ref, every commit
-message and identity, and every ref name. --path limits the tree scan to a file or folder.
+message and identity, every annotated tag (tagger and message) and every ref name. --path limits the tree scan to a file or folder.
 
 Identity terms are never stored here: the owner's addresses come from --deny-emails-from-repo (the
 commit addresses and user.email of another repository) or, when no deny flag is given, from the
@@ -265,9 +265,9 @@ def scan_blob(path: str, data: bytes, rules: Rules, allowed: list[Finding] | Non
     return found
 
 
-def scan_message(sha: str, text: str, rules: Rules, allowed: list[Finding] | None = None) -> list[Finding]:
-    """Findings for one commit message: the session trailer plus the text rules."""
-    where = f"commit:{sha[:12]}"
+def scan_message(sha: str, text: str, rules: Rules, allowed: list[Finding] | None = None, kind: str = "commit") -> list[Finding]:
+    """Findings for one commit or tag message: the session trailer plus the text rules."""
+    where = f"{kind}:{sha[:12]}"
     found: list[Finding] = []
     body: list[str] = []
     for line in text.splitlines():
@@ -280,13 +280,13 @@ def scan_message(sha: str, text: str, rules: Rules, allowed: list[Finding] | Non
     return _unique(found)
 
 
-def scan_identity(sha: str, name: str, email: str, rules: Rules) -> list[Finding]:
-    """commit_identity when an author or committer address is not allow-listed, or is a deny email, or a name holds a deny term."""
+def scan_identity(sha: str, name: str, email: str, rules: Rules, kind: str = "commit") -> list[Finding]:
+    """commit_identity when an author, committer or tagger address is not allow-listed, or is a deny email, or a name holds a deny term."""
     bad = email.casefold() in rules.deny_emails or not is_allowed_email(email)
     folded = name.casefold()
     bad = bad or any(term in folded for term in rules.deny_terms)
     if bad and "commit_identity" not in rules.skipped:
-        return [Finding("commit_identity", f"commit:{sha[:12]}")]
+        return [Finding("commit_identity", f"{kind}:{sha[:12]}")]
     return []
 
 
@@ -417,6 +417,32 @@ def history_commits(repo: Path | str) -> list[tuple[str, str, str, str, str, str
 def history_refs(repo: Path | str) -> list[str]:
     out = _git(repo, "for-each-ref", "--format=%(refname)").decode("utf-8", errors="replace")
     return [line.strip() for line in out.splitlines() if line.strip()]
+
+
+_TAGGER_PATTERN = re.compile(r"^tagger (.*?) ?<([^>]*)>", re.MULTILINE)
+
+
+def history_tags(repo: Path | str) -> list[tuple[str, str, str, str]]:
+    """(object id, tagger name, tagger email, message) of every annotated tag object reachable from any ref.
+
+    Nested tags (a tag of a tag) are found too, because the object walk lists every tag object it passes.
+    """
+    listing = _git(repo, "rev-list", "--objects", "--all").decode("utf-8", errors="replace")
+    shas = list(dict.fromkeys(row.partition(" ")[0] for row in listing.splitlines() if row.strip()))
+    if not shas:
+        return []
+    kinds = _git(repo, "cat-file", "--batch-check=%(objecttype) %(objectname)", input="\n".join(shas).encode("ascii") + b"\n")
+    tags: list[tuple[str, str, str, str]] = []
+    for row in kinds.decode("utf-8", errors="replace").splitlines():
+        kind, _, sha = row.partition(" ")
+        if kind != "tag":
+            continue
+        raw = _git(repo, "cat-file", "tag", sha).decode("utf-8", errors="replace")
+        head, _, message = raw.partition("\n\n")
+        tagger = _TAGGER_PATTERN.search(head)
+        name, email = (tagger.group(1), tagger.group(2)) if tagger else ("", "")
+        tags.append((sha, name, email, message))
+    return tags
 
 
 def has_commits(repo: Path | str) -> bool:
@@ -557,6 +583,10 @@ def run(args) -> tuple[list[Finding], list[Finding], tuple[int, int, int]]:
             findings.extend(scan_identity(sha, an, ae, rules))
             findings.extend(scan_identity(sha, cn, ce, rules))
             findings.extend(scan_message(sha, message, rules, allowed))
+        for sha, name, email, message in history_tags(repo):
+            if email:
+                findings.extend(scan_identity(sha, name, email, rules, "tag"))
+            findings.extend(scan_message(sha, message, rules, allowed, "tag"))
         for ref in history_refs(repo):
             findings.extend(scan_ref(ref))
     return _unique(findings), _unique(allowed), (files, blobs, commits)

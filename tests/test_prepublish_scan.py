@@ -343,3 +343,42 @@ def test_exit_codes_and_output(tmp_path):
     code, out = _scan(empty, "--history")
     assert code == 2, out
     assert "nothing to scan: the repository has no commits" in out
+
+
+@pytest.mark.slow
+@requires_git
+def test_history_reads_annotated_tag_objects(tmp_path):
+    """A tagger address and a tag message are published by a push of tags, so --history reads them."""
+    repo = tmp_path / "r"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    (repo / "clean.txt").write_text("nothing private here\n", encoding="utf-8")
+    _git(repo, "add", "clean.txt")
+    _git(repo, "commit", "-q", "-m", "clean start")
+    # a lightweight tag and a tag by an allowed identity change nothing
+    _git(repo, "tag", "light")
+    _git(repo, "tag", "-a", "-m", "release notes", "fine")
+    code, out = _scan(repo, "--history")
+    assert code == 0, out
+    # an annotated tag whose tagger address is not allow-listed, with a session line in its message
+    outsider = "dev" + "@" + "corp" + ".test"
+    env = _git_env()
+    env.update(GIT_COMMITTER_EMAIL=outsider)
+    trailer = "Claude-Session" + ": abc123"
+    done = subprocess.run(
+        [GIT, "tag", "-a", "-m", "release\n\n" + trailer, "v1"],
+        cwd=repo,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        stdin=subprocess.DEVNULL,
+    )
+    assert done.returncode == 0, done.stderr
+    code, out = _scan(repo, "--history")
+    assert code == 1, out
+    rules_found = sorted(line.split("\t")[0] for line in out.splitlines() if "\t" in line)
+    assert rules_found == ["commit_identity", "session_trailer"], out
+    assert all(line.split("\t")[1].startswith("tag:") for line in out.splitlines() if "\t" in line), out
+    assert outsider not in out
+    assert len(scan.history_tags(repo)) == 2
