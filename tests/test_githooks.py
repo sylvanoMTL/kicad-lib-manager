@@ -25,6 +25,7 @@ CO_AUTHOR = "Co-Authored-By: Claude Test <noreply@anthropic.com>"
 
 def _env(repo: Path) -> dict:
     env = {k: v for k, v in os.environ.items() if not k.upper().startswith("GIT_")}
+    env.pop("PREPUBLISH_ALLOW_NO_DENY_LIST", None)
     env.update(GIT_CONFIG_GLOBAL=str(repo.parent / "nogitconfig"), GIT_CONFIG_NOSYSTEM="1", GIT_TERMINAL_PROMPT="0")
     # the stub scan and the hook's interpreter lookup need a working python on PATH
     env["PATH"] = str(Path(sys.executable).parent) + os.pathsep + env.get("PATH", "")
@@ -106,18 +107,29 @@ def test_pre_push_blocks_on_a_failing_scan(tmp_path):
     scripts = repo / "scripts"
     scripts.mkdir()
 
-    def run_hook(exit_code: int) -> subprocess.CompletedProcess:
+    def run_hook(exit_code: int, **extra_env: str) -> subprocess.CompletedProcess:
         stub = "import sys\nopen('scan_args.txt', 'w').write(' '.join(sys.argv[1:]))\nsys.exit(%d)\n" % exit_code
         (scripts / "prepublish_scan.py").write_text(stub, encoding="utf-8")
         return subprocess.run(
             [shell, ".githooks/pre-push", "origin", "https://example.invalid/repo.git"],
             cwd=repo,
-            env=_env(repo),
+            env={**_env(repo), **extra_env},
             input=b"",
             capture_output=True,
             timeout=120,
         )
 
+    # without prepublish.denyTermsFile the hook refuses before the scan runs, unless the opt-out is set
+    refused = run_hook(0)
+    assert refused.returncode != 0
+    assert "prepublish.denyTermsFile" in refused.stderr.decode("utf-8", "replace")
+    assert not (repo / "scan_args.txt").exists()
+    opted_out = run_hook(0, PREPUBLISH_ALLOW_NO_DENY_LIST="1")
+    assert opted_out.returncode == 0
+    assert (repo / "scan_args.txt").read_text(encoding="utf-8") == "--tree --history"
+    (repo / "scan_args.txt").unlink()
+
+    _git(repo, "config", "prepublish.denyTermsFile", "deny-terms.txt")
     failing = run_hook(1)
     assert failing.returncode != 0
     assert "nothing was pushed" in failing.stderr.decode("utf-8", "replace")

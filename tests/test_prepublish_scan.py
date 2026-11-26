@@ -275,6 +275,19 @@ def test_usage_errors(tmp_path, capsys):
     assert "prepublish_scan:" in capsys.readouterr().err
 
 
+def test_the_scan_says_when_no_owner_deny_list_is_in_use(tmp_path, capsys):
+    terms = tmp_path / "terms.txt"
+    terms.write_text("Zorblax" + "Quux\n", encoding="utf-8")
+    with_terms = scan._parser().parse_args(["--repo", str(REPO_ROOT), "--deny-terms-file", str(terms)])
+    scan._build_rules(with_terms, REPO_ROOT)
+    assert scan.NO_DENY_LIST_NOTE not in capsys.readouterr().err
+    empty = tmp_path / "empty.txt"
+    empty.write_text("# nothing\n", encoding="utf-8")
+    nothing = scan._parser().parse_args(["--repo", str(REPO_ROOT), "--deny-terms-file", str(empty)])
+    scan._build_rules(nothing, REPO_ROOT)
+    assert scan.NO_DENY_LIST_NOTE in capsys.readouterr().err
+
+
 # ── Git walk (slow: creates real repositories) ───────────────────────────────────────────────────
 
 ENV_KEYS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM")
@@ -308,7 +321,9 @@ def _scan(repo: Path, *args: str):
         check=False,
         stdin=subprocess.DEVNULL,
     )
-    return done.returncode, (done.stdout + done.stderr)
+    # the note about a missing owner deny list is checked by its own test; it is not part of these outputs
+    err = "".join(line for line in done.stderr.splitlines(keepends=True) if line.strip() != scan.NO_DENY_LIST_NOTE)
+    return done.returncode, (done.stdout + err)
 
 
 @pytest.mark.slow

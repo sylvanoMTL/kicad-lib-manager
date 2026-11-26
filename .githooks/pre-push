@@ -22,6 +22,15 @@ if [ -z "$py" ]; then
   exit 1
 fi
 
+# Without an owner deny list the scan checks no owner address or name, so "clean" would claim more
+# than was checked. Set it once per clone (git config prepublish.denyTermsFile <file>), or opt out
+# on purpose with PREPUBLISH_ALLOW_NO_DENY_LIST=1.
+if [ -z "$(git config --get prepublish.denyTermsFile)" ] && [ "$PREPUBLISH_ALLOW_NO_DENY_LIST" != "1" ]; then
+  echo "pre-push: prepublish.denyTermsFile is not set in this clone, so the scan cannot check owner names; nothing was pushed" >&2
+  echo "pre-push: set it with 'git config prepublish.denyTermsFile <file>' or set PREPUBLISH_ALLOW_NO_DENY_LIST=1 to push without it" >&2
+  exit 1
+fi
+
 "$py" scripts/prepublish_scan.py --tree --history
 status=$?
 if [ "$status" -ne 0 ]; then

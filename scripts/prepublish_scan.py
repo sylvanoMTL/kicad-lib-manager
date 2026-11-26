@@ -19,6 +19,10 @@ copy check against the symbol and footprint files of a library collection and it
 An inline marker on a line suppresses one rule on that line: the word "scan:" then "allow" then the
 rule name. --list-allowed prints each suppressed hit (rule and place only) so a person can review them.
 
+When neither source gives an owner address or term, one note line goes to stderr: the owner rules
+then checked nothing (always so on CI, which has no local git config). The pre-push hook refuses a
+push from a clone that has no prepublish.denyTermsFile unless PREPUBLISH_ALLOW_NO_DENY_LIST=1 is set.
+
 Output: one "<rule><TAB><place>" line per finding, never the matched text. Exit code 0 when clean,
 1 on any finding, 2 on a usage error (no repository, no commits to scan, an unreadable file).
 Stdlib only; the script never imports the application package.
@@ -40,6 +44,7 @@ MAX_BLOB_BYTES = 20_000_000
 BINARY_PROBE_BYTES = 8192
 MAX_ZIP_MEMBER_BYTES = 5_000_000
 FIXTURES_PREFIX = "tests/fixtures/"
+NO_DENY_LIST_NOTE = "prepublish_scan: no owner deny list in use (the owner_email and owner_term rules checked nothing)"
 
 ALLOWED_EMAILS = frozenset({"noreply@anthropic.com", "noreply@github.com", "git@github.com"})
 ALLOWED_EMAIL_DOMAINS = frozenset({"example.invalid", "example.com", "example.org", "users.noreply.github.com"})
@@ -566,6 +571,9 @@ def _build_rules(args, repo: Path) -> Rules:
     emails = collect_deny_emails(deny_repos)
     terms = read_terms(term_files)
     texts, blobs = collect_corpus(args.corpus)
+    if not emails and not terms:
+        # "clean" must not claim more than was checked: the owner-specific rules had nothing to match
+        print(NO_DENY_LIST_NOTE, file=sys.stderr)
     unknown = [r for r in args.skip_rule if r not in ALL_RULES]
     if unknown:
         raise UsageError(f"unknown rule name: {unknown[0]}")

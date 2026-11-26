@@ -24,6 +24,8 @@ jobs:
           cache: pip
           cache-dependency-path: requirements*.txt
 
+      # The owner names and addresses come from untracked files of the owner's clone, so this step
+      # runs without them (the scan prints a note about it); they are enforced by the pre-push hook only.
       # Before pytest: its junit file and skip reasons can hold the runner's own folder names
       - name: Pre-publish scan
         run: python scripts/prepublish_scan.py --tree --history
