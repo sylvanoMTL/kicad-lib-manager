@@ -467,6 +467,40 @@ def test_sync_planning_copies_the_delta(split, tmp_path):
 
 @pytest.mark.slow
 @requires_git
+def test_sync_planning_protects_work_in_the_tool_checkout(split, tmp_path, capsys):
+    source = _make_source(tmp_path)
+    dest = tmp_path / "tool"
+    _build(split, source, dest)
+    allow = split.verify_export.load_allow_list(ALLOW_LIST)
+    mapping = split.scrub.parse_map([f"{WORKTREE}="])
+    _write(source, ".planning/STATE.md", "source change\n")
+    _write(source, ".planning/todos/x.md", "source todo change\n")
+    _commit_all(source, "later work")
+
+    # uncommitted work under .planning/ of the tool checkout: refused before anything is written
+    _write(dest, ".planning/STATE.md", "work in progress\n")
+    with pytest.raises(split.sync_planning.SyncError, match="uncommitted"):
+        split.sync_planning.sync(source, "main", "pre-split", dest, allow, mapping)
+    assert (dest / ".planning" / "STATE.md").read_text(encoding="utf-8") == "work in progress\n"
+
+    # committed there: the file is a conflict and is left alone; an untouched file still syncs
+    _git(dest, "config", "user.name", "Fixture User")
+    _git(dest, "config", "user.email", "fixture@example.invalid")
+    _commit_all(dest, "local planning edit")
+    lines = split.sync_planning.sync(source, "main", "pre-split", dest, allow, mapping)
+    assert lines == ["conflict .planning/STATE.md", "M .planning/todos/x.md"]
+    assert (dest / ".planning" / "STATE.md").read_text(encoding="utf-8") == "work in progress\n"
+    assert (dest / ".planning" / "todos" / "x.md").read_text(encoding="utf-8") == "source todo change\n"
+
+    # the command line says so with exit code 1
+    argv = ["--source", str(source), "--ref", "main", "--since", "pre-split", "--dest", str(dest), "--allow-list", str(ALLOW_LIST)]
+    _commit_all(dest, "synced")
+    assert split.sync_planning.main(argv) == 1
+    assert "left alone" in capsys.readouterr().err
+
+
+@pytest.mark.slow
+@requires_git
 def test_sync_planning_refuses_an_unknown_ref(split, tmp_path, capsys):
     source = tmp_path / "not-a-repository"
     source.mkdir()

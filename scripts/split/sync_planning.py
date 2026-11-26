@@ -7,12 +7,17 @@ workstation paths scrubbed, and deletes the removed ones. Anything not under .pl
 by the allow-list is reported as `skip <path>` and left alone. Nothing outside .planning/ of the
 destination is ever touched. The script does not commit: the caller scans, commits and pushes.
 
+It refuses (exit 2) when .planning/ of the destination has uncommitted changes, and it leaves a file
+alone, printing `conflict <path>`, when the copy in the destination no longer matches what the export
+of the --since tag wrote (someone edited it there): a sync never overwrites or deletes such a file.
+
 Usage:
     python scripts/split/sync_planning.py --source DIR --ref REF --since TAG --dest DIR
         --allow-list FILE [--map OLD=NEW ...]
 
-Output: one line per changed path in path order: `A <path>`, `M <path>`, `D <path>` or `skip <path>`.
-Exit codes: 0 done, 2 an unknown ref or unusable input. Stdlib only; never imports the application package.
+Output: one line per changed path in path order: `A <path>`, `M <path>`, `D <path>`, `skip <path>` or
+`conflict <path>`. Exit codes: 0 done, 1 done but at least one conflict was left, 2 an unknown ref, a dirty
+destination or unusable input. Stdlib only; never imports the application package.
 """
 
 import argparse
@@ -64,18 +69,44 @@ def _inside_planning(dest: Path, target: Path) -> bool:
     return (dest / PLANNING).resolve() in target.resolve().parents
 
 
+def _require_clean_planning(dest: Path) -> None:
+    """Refuse a destination whose .planning/ holds uncommitted work: a sync would overwrite it unseen."""
+    dirty = _git(dest, "status", "--porcelain", "--", f"{PLANNING}/").decode("utf-8", errors="replace").strip()
+    if dirty:
+        shown = "; ".join(line.strip() for line in dirty.splitlines()[:5])
+        raise SyncError(f"{PLANNING}/ of {dest} has uncommitted changes (commit or stash them first): {shown}")
+
+
+def _edited_in_dest(source: Path, since: str, path: str, target: Path, mapping: list[tuple[str, str]]) -> bool:
+    """True when the destination copy is not what the export of the since tag wrote (or is missing)."""
+    try:
+        expected = scrub_bytes(_git(source, "show", f"{since}:{path}"), mapping)
+    except SyncError:
+        return False  # not in the since tag: a new file, judged by the caller
+    try:
+        return target.read_bytes() != expected
+    except OSError:
+        return True
+
+
 def sync(
     source: Path, ref: str, since: str, dest: Path, allow: AllowList, mapping: list[tuple[str, str]]
 ) -> list[str]:
-    """Apply the .planning/ delta between since and ref to dest; return the A/M/D/skip lines in path order."""
+    """Apply the .planning/ delta between since and ref to dest; return the A/M/D/skip/conflict lines in path order."""
     source, dest = Path(source), Path(dest)
     if not dest.is_dir():
         raise SyncError(f"not a folder: {dest}")
+    changes = _changes(source, ref, since)
+    _require_clean_planning(dest)
     lines: list[str] = []
-    for status, path in _changes(source, ref, since):
+    for status, path in changes:
         target = dest / path
         if not path.startswith(f"{PLANNING}/") or not allow.allowed(path) or not _inside_planning(dest, target):
             lines.append(f"skip {path}")
+        elif status in "MTD" and target.exists() and _edited_in_dest(source, since, path, target, mapping):
+            lines.append(f"conflict {path}")
+        elif status == "A" and target.exists() and target.read_bytes() != scrub_bytes(_git(source, "show", f"{ref}:{path}"), mapping):
+            lines.append(f"conflict {path}")
         elif status in "AMT":
             data = _git(source, "show", f"{ref}:{path}")
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -120,6 +151,10 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     for line in lines:
         print(line)
+    conflicts = sum(1 for line in lines if line.startswith("conflict "))
+    if conflicts:
+        print(f"sync_planning: {conflicts} file(s) edited in the destination were left alone", file=sys.stderr)
+        return 1
     return 0
 
 
