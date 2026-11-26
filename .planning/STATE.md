@@ -112,7 +112,7 @@ The full decision log is in the PROJECT.md Key Decisions table. The v1.0 per-pha
 
 ### Blockers/Concerns
 
-- [Phase 16]: Code review (16-REVIEW.md, 16-REVIEW-DISPOSITION.md): all 32 findings still open, including CR-01 (the history scan never inspects annotated tag objects) and CR-02 (an email or drive-letter path right after a JSON escape is invisible to the scan), plus WR-01..WR-20 and IN-01..IN-10. They weaken the pre-publish scan / pre-push hook that guards the public repo; GitHub's copy scanned clean and was grepped by hand at verification. Resolve or disposition before pushing an annotated tag or relying on the hook alone.
+- [Phase 16]: Code review fixed 2026-11-26 (16-REVIEW-FIX.md, 16-REVIEW-DISPOSITION.md): CR-01, CR-02 and WR-01..WR-20 fixed (22 commits), and the pre-publish scan now treats placeholder user folders (bob, alice, user, <user>) as samples, so the review's quoted sample paths no longer block pushes. IN-01..IN-10 stay open (Info, out of the fix scope). `cutover_collection.py --apply` now needs `--pre-split-tag`, `build_tool_repo.py` needs `--allow-any-email` for a non-noreply address, and the pre-push hook refuses without `prepublish.denyTermsFile` unless `PREPUBLISH_ALLOW_NO_DENY_LIST=1`.
 - [Phase 15]: D4 decided by the owner 2026-11-22: a new collection runs `git init -b main` inside `Custom/` (Custom is its own repo, the collection root is a plain folder, no parent option in the commit step).
 
 None block Phase 17. Open, non-blocking:
@@ -156,4 +156,4 @@ Resume file: None
 ## Operator Next Steps
 
 - Phase 17 (Library Catalog): `/gsd-discuss-phase 17` (no CONTEXT.md yet; D2, D6, D7, D11 to decide at plan time)
-- Phase 16 review findings (CR-01, CR-02 and the rest) are open: `/gsd-code-review 16 --fix` or a quick task before relying on the pre-push scan for tags
+- Phase 16 Info findings IN-01..IN-10 remain: `/gsd-code-review 16 --fix --all` if wanted
