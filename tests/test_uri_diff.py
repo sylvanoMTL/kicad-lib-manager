@@ -398,6 +398,42 @@ def test_variable_order_is_flag_then_json_then_environment(tmp_path, capsys, mon
     assert snap["vars"]["CUSTOM_3DMODEL_DIR"] is None
 
 
+def test_no_env_ignores_the_process_environment(tmp_path, capsys, monkeypatch):
+    tables = _tables(tmp_path / "cfg", sym="basic.sym-lib-table")
+    monkeypatch.setenv("KICAD_LIB_GITHUB", str(tmp_path / "FromEnv"))
+    out = tmp_path / "snap.json"
+    code, _ = _run(["snapshot", "--tables-dir", str(tables), "--out", str(out)], capsys)
+    assert code == 0
+    assert json.loads(out.read_text(encoding="utf-8"))["entries"][0]["expanded"] is True
+    code, _ = _run(["snapshot", "--tables-dir", str(tables), "--no-env", "--out", str(out)], capsys)
+    assert code == 0
+    snap = json.loads(out.read_text(encoding="utf-8"))
+    assert snap["entries"][0]["expanded"] is False
+    assert snap["vars"]["KICAD_LIB_GITHUB"] is None
+
+
+def test_redact_home_replaces_whole_segments_only():
+    home = "/srv/work/someone"
+    snap = {"vars": {"A": home + "/kicad", "B": None}, "entries": [{"resolved": home}, {"resolved": home + "2/x"}, {"resolved": "/opt/x"}]}
+    assert uri_diff.redact_home(snap, home) == {
+        "vars": {"A": "<HOME>/kicad", "B": None},
+        "entries": [{"resolved": "<HOME>"}, {"resolved": home + "2/x"}, {"resolved": "/opt/x"}],
+    }
+    assert uri_diff.redact_home("text", "") == "text"
+
+
+def test_redact_home_flag_rewrites_the_snapshot(tmp_path, capsys, monkeypatch):
+    elsewhere = tmp_path / "elsewhere" / "x.kicad_sym"
+    tables = _text_table(tmp_path / "cfg", "sym", [("Outside", elsewhere.as_posix())])
+    monkeypatch.setattr(uri_diff.Path, "home", classmethod(lambda cls: tmp_path))
+    out = tmp_path / "snap.json"
+    base = ["snapshot", "--tables-dir", str(tables), "--lib-root", str(tmp_path / "Libs"), "--out", str(out)]
+    assert _run(base, capsys)[0] == 0
+    assert json.loads(out.read_text(encoding="utf-8"))["entries"][0]["resolved"] == elsewhere.as_posix()
+    assert _run([*base, "--redact-home"], capsys)[0] == 0
+    assert json.loads(out.read_text(encoding="utf-8"))["entries"][0]["resolved"] == "<HOME>/elsewhere/x.kicad_sym"
+
+
 def test_null_vars_and_unreadable_json_count_as_empty(tmp_path):
     cfg = tmp_path / "cfg"
     cfg.mkdir()

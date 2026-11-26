@@ -8,13 +8,20 @@ cutover, two snapshots compare identical only when no entry changed and none is 
 An entry KiCad has disabled (`(disabled)`) is never loaded, so a gone file behind it is listed
 as a note and not counted as missing; a change of the disabled flag is still a difference.
 
+Variable precedence (lowest to highest): the process environment, environment.vars of
+kicad_common.json, then --var. KiCad may prefer a variable set in the operating system over the
+config file, which is the reverse of the first two steps, so take both snapshots of a proof from the
+same shell, or pass --no-env to ignore the process environment. A snapshot holds every resolved path
+that is not under the library root as written (an install or user folder, for instance): --redact-home
+replaces the user's home folder in it with <HOME> (both snapshots of a proof must use the same flag).
+
 Nothing here writes KiCad's folder: the tables are opened read-only and the one output file is
 the --out path. The script is stdlib only and never imports the app it is proving unchanged.
 
 Usage:
     python scripts/split/uri_diff.py vars [--config-dir DIR]
     python scripts/split/uri_diff.py snapshot --tables-dir DIR [--config-dir DIR]
-        [--var NAME=VALUE ...] [--lib-root DIR] --out FILE
+        [--var NAME=VALUE ...] [--lib-root DIR] [--no-env] [--redact-home] --out FILE
     python scripts/split/uri_diff.py compare BEFORE AFTER
 
 Exit codes: 0 success, 1 compare found a difference or a missing entry, 2 unusable input.
@@ -359,6 +366,24 @@ def _cmd_vars(args: argparse.Namespace) -> int:
     return 0
 
 
+def redact_home(value, home: str):
+    """The value with the folder `home` replaced by <HOME> in every string (lists and dicts are walked).
+
+    Matches on a whole path segment, forward slashes, ignoring case on Windows.
+    """
+    if isinstance(value, dict):
+        return {key: redact_home(item, home) for key, item in value.items()}
+    if isinstance(value, list):
+        return [redact_home(item, home) for item in value]
+    if not isinstance(value, str) or not home:
+        return value
+    base = _slashes(home).rstrip("/")
+    if not base:
+        return value
+    flags = re.IGNORECASE if sys.platform == "win32" else 0
+    return re.sub("(?<![^/])" + re.escape(base) + "(?=/|$)", "<HOME>", value, flags=flags)
+
+
 def _parse_vars(items: list[str]) -> dict[str, str] | None:
     found = {}
     for item in items:
@@ -376,8 +401,8 @@ def _cmd_snapshot(args: argparse.Namespace) -> int:
     flag_vars = _parse_vars(args.var)
     if flag_vars is None:
         return 2
-    # lowest to highest priority: the process environment, environment.vars, then --var
-    variables = {**os.environ, **read_vars(config_dir), **flag_vars}
+    # lowest to highest priority: the process environment (unless --no-env), environment.vars, then --var
+    variables = {**({} if args.no_env else os.environ), **read_vars(config_dir), **flag_vars}
     lib_root = args.lib_root or variables.get("KICAD_LIB_GITHUB")
     out = Path(args.out)
     protected = {(tables_dir / name).resolve() for name in TABLES} | {(config_dir / "kicad_common.json").resolve()}
@@ -388,6 +413,8 @@ def _cmd_snapshot(args: argparse.Namespace) -> int:
     if not snap["entries"]:
         print(f"uri_diff: no library entry in sym-lib-table or fp-lib-table under {tables_dir}")
         return 2
+    if args.redact_home:
+        snap = redact_home(snap, str(Path.home()))
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(snap, indent=2) + "\n", encoding="utf-8")
     for item in snap["duplicates"]:
@@ -427,6 +454,8 @@ def _parser() -> argparse.ArgumentParser:
     p_snap.add_argument("--config-dir", help="folder holding kicad_common.json (default: --tables-dir)")
     p_snap.add_argument("--var", action="append", default=[], metavar="NAME=VALUE", help="set a variable; beats kicad_common.json and the environment")
     p_snap.add_argument("--lib-root", help="library root written as <LIB> (default: the expanded KICAD_LIB_GITHUB)")
+    p_snap.add_argument("--no-env", action="store_true", help="ignore the process environment (only kicad_common.json and --var give variables)")
+    p_snap.add_argument("--redact-home", action="store_true", help="write the user's home folder as <HOME> in the snapshot")
     p_snap.add_argument("--out", required=True, help="the snapshot file to write")
     p_cmp = sub.add_parser("compare", help="exit 0 only when both snapshots list the same entries with none missing")
     p_cmp.add_argument("before")
