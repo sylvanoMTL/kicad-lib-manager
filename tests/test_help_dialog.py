@@ -831,6 +831,7 @@ def test_owner_choice_is_remembered_after_close_escape_and_parent_deleted(qtbot,
 
     if how == "close":
         dialog.findChild(QDialogButtonBox).button(QDialogButtonBox.StandardButton.Close).click()
+        qtbot.waitUntil(lambda: not dialog.isVisible(), timeout=30000)
         assert not dialog.isVisible()
     elif how == "escape":
         QTest.keyClick(dialog, Qt.Key.Key_Escape)
