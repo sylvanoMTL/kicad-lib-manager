@@ -1,1 +1,1 @@
-No external API integration: the phase splits a git repository with stdlib scripts and git, and uses the owner's authenticated gh CLI and GitHub Actions only as tooling (repo creation, visibility, one CI workflow); the detector matched the word "API" in the pre-publish scan's list of secret shapes (a Google API key pattern), not an API the app integrates.
+No external API integration: git and stdlib scripts plus the owner's gh CLI as tooling; the detector matched "API" in a Google API key pattern in the pre-publish scan.
