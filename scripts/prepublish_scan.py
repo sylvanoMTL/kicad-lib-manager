@@ -282,11 +282,17 @@ def _is_vendor_file(path: str, data: bytes) -> bool:
     return path.casefold().endswith(VENDOR_SUFFIXES) or data.startswith(VENDOR_MAGICS)
 
 
+def _name_findings(name: str, where: str, rules: Rules) -> list[Finding]:
+    """Text-rule findings for a file, folder or ref name: the name is published like the content."""
+    return [Finding(rule, where) for rule in _line_hits(name, rules) if rule not in rules.skipped]
+
+
 def scan_alias(path: str, data: bytes, rules: Rules) -> list[Finding]:
-    """Findings for a further path a blob has in the history: only the vendor-file decision, which depends on the name."""
+    """Findings for a further path a blob has in the history: the vendor-file decision and the name itself."""
+    found = _name_findings(path, path, rules)
     if "vendor_file" not in rules.skipped and _is_vendor_file(path, data):
-        return [Finding("vendor_file", path)]
-    return []
+        found.append(Finding("vendor_file", path))
+    return found
 
 
 def scan_blob(path: str, data: bytes, rules: Rules, allowed: list[Finding] | None = None) -> list[Finding]:
@@ -299,6 +305,7 @@ def scan_blob(path: str, data: bytes, rules: Rules, allowed: list[Finding] | Non
 
     if _is_vendor_file(path, data):
         add("vendor_file")
+    found.extend(_name_findings(path, path, rules))
     if len(data) > MAX_BLOB_BYTES:
         add("large_blob")
         return found
@@ -337,8 +344,12 @@ def scan_identity(sha: str, name: str, email: str, rules: Rules, kind: str = "co
     return []
 
 
-def scan_ref(name: str) -> list[Finding]:
-    return [Finding("ref_name", f"ref:{name}")] if _REF_PATTERN.search(name) else []
+def scan_ref(name: str, rules: Rules | None = None) -> list[Finding]:
+    """ref_name for an agent branch, plus the text-rule findings for the name when rules are given (a pushed ref name is published)."""
+    found = [Finding("ref_name", f"ref:{name}")] if _REF_PATTERN.search(name) else []
+    if rules is not None:
+        found.extend(_name_findings(name, f"ref:{name}", rules))
+    return found
 
 
 def _unique(findings: Iterable[Finding]) -> list[Finding]:
@@ -660,7 +671,7 @@ def run(args) -> tuple[list[Finding], list[Finding], tuple[int, int, int]]:
                 findings.extend(scan_identity(sha, name, email, rules, "tag"))
             findings.extend(scan_message(sha, message, rules, allowed, "tag"))
         for ref in history_refs(repo):
-            findings.extend(scan_ref(ref))
+            findings.extend(scan_ref(ref, rules))
     return _unique(findings), _unique(allowed), (files, blobs, commits)
 
 

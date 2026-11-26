@@ -241,6 +241,22 @@ def test_identity_and_refs():
     ]
 
 
+def test_file_and_ref_names_go_through_the_text_rules():
+    owner = "Zorblax" + "Quux"
+    rules = scan.build_rules(deny_terms=[owner])
+    assert scan.scan_blob("notes/" + owner.lower() + "-draft.txt", b"fine\n", rules) == [
+        Finding("owner_term", "notes/" + owner.lower() + "-draft.txt")
+    ]
+    folder = "C:" + SLASH + "Users" + SLASH + "someone" + SLASH + "x.txt"
+    assert scan.scan_blob("dump/" + folder, b"fine\n", rules) == [Finding("workstation_path", "dump/" + folder)]
+    assert scan.scan_alias("dump/" + owner + ".bin", b"x", rules) == [Finding("owner_term", "dump/" + owner + ".bin")]
+    ref = "refs/heads/" + owner.lower()
+    assert scan.scan_ref(ref, rules) == [Finding("owner_term", "ref:" + ref)]
+    assert scan.scan_ref(ref) == []
+    assert scan.scan_ref("refs/heads/main", rules) == []
+    assert scan.scan_blob("notes/plain.txt", b"fine\n", rules) == []
+
+
 def test_public_part_numbers_are_allowed():
     text = "Part CSD85301Q2 and USB4145-03-0170-C in Atomic_Transistor_FET and Atomic_Connector"
     assert blob("a.txt", text) == []
