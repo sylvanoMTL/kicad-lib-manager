@@ -57,39 +57,39 @@ findings:
     title: "`build_tool_repo.py` writes any `--email` into the first public commit"
   - id: WR-12
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "`test_compare_reports_differences` assertions are satisfied by any diff line (reviewer B)"
   - id: WR-13
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "Every behavioural test of the publishing controls is `slow`, so CI never runs it (reviewer B)"
   - id: WR-14
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "The scan's history walk is never tested on a blob that left the tree (reviewer B)"
   - id: WR-15
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "The corpus audit can be bypassed by common spellings, and its mark check is per module (reviewer B)"
   - id: WR-16
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "The allow-list tests would not notice private local files being admitted (reviewer B)"
   - id: WR-17
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "`test_a_raising_callback_does_not_stop_the_next_delivery` can still deliver `first` before the poll timer is stopped (reviewer C)"
   - id: WR-18
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "Two off-thread waits kept a 250 ms and a 1 s budget while their siblings went to 30 s (reviewer C)"
   - id: WR-19
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "Further small waits left in the same modules that the fix commits otherwise raised (reviewer C)"
   - id: WR-20
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "Worker hold gates of 5 s are now shorter than the 30 s waits placed before the assertions that rely on the held state (reviewer C)"
   - id: IN-01
     severity: info
@@ -131,9 +131,9 @@ findings:
     severity: info
     disposition: open
     title: "Debounce tests assert \"nothing started yet\" after a 100 ms wall-clock wait against a 300 ms debounce (reviewer C)"
-open: 19
+open: 10
 total: 32
-recorded: 2026-11-26T17:11:37.513Z
+recorded: 2026-11-26T17:11:57.631Z
 ---
 
 # Phase 16: Code Review Disposition
@@ -153,15 +153,15 @@ recorded: 2026-11-26T17:11:37.513Z
 | WR-09 | warning | fixed | 16-REVIEW-FIX.md |
 | WR-10 | warning | fixed | 16-REVIEW-FIX.md |
 | WR-11 | warning | fixed | 16-REVIEW-FIX.md |
-| WR-12 | warning | open | - |
-| WR-13 | warning | open | - |
-| WR-14 | warning | open | - |
-| WR-15 | warning | open | - |
-| WR-16 | warning | open | - |
-| WR-17 | warning | open | - |
-| WR-18 | warning | open | - |
-| WR-19 | warning | open | - |
-| WR-20 | warning | open | - |
+| WR-12 | warning | fixed | 16-REVIEW-FIX.md |
+| WR-13 | warning | fixed | 16-REVIEW-FIX.md |
+| WR-14 | warning | fixed | 16-REVIEW-FIX.md |
+| WR-15 | warning | fixed | 16-REVIEW-FIX.md |
+| WR-16 | warning | fixed | 16-REVIEW-FIX.md |
+| WR-17 | warning | fixed | 16-REVIEW-FIX.md |
+| WR-18 | warning | fixed | 16-REVIEW-FIX.md |
+| WR-19 | warning | fixed | 16-REVIEW-FIX.md |
+| WR-20 | warning | fixed | 16-REVIEW-FIX.md |
 | IN-01 | info | open | - |
 | IN-02 | info | open | - |
 | IN-03 | info | open | - |
