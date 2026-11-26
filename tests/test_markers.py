@@ -6,7 +6,8 @@ import pytest
 from runfixtures import REPO_ROOT, TESTS_DIR, collect_repo, run_pytest, write_tree
 
 # Tests carrying requires_git that only read this checkout and create no repository (id -> reason).
-# Empty since the vendor zips left the tool repo; kept for a future read-only git test.
+# Empty since the vendor zips left the tool repo; kept for a future read-only git test. With the first entry,
+# add a test that each entry exists, carries requires_git and is not slow (the check that was removed while empty).
 _READ_ONLY_GIT_TESTS: dict[str, str] = {}
 
 _OFFENDER_HINT = (
@@ -97,20 +98,6 @@ def test_requires_git_tests_are_slow():
                 offenders.append(ident)
 
     assert not offenders, f"{_OFFENDER_HINT}: {offenders}"
-
-
-def test_read_only_git_allow_list_is_exact():
-    """The allow-list is empty (kept for a future read-only git test); an entry must exist, need git and not be slow."""
-    assert _READ_ONLY_GIT_TESTS == {}, _READ_ONLY_GIT_TESTS
-
-    for ident in _READ_ONLY_GIT_TESTS:
-        module, name = ident.split("::")
-        tree = ast.parse((TESTS_DIR / module).read_text(encoding="utf-8"))
-        found = [func for func in _test_functions(tree) if func.name == name]
-        assert found, f"{module}::{name} no longer exists: update _READ_ONLY_GIT_TESTS"
-        decorators = found[0].decorator_list
-        assert any(isinstance(d, ast.Name) and d.id == "requires_git" for d in decorators)
-        assert not any(_is_slow(d) for d in decorators) and not _module_is_slow(tree)
 
 
 # ── Child runs ────────────────────────────────────────────────────────────────────
