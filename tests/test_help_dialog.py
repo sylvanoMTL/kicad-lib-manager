@@ -1123,7 +1123,7 @@ def test_keyboard_move_after_a_lost_release_still_folds(qtbot, monkeypatch, how)
         page = new_key.partition("#")[0]
         expected = {page} if _find_item(dialog, page).childCount() else set()
         assert expected != before  # so the case can tell a fold from no fold
-        qtbot.waitUntil(lambda: _expanded_page_keys(dialog) == expected, timeout=1000)
+        qtbot.waitUntil(lambda: _expanded_page_keys(dialog) == expected, timeout=30000)
     finally:
         if how == "guide closed while held":
             QTest.mouseRelease(

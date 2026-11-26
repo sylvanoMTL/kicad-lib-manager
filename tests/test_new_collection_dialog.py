@@ -396,7 +396,9 @@ def test_browse_cancel_keeps_field(made, qtbot, monkeypatch, tmp_path):
     calls = len(rec.checks)
     dialog._browse_btn.click()
     assert Path(dialog._parent_edit.text()) == other
-    qtbot.waitUntil(lambda: len(rec.checks) > calls, timeout=250)  # at once, not after the 300 ms debounce
+    # at once, not after the 300 ms debounce: the check was scheduled with no delay (read off the timer, not off a clock)
+    assert dialog._debounce.interval() == 0
+    qtbot.waitUntil(lambda: len(rec.checks) > calls, timeout=30000)
     assert rec.checks[-1][0] == dialog._parent_edit.text()
 
 
