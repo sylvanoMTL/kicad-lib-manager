@@ -93,6 +93,14 @@ def test_allow_list_decisions(split):
         ".planning/MILESTONES.md",
         ".planning/RETROSPECTIVE.md",
         "stray.txt",
+        # the owner-local files a checkout holds
+        "CLAUDE.local.md",
+        ".claude/settings.local.json",
+        ".claude/anything",
+        ".env",
+        "junit.xml",
+        "env/Scripts/python.exe",
+        "deny-terms.txt",
     ):
         assert not allow.allowed(rel), rel
 
@@ -103,6 +111,8 @@ def test_allow_list_has_no_collection_content_line():
     for entry in entries:
         assert not re.match(r"(?i)^!?(Custom|WurthElektronik|downloaded_examples|reports|research_notes)\b", entry), entry
         assert not entry.startswith("/") and ".." not in entry.split("/"), entry
+        # never an owner-local file or folder
+        assert not re.search(r"(?i)(^|/)(\.claude|env|\.env)(/|$)|\.local\.|deny-terms|junit", entry), entry
 
 
 def test_include_prefix_is_a_whole_path_segment(split, tmp_path):
@@ -246,7 +256,21 @@ def test_verify_export_passes_a_complete_tree(split, tmp_path, capsys):
 
 @pytest.mark.parametrize(
     "extra",
-    ["extra.txt", ".gitmodules", "Custom/a.kicad_sym", "downloaded_examples/x.zip", "tests_old/x.py", "WurthElektronik/a.md", ".planning/milestones/m.md"],
+    [
+        "extra.txt",
+        ".gitmodules",
+        "Custom/a.kicad_sym",
+        "downloaded_examples/x.zip",
+        "tests_old/x.py",
+        "WurthElektronik/a.md",
+        ".planning/milestones/m.md",
+        "CLAUDE.local.md",
+        ".claude/settings.local.json",
+        ".env",
+        "junit.xml",
+        "env/Scripts/python.exe",
+        "deny-terms.txt",
+    ],
 )
 def test_verify_export_flags_a_path_outside_the_list(split, tmp_path, capsys, extra):
     root = _export(tmp_path / "export")
