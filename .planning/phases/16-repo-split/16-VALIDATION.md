@@ -3,9 +3,9 @@ phase: "16"
 slug: "repo-split"
 # status lifecycle: draft (seeded by plan-phase) → validated (set by validate-phase §6)
 # audit-milestone §5.5 distinguishes NOT-VALIDATED (draft) from PARTIAL (validated + nyquist_compliant: false) (#2117)
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: validated
+nyquist_compliant: true
+wave_0_complete: true
 created: "2026-11-24"
 ---
 
@@ -42,14 +42,14 @@ Filled in by the planner and the executor from the plans. Requirement-level map 
 
 | Requirement | Behavior | Test Type | Automated Command | File Exists | Status |
 |-------------|----------|-----------|-------------------|-------------|--------|
-| SPLIT-01 | exported tool tree is a subset of the allow-list, no `Custom`/`WurthElektronik`/`downloaded_examples` | script check | `python scripts/split/verify_export.py <dir> --allow-list scripts/split/allowlist.txt` | ❌ W0 | ⬜ pending |
-| SPLIT-02 | before/after resolved URI lists identical, zero missing | script + unit | `pytest tests/test_uri_diff.py`; `python scripts/split/uri_diff.py compare before.json after.json` | ❌ W0 | ⬜ pending |
-| SPLIT-03 | blocking classes detected; clean export exits 0 | unit + slow git-history test | `pytest tests/test_prepublish_scan.py`; `python scripts/prepublish_scan.py --tree --history` | ❌ W0 | ⬜ pending |
-| SPLIT-04 | fresh clone without collection passes within budget | CI + local fresh clone | `pytest --junitxml=junit.xml` then `python scripts/check_skip_budget.py junit.xml ...`; `pytest tests/test_skip_budget.py` | ❌ W0 | ⬜ pending |
-| SPLIT-04 | corpus deselection prints counts; bad `KICAD_TEST_CORPUS` fails | meta-test | `pytest tests/test_corpus_gate.py` | ❌ W0 | ⬜ pending |
-| SPLIT-04 | UL builder adapter-compatible and deterministic | unit | `pytest tests/test_vendorfixtures.py -k ultra` | partial | ⬜ pending |
-| SPLIT-05/06/08 | LICENSE, README install/first run, collection docs, dev workflow | doc check | `pytest tests/test_docs_split.py` | ❌ W0 | ⬜ pending |
-| SPLIT-07 | visibility set | manual | `gh repo view <repo> --json visibility` | manual | ⬜ pending |
+| SPLIT-01 | exported tool tree is a subset of the allow-list, no `Custom`/`WurthElektronik`/`downloaded_examples` | script check + unit | `python scripts/split/verify_export.py <dir> --allow-list scripts/split/allowlist.txt`; `pytest tests/test_split_export.py --full` | ✅ | ✅ green |
+| SPLIT-02 | before/after resolved URI lists identical, zero missing | script + unit | `pytest tests/test_uri_diff.py tests/test_cutover_collection.py --full`; `python scripts/split/uri_diff.py compare before.json after.json` | ✅ | ✅ green |
+| SPLIT-03 | blocking classes detected; clean export exits 0 | unit + slow git-history test | `pytest tests/test_prepublish_scan.py tests/test_githooks.py --full`; `python scripts/prepublish_scan.py --tree --history` | ✅ | ✅ green |
+| SPLIT-04 | fresh clone without collection passes within budget | CI + local fresh clone | `pytest --junitxml=junit.xml` then `python scripts/check_skip_budget.py junit.xml ...`; `pytest tests/test_skip_budget.py tests/test_ci_workflow.py` | ✅ | ✅ green |
+| SPLIT-04 | corpus deselection prints counts; bad `KICAD_TEST_CORPUS` fails | meta-test | `pytest tests/test_corpus_gate.py tests/test_markers.py tests/test_corpus_audit.py` | ✅ | ✅ green |
+| SPLIT-04 | UL builder adapter-compatible and deterministic | unit | `pytest tests/test_vendorfixtures.py tests/test_ulfixtures.py tests/test_zipfixtures.py` (the real-sample structure check runs under `corpus`) | ✅ | ✅ green |
+| SPLIT-05/06/08 | LICENSE, README install/first run, collection docs, dev workflow | doc check | `pytest tests/test_docs_split.py tests/test_cutover_collection.py`; `tests/test_startup.py`, `tests/test_collection.py` for the start without the code folder | ✅ | ✅ green |
+| SPLIT-07 | visibility set | manual | `gh repo view <repo> --json visibility` | manual | ✅ checked 2026-11-26: `kicad-lib-manager` PUBLIC, `kicad_libraries` and `kicad_custom_library` PRIVATE |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -75,13 +75,13 @@ Per-plan map (from the PLAN files, 2026-11-24; the Wave 0 files above are create
 
 ## Wave 0 Requirements
 
-- [ ] `tests/test_prepublish_scan.py`, `scripts/prepublish_scan.py`
-- [ ] `tests/test_corpus_gate.py` (marker, deselection count, bad `KICAD_TEST_CORPUS`)
-- [ ] `tests/test_skip_budget.py`, `scripts/check_skip_budget.py`
-- [ ] `tests/test_uri_diff.py`, `scripts/split/uri_diff.py`
-- [ ] `tests/test_docs_split.py` (replaces the `test_docs_atomic.py` cases that read the split docs)
-- [ ] UL builder tests in `tests/test_vendorfixtures.py`, plus the corpus originality test
-- [ ] Framework install: none (pins already in `requirements-dev.txt`)
+- [x] `tests/test_prepublish_scan.py`, `scripts/prepublish_scan.py`
+- [x] `tests/test_corpus_gate.py` (marker, deselection count, bad `KICAD_TEST_CORPUS`)
+- [x] `tests/test_skip_budget.py`, `scripts/check_skip_budget.py`
+- [x] `tests/test_uri_diff.py`, `scripts/split/uri_diff.py`
+- [x] `tests/test_docs_split.py` (replaces the `test_docs_atomic.py` cases that read the split docs; `test_docs_atomic.py` is gone)
+- [x] UL builder tests in `tests/test_vendorfixtures.py`, plus the corpus originality test
+- [x] Framework install: none (pins already in `requirements-dev.txt`)
 
 ---
 
@@ -97,11 +97,19 @@ Per-plan map (from the PLAN files, 2026-11-24; the Wave 0 files above are create
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 120s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies (the six owner checkpoints in 16-12..16-16 are human gates by design)
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 120s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** approved 2026-11-26 (validate-phase audit: 0 gaps; the requirement tests pass, 354 without the collection and 9 more with `KICAD_TEST_CORPUS` set to the main checkout)
+
+## Validation Audit 2026-11-26
+
+| Metric | Count |
+|---|---|
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated | 0 |
