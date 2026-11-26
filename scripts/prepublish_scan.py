@@ -121,7 +121,7 @@ _WORKSTATION_PATTERNS = (
 # Made-up user folders that docs and tests quote as samples, like example.org for addresses:
 # a path into one of them is not a workstation path. Matched whole, ignoring case: a Windows profile folder can
 # hold spaces ("Bob Smith"), so the folder name runs to the next separator, quote or end of line, spaces included.
-PLACEHOLDER_USERS = frozenset({"bob", "alice", "user", "username", "<user>", "<username>"})
+PLACEHOLDER_USERS = frozenset({"bob", "alice", "user", "username", "<user>", "<username>", "<name>"})
 _USER_FOLDERS = frozenset({"users"})
 _SEGMENT_PATTERN = re.compile(r"[\\/]*([^\\/\"'`\r\n\t]+)")
 

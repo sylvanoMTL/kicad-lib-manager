@@ -75,7 +75,7 @@ def test_workstation_paths_are_found():
 
 def test_a_placeholder_user_folder_is_a_sample_not_a_workstation_path():
     """Docs and tests quote made-up users (bob, alice, user, <user>), the way example.org is quoted for addresses."""
-    for user in ("bob", "Alice", "user", "USERNAME", "<user>", "<username>"):
+    for user in ("bob", "Alice", "user", "USERNAME", "<user>", "<username>", "<name>"):
         samples = [
             drive_path("C", "Users", SLASH).replace("someone", user),
             drive_path("C", "Users", BACKSLASH * 2).replace("someone", user),
