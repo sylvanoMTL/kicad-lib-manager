@@ -7,6 +7,7 @@ Every test works on copies in tmp_path; the script only ever reads the tables fo
 import hashlib
 import importlib.util
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -211,6 +212,17 @@ def _snap(tmp_path: Path, capsys, name: str, entries: list[tuple[str, str]], lib
     return out
 
 
+def _named(lines: list[str]) -> list[tuple[str, str]]:
+    """(kind, entry name) of every removed, added, changed or missing line, sorted and de-duplicated, so a wrong entry cannot pass."""
+    pattern = re.compile(r"^(removed|added|changed|missing)(?: \(\w+\))?: \S+ (\S+?)(?::| ->| \()")
+    named = []
+    for line in lines:
+        match = pattern.match(line)
+        if match:
+            named.append((match.group(1), match.group(2)))
+    return sorted(set(named))
+
+
 def test_compare_reports_differences(tmp_path, capsys):
     lib = tmp_path / "Libs"
     (lib / "Custom").mkdir(parents=True)
@@ -231,25 +243,35 @@ def test_compare_reports_differences(tmp_path, capsys):
     removed = _snap(tmp_path, capsys, "removed", base[:2], lib)
     code, text = _run(["compare", str(before), str(removed)], capsys)
     assert code == 1
-    assert any("removed" in line and "C" in line for line in text.splitlines())
+    lines = text.splitlines()
+    assert "removed: sym-lib-table C (${KICAD_LIB_GITHUB}/Custom/C.kicad_sym)" in lines
+    assert _named(lines) == [("removed", "C")]
 
     added = _snap(tmp_path, capsys, "added", [*base, ("D", "${KICAD_LIB_GITHUB}/Custom/D.kicad_sym")], lib)
     code, text = _run(["compare", str(before), str(added)], capsys)
     assert code == 1
-    assert any("added" in line and "D" in line for line in text.splitlines())
+    lines = text.splitlines()
+    assert "added: sym-lib-table D (${KICAD_LIB_GITHUB}/Custom/D.kicad_sym)" in lines
+    # D has no file on disk, so it is also reported missing; no other entry is named
+    assert _named(lines) == [("added", "D"), ("missing", "D")]
 
     changed = _snap(
         tmp_path, capsys, "changed", [base[0], base[1], ("C", "${KICAD_LIB_GITHUB}/Custom/Other.kicad_sym")], lib
     )
     code, text = _run(["compare", str(before), str(changed)], capsys)
     assert code == 1
-    assert any("changed" in line and "C" in line for line in text.splitlines())
+    lines = text.splitlines()
+    assert any(line.startswith("changed: sym-lib-table C: ") for line in lines)
+    assert _named(lines) == [("changed", "C"), ("missing", "C")]
 
     (lib / "Custom" / "B.kicad_sym").unlink()
     gone = _snap(tmp_path, capsys, "gone", base, lib)
     code, text = _run(["compare", str(before), str(gone)], capsys)
     assert code == 1
-    assert any("missing" in line and "B" in line for line in text.splitlines())
+    lines = text.splitlines()
+    assert any(line.startswith("missing (") and " sym-lib-table B -> " in line for line in lines)
+    # B also shows as changed (its path no longer resolves); no other entry is named
+    assert _named(lines) == [("changed", "B"), ("missing", "B")]
 
 
 def test_compare_flags_missing_even_when_lists_match(tmp_path, capsys):
