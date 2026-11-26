@@ -77,6 +77,8 @@ class CutoverPlan:
     gitlinks: dict[str, str] = field(default_factory=dict)  # gitlink path -> SHA at HEAD
     gitmodules: bytes | None = None
     remote_url: str | None = None
+    # the template files, read before anything is removed (they may live inside the folder that is about to be cleared)
+    templates: dict[str, bytes] = field(default_factory=dict)
     # REMOVE folders that hold files the index does not track -> the ones that are not cache content
     leftovers: dict[str, list[str]] = field(default_factory=dict)
     problems: list[str] = field(default_factory=list)
@@ -179,6 +181,15 @@ def _remove_tree(folder: Path) -> None:
 # -- plan ---------------------------------------------------------------------------------------
 
 
+def _inside(path: Path, folder: Path) -> bool:
+    """True when path is folder or lies under it (both resolved, so a link cannot hide it)."""
+    try:
+        Path(path).resolve().relative_to(Path(folder).resolve())
+    except ValueError:
+        return False
+    return True
+
+
 def plan(repo: Path) -> CutoverPlan:
     """What the cutover would do, and every reason it must not run. Writes nothing."""
     repo = Path(repo)
@@ -228,9 +239,13 @@ def plan(repo: Path) -> CutoverPlan:
         problems.append(".gitmodules cannot be read")
     result.remote_url = _remote_url(repo)
 
+    if _inside(TEMPLATES, repo):
+        problems.append(f"the templates ({TEMPLATES}) are inside the repository that is being cut over; run the script from the tool checkout")
     for target, template in WRITE.items():
-        if not (TEMPLATES / template).is_file():
-            problems.append(f"the template {template} is missing under {TEMPLATES}")
+        try:
+            result.templates[target] = (TEMPLATES / template).read_bytes()
+        except OSError:
+            problems.append(f"the template {template} is missing or unreadable under {TEMPLATES}")
 
     for entry in REMOVE:
         folder = repo / entry
@@ -244,11 +259,17 @@ def plan(repo: Path) -> CutoverPlan:
 # -- apply --------------------------------------------------------------------------------------
 
 
+def _print_way_back(repo: Path) -> None:
+    print("cutover: stopped; nothing was pushed. Staged removals can be undone with:")
+    print(f"cutover:   git -C {repo} reset -q && git -C {repo} checkout -- .")
+    print("cutover: the pre-split bundle and tag restore the previous state if that is not enough.")
+
+
 def _run(repo: Path, *args: str) -> bool:
     done = _git(repo, *args)
     if done.returncode != 0:
         print(f"cutover: git {' '.join(args[:3])} failed: {_error(done)}")
-        print("cutover: stopped; nothing was pushed. The pre-split bundle and tag restore the previous state.")
+        _print_way_back(repo)
         return False
     return True
 
@@ -302,8 +323,13 @@ def apply(repo: Path, plan_: CutoverPlan, message: str) -> int:
         return 1
     if plan_.remove and not _run(repo, "rm", "-r", "-q", "--", *plan_.remove):
         return 1
-    for target, template in WRITE.items():
-        shutil.copyfile(TEMPLATES / template, repo / target)
+    for target in WRITE:
+        try:
+            (repo / target).write_bytes(plan_.templates[target])
+        except OSError as error:
+            print(f"cutover: cannot write {target}: {error}")
+            _print_way_back(repo)
+            return 1
     if not _run(repo, "add", "--", *WRITE):
         return 1
     if not _run(repo, "commit", "-q", "-m", message):

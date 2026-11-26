@@ -279,6 +279,13 @@ def test_apply_keeps_gitlinks_and_untracks_samples(tmp_path):
         assert not (coll.parent / name).exists(), name
 
 
+def test_templates_inside_the_repository_are_refused(tmp_path, monkeypatch):
+    monkeypatch.setattr(cutover, "TEMPLATES", tmp_path / "collection")
+    monkeypatch.setattr(cutover, "_git", lambda repo, *a: subprocess.CompletedProcess(a, 1, b"", b""))
+    found = cutover.plan(tmp_path)
+    assert any("inside the repository" in problem for problem in found.problems), found.problems
+
+
 @pytest.mark.slow
 @requires_git
 def test_refusals(tmp_path):
