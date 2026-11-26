@@ -234,7 +234,8 @@ def test_check_is_debounced_and_off_thread(made, qtbot):
     dialog._name_edit.setText("ab")
     dialog._name_edit.setText("abc")
     assert not dialog._create_btn.isEnabled()  # a check is pending
-    qtbot.wait(100)
+    # No wall-clock wait: the event loop has not run since the last edit, so the quiet period is still counting
+    assert dialog._debounce.isActive()
     assert rec.checks == []
     qtbot.waitUntil(lambda: len(rec.checks) == 1, timeout=30000)
     settle(qtbot, dialog)

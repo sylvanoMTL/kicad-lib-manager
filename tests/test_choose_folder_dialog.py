@@ -241,8 +241,9 @@ def test_debounce_and_stale_results(made, qtbot, tmp_path):
     dialog = make(None)
     for text in (str(tmp_path / "x"), str(tmp_path / "xy"), str(first)):
         dialog._field.setText(text)
-    qtbot.wait(100)
-    assert rec.calls == []  # nothing before the 300 ms are over
+    # No wall-clock wait: the event loop has not run since the last edit, so the quiet period is still counting
+    assert dialog._debounce.isActive()
+    assert rec.calls == []  # nothing before the quiet period is over
     settle(qtbot, dialog)
     assert rec.calls == [str(first)]  # three quick edits, one check
 
