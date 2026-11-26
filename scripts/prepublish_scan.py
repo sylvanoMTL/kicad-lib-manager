@@ -288,7 +288,7 @@ def _line_hits(line: str, rules: Rules) -> list[str]:
 def _decode(data: bytes) -> str:
     """Text of a blob, whatever its encoding.
 
-    UTF-32 and UTF-16 (with or without a byte order mark; recognised by the share of NUL bytes) are decoded as
+    UTF-32 and UTF-16 (with or without a byte order mark; recognised by the share of NUL bytes, UTF-32 first) are decoded as
     such. Any other data with NUL bytes (a binary file, or a text file that starts with a NUL to hide from the
     scan) is read like `strings` does: the NULs become line breaks, so the text runs in it are still scanned.
     For such data the line number in a finding counts the runs between NULs and line breaks, not editor lines.
@@ -299,6 +299,17 @@ def _decode(data: bytes) -> str:
         return data.decode("utf-16", errors="replace")
     head = data[:BINARY_PROBE_BYTES]
     if b"\x00" in head:
+        # UTF-32 without a byte order mark: three of every four bytes are NUL for ASCII text (tested before UTF-16,
+        # which a big-endian UTF-32 text would otherwise pass for)
+        quarter = max(len(head) // 4, 1)
+
+        def mostly_nul(*offsets: int) -> bool:
+            return all(head[offset::4].count(0) * 10 > quarter * 3 for offset in offsets)
+
+        if mostly_nul(1, 2, 3):
+            return data.decode("utf-32-le", errors="replace").replace("\x00", "")
+        if mostly_nul(0, 1, 2):
+            return data.decode("utf-32-be", errors="replace").replace("\x00", "")
         half = max(len(head) // 2, 1)
         if head[1::2].count(0) * 10 > half * 3:
             return data.decode("utf-16-le", errors="replace").replace("\x00", "")

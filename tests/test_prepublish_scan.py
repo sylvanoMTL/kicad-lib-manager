@@ -193,7 +193,8 @@ def test_text_is_scanned_whatever_its_encoding():
         ("utf-16 without BOM, big endian", line.encode("utf-16-be")),
         ("utf-16 with BOM", line.encode("utf-16")),
         ("utf-32 with BOM", line.encode("utf-32")),
-        ("utf-32 without BOM", line.encode("utf-32-le")),
+        ("utf-32 without BOM, little endian", line.encode("utf-32-le")),
+        ("utf-32 without BOM, big endian", line.encode("utf-32-be")),
         ("a NUL first", b"\x00" + line.encode("utf-8")),
         ("a NUL inside", b"ab\x00cd\n" + line.encode("utf-8")),
     ):
