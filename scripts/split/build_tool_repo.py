@@ -68,7 +68,12 @@ def _git(repo: Path, *args: str, input: bytes | None = None) -> bytes:
 
 def clean_message(message: str) -> str:
     """The message without session-trailer lines and claude.ai session URL lines, ending in one newline."""
-    kept = [line for line in message.splitlines() if not line.lstrip().startswith(_TRAILER) and _SESSION_URL not in line]
+    # case-insensitive, like the commit-msg hook and the scan's session_trailer / session_url rules
+    kept = [
+        line
+        for line in message.splitlines()
+        if not line.lstrip().casefold().startswith(_TRAILER.casefold()) and _SESSION_URL not in line.casefold()
+    ]
     return "\n".join(kept).rstrip("\n") + "\n"
 
 

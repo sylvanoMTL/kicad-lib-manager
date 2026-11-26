@@ -89,6 +89,19 @@ def test_commit_msg_strips_the_session_line(tmp_path):
     assert "claude.ai" not in stored
 
 
+def test_commit_msg_is_never_weaker_than_the_scan(tmp_path):
+    """The scan matches the trailer in any case and indented, the URL in any case; the hook must too."""
+    shell = _sh()
+    if shell is None:
+        pytest.skip("no POSIX shell to run the hook")
+    message = tmp_path / "message.txt"
+    variants = ["claude-" + "session: abc", "  Claude-" + "Session: abc", "\tCLAUDE-" + "SESSION: abc", "see " + SESSION_URL.upper()]
+    message.write_bytes(("Subject\n" + "\n".join(variants) + "\nbody\n" + CO_AUTHOR + "\n").encode("utf-8"))
+    done = subprocess.run([shell, str(HOOKS / "commit-msg"), str(message)], env=_env(tmp_path), capture_output=True, timeout=120)
+    assert done.returncode == 0, done.stderr
+    assert message.read_text(encoding="utf-8").splitlines() == ["Subject", "body", CO_AUTHOR]
+
+
 @pytest.mark.slow
 @requires_git
 def test_commit_msg_keeps_ordinary_messages(tmp_path):

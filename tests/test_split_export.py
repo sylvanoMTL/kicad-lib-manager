@@ -397,6 +397,9 @@ def test_build_drops_a_session_line_from_a_given_message(split):
     assert clean(message) == "Import\n\nCo-Authored-By: Claude Test <noreply@anthropic.com>\n"
     assert clean(f"Import\n\nsee {SESSION_URL} for more\nbody\n") == "Import\n\nbody\n"
     assert clean("Plain subject\n\nbody line\n") == "Plain subject\n\nbody line\n"
+    # any case, any indent, as the scan's session_trailer and session_url rules see them
+    for variant in ("claude-" + "session: abc", "  Claude-" + "Session: abc", "CLAUDE-" + "SESSION: abc", f"see {SESSION_URL.upper()}"):
+        assert clean(f"Import\n{variant}\nbody\n") == "Import\nbody\n", variant
     assert clean(split.build_tool_repo.DEFAULT_MESSAGE) == split.build_tool_repo.DEFAULT_MESSAGE
 
 
