@@ -126,6 +126,28 @@ def test_generic_emails():
     assert blob("a.txt", "pyside6@6.12.0") == []
 
 
+def test_text_is_scanned_whatever_its_encoding():
+    """A NUL byte or a wide encoding must not switch the text rules off."""
+    address = "pe" + "rson" + "@" + "mail" + ".test"
+    line = "contact " + address + "\n"
+    for label, data in (
+        ("utf-16 without BOM, little endian", line.encode("utf-16-le")),
+        ("utf-16 without BOM, big endian", line.encode("utf-16-be")),
+        ("utf-16 with BOM", line.encode("utf-16")),
+        ("utf-32 with BOM", line.encode("utf-32")),
+        ("utf-32 without BOM", line.encode("utf-32-le")),
+        ("a NUL first", b"\x00" + line.encode("utf-8")),
+        ("a NUL inside", b"ab\x00cd\n" + line.encode("utf-8")),
+    ):
+        found = scan.scan_blob("a.txt", data, scan.build_rules())
+        assert [f.rule for f in found] == ["email"], label
+    # a NUL-split text is read by its runs; the line number follows the NULs
+    found = scan.scan_blob("a.txt", b"ab\x00cd\n" + line.encode("utf-8"), scan.build_rules())
+    assert found == [Finding("email", "a.txt:3")]
+    # plain binary noise stays quiet
+    assert scan.scan_blob("a.bin", bytes(range(256)) * 4, scan.build_rules()) == []
+
+
 def test_vendor_files():
     suffixes = (".zip .stp .step .wrl .kicad_sym .kicad_mod .kicad_pcb .kicad_sch .kicad_pro .lib .dcm .pdf .igs .iges .7z .rar").split()
     rules = scan.build_rules()

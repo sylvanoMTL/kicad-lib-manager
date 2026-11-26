@@ -234,12 +234,25 @@ def _line_hits(line: str, rules: Rules) -> list[str]:
     return hits
 
 
-def _decode(data: bytes) -> str | None:
-    """Text of a blob, or None for binary data (a NUL byte early on, unless it is UTF-16 with a byte order mark)."""
+def _decode(data: bytes) -> str:
+    """Text of a blob, whatever its encoding.
+
+    UTF-32 and UTF-16 (with or without a byte order mark; recognised by the share of NUL bytes) are decoded as
+    such. Any other data with NUL bytes (a binary file, or a text file that starts with a NUL to hide from the
+    scan) is read like `strings` does: the NULs become line breaks, so the text runs in it are still scanned.
+    """
+    if data[:4] in (b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff"):
+        return data.decode("utf-32", errors="replace")
     if data[:2] in (b"\xff\xfe", b"\xfe\xff"):
         return data.decode("utf-16", errors="replace")
-    if b"\x00" in data[:BINARY_PROBE_BYTES]:
-        return None
+    head = data[:BINARY_PROBE_BYTES]
+    if b"\x00" in head:
+        half = max(len(head) // 2, 1)
+        if head[1::2].count(0) * 10 > half * 3:
+            return data.decode("utf-16-le", errors="replace").replace("\x00", "")
+        if head[0::2].count(0) * 10 > half * 3:
+            return data.decode("utf-16-be", errors="replace").replace("\x00", "")
+        return data.decode("utf-8", errors="replace").replace("\x00", "\n")
     return data.decode("utf-8", errors="replace")
 
 
@@ -292,8 +305,6 @@ def scan_blob(path: str, data: bytes, rules: Rules, allowed: list[Finding] | Non
     if data and rules.corpus_hashes and hashlib.sha256(data).hexdigest() in rules.corpus_hashes:
         add("copied_content")
     text = _decode(data)
-    if text is None:
-        return found
     if rules.corpus_windows and not windows(text).isdisjoint(rules.corpus_windows):
         if not any(f.rule == "copied_content" for f in found):
             add("copied_content")
