@@ -6,9 +6,10 @@ pytest does not collect it. Test modules import it with ``from zipfixtures impor
 ``sys.path``. It imports the standard library only; the builders produce bytes and
 the self-tests in ``test_zipfixtures.py`` parse them with ``kicad_files``.
 
-Every builder writes only under the path the test passes (``tmp_path``). The
-synthetic Ultra Librarian sample built by ``tests/ulfixtures.py`` is only read, never
-changed. ``unpack_sample`` is the one place that turns it into a real folder of loose
+Every builder writes only under the path the test passes (``tmp_path``), with one
+exception: ``UL_ZIP`` is built when this module is imported, into a per-user,
+content-addressed cache folder under the system temp folder (``ulfixtures.ul_sample_zip``).
+The synthetic Ultra Librarian sample is only read, never changed. ``unpack_sample`` is the one place that turns it into a real folder of loose
 files: the owner's D-17 waiver of the loose-files sample rule for Phase 3.
 """
 

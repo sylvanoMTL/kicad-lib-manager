@@ -17,9 +17,11 @@ content-addressed folder under the system temp folder, so every xdist worker and
 import of ``zipfixtures`` gets the same path and no worker reads a half-written file.
 """
 
+import getpass
 import hashlib
 import io
 import os
+import re
 import tempfile
 import time
 import zipfile
@@ -294,8 +296,21 @@ def _sha256_of(path: Path) -> str | None:
         return None
 
 
+def _cache_root() -> Path:
+    """The per-user cache folder under the system temp folder.
+
+    The user name is part of the folder name: on a shared /tmp another user cannot pre-create the
+    predictable folder this process would then write into.
+    """
+    try:
+        user = getpass.getuser()
+    except (OSError, KeyError, ImportError):
+        user = "user"
+    return Path(tempfile.gettempdir()) / f"{_CACHE_FOLDER}-{re.sub(r'[^A-Za-z0-9_.-]', '_', user)}"
+
+
 def ul_sample_zip() -> Path:
-    """Return the sample zip, built once per content hash under the system temp folder.
+    """Return the sample zip, built once per content hash in the per-user cache under the system temp folder.
 
     The folder name is the first 12 hex characters of the SHA-256 of the bytes, so a changed
     builder gets a new folder and the same builder gets the same path in every process. The
@@ -306,7 +321,7 @@ def ul_sample_zip() -> Path:
     """
     data = ul_zip_bytes()
     digest = hashlib.sha256(data).hexdigest()
-    target = Path(tempfile.gettempdir()) / _CACHE_FOLDER / digest[:12] / UL_ZIP_NAME
+    target = _cache_root() / digest[:12] / UL_ZIP_NAME
     if _sha256_of(target) == digest:
         return target
     target.parent.mkdir(parents=True, exist_ok=True)
