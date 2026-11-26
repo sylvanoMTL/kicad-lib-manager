@@ -48,6 +48,19 @@ A test that creates a real git repository must carry `@pytest.mark.slow`, otherw
 - A test that starts git itself fails at teardown, with or without `@requires_git`: `<nodeid> creates a real git repository (<command>): mark it @pytest.mark.slow`.
   The command is `git init`, `git clone`, `git submodule add` or `git submodule update --init`.
 
+### Publishing-control tests that CI does not run
+
+CI runs the quick `pytest` only (`.github/workflows/ci.yml` must not contain `--full`).
+The behavioural tests of the publishing controls that need a real git repository are slow, so CI never runs them:
+`tests/test_githooks.py` (pre-push block, the commit-msg hook as a git hook), `tests/test_prepublish_scan.py` (exit codes and the history walk on a repository),
+`tests/test_cutover_collection.py` and `tests/test_split_export.py` (the export builder, the planning sync, the cutover).
+The commit-msg hook itself is tested in the quick form (the hook run on a message file, no repository), and the scan's unit tests run in CI.
+Run the slow ones before every publish:
+
+```
+.\env\Scripts\python.exe -m pytest --full tests/test_githooks.py tests/test_prepublish_scan.py tests/test_cutover_collection.py tests/test_split_export.py
+```
+
 ## Timeouts
 
 Every test has 300 s (`timeout = 300`, thread method, in `pyproject.toml`).

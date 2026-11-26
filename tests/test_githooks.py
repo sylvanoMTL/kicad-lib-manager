@@ -78,36 +78,45 @@ def _sh() -> str | None:
     return None
 
 
-@pytest.mark.slow
-@requires_git
+def _run_commit_msg(tmp_path: Path, message: str) -> str:
+    """Run the commit-msg hook on a message file (it needs no repository, so no git init) and return the stored text."""
+    shell = _sh()
+    if shell is None:
+        pytest.skip("no POSIX shell to run the hook")
+    path = tmp_path / "message.txt"
+    path.write_bytes(message.encode("utf-8"))
+    done = subprocess.run([shell, str(HOOKS / "commit-msg"), str(path)], env=_env(tmp_path), capture_output=True, timeout=120)
+    assert done.returncode == 0, done.stderr
+    return path.read_bytes().decode("utf-8").rstrip("\n")
+
+
 def test_commit_msg_strips_the_session_line(tmp_path):
-    repo = _hook_repo(tmp_path)
     message = f"Add the thing\n\nBody line one.\n\nsee {SESSION_URL} for the session\n{CO_AUTHOR}\n{TRAILER}\n"
-    stored = _commit(repo, message)
+    stored = _run_commit_msg(tmp_path, message)
     assert stored == f"Add the thing\n\nBody line one.\n\n{CO_AUTHOR}"
     assert "Claude-Session" not in stored
     assert "claude.ai" not in stored
 
 
-def test_commit_msg_is_never_weaker_than_the_scan(tmp_path):
-    """The scan matches the trailer in any case and indented, the URL in any case; the hook must too."""
-    shell = _sh()
-    if shell is None:
-        pytest.skip("no POSIX shell to run the hook")
-    message = tmp_path / "message.txt"
-    variants = ["claude-" + "session: abc", "  Claude-" + "Session: abc", "\tCLAUDE-" + "SESSION: abc", "see " + SESSION_URL.upper()]
-    message.write_bytes(("Subject\n" + "\n".join(variants) + "\nbody\n" + CO_AUTHOR + "\n").encode("utf-8"))
-    done = subprocess.run([shell, str(HOOKS / "commit-msg"), str(message)], env=_env(tmp_path), capture_output=True, timeout=120)
-    assert done.returncode == 0, done.stderr
-    assert message.read_text(encoding="utf-8").splitlines() == ["Subject", "body", CO_AUTHOR]
-
-
 @pytest.mark.slow
 @requires_git
-def test_commit_msg_keeps_ordinary_messages(tmp_path):
+def test_commit_msg_runs_as_a_git_hook(tmp_path):
+    """The same hook, wired through core.hooksPath and a real commit."""
     repo = _hook_repo(tmp_path)
+    stored = _commit(repo, f"Add the thing\n\n{CO_AUTHOR}\n{TRAILER}\n")
+    assert stored == f"Add the thing\n\n{CO_AUTHOR}"
+
+
+def test_commit_msg_is_never_weaker_than_the_scan(tmp_path):
+    """The scan matches the trailer in any case and indented, the URL in any case; the hook must too."""
+    variants = ["claude-" + "session: abc", "  Claude-" + "Session: abc", "\tCLAUDE-" + "SESSION: abc", "see " + SESSION_URL.upper()]
+    stored = _run_commit_msg(tmp_path, "Subject\n" + "\n".join(variants) + "\nbody\n" + CO_AUTHOR + "\n")
+    assert stored.splitlines() == ["Subject", "body", CO_AUTHOR]
+
+
+def test_commit_msg_keeps_ordinary_messages(tmp_path):
     message = f"Fix the parser\n\nClaude wrote the first draft; a session of review followed.\n\n{CO_AUTHOR}\n"
-    assert _commit(repo, message) == message.rstrip("\n")
+    assert _run_commit_msg(tmp_path, message) == message.rstrip("\n")
 
 
 @pytest.mark.slow
