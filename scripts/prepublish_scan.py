@@ -553,19 +553,21 @@ def history_refs(repo: Path | str) -> list[str]:
 
 
 _TAGGER_PATTERN = re.compile(r"^tagger (.*?) ?<([^>]*)>", re.MULTILINE)
+_TAG_NAME_PATTERN = re.compile(r"^tag (.*)$", re.MULTILINE)
 
 
-def history_tags(repo: Path | str) -> list[tuple[str, str, str, str]]:
-    """(object id, tagger name, tagger email, message) of every annotated tag object reachable from any ref.
+def history_tags(repo: Path | str) -> list[tuple[str, str, str, str, str]]:
+    """(object id, name in the tag header, tagger name, tagger email, message) of every annotated tag object reachable from any ref.
 
-    Nested tags (a tag of a tag) are found too, because the object walk lists every tag object it passes.
+    Nested tags (a tag of a tag) are found too, because the object walk lists every tag object it passes. The
+    tagger fields are empty when the tag has no tagger line; an empty address on a tagger line stays empty.
     """
     listing = _git(repo, "rev-list", "--objects", "--all").decode("utf-8", errors="replace")
     shas = list(dict.fromkeys(row.partition(" ")[0] for row in listing.splitlines() if row.strip()))
     if not shas:
         return []
     kinds = _git(repo, "cat-file", "--batch-check=%(objecttype) %(objectname)", input="\n".join(shas).encode("ascii") + b"\n")
-    tags: list[tuple[str, str, str, str]] = []
+    tags: list[tuple[str, str, str, str, str]] = []
     for row in kinds.decode("utf-8", errors="replace").splitlines():
         kind, _, sha = row.partition(" ")
         if kind != "tag":
@@ -574,7 +576,8 @@ def history_tags(repo: Path | str) -> list[tuple[str, str, str, str]]:
         head, _, message = raw.partition("\n\n")
         tagger = _TAGGER_PATTERN.search(head)
         name, email = (tagger.group(1), tagger.group(2)) if tagger else ("", "")
-        tags.append((sha, name, email, message))
+        header = _TAG_NAME_PATTERN.search(head)
+        tags.append((sha, header.group(1) if header else "", name, email, message))
     return tags
 
 
@@ -741,9 +744,12 @@ def run(args) -> tuple[list[Finding], list[Finding], tuple[int, int, int]]:
             findings.extend(scan_identity(sha, an, ae, rules))
             findings.extend(scan_identity(sha, cn, ce, rules))
             findings.extend(scan_message(sha, message, rules, allowed))
-        for sha, name, email, message in history_tags(repo):
-            if email:
+        for sha, tag_name, name, email, message in history_tags(repo):
+            # a tagger line with a name and no address still counts: an empty address is never allow-listed
+            if name or email:
                 findings.extend(scan_identity(sha, name, email, rules, "tag"))
+            # the name in the tag header is published with the object, whatever ref name the tag is pushed under
+            findings.extend(_name_findings(tag_name, f"tag:{sha[:12]}", rules))
             findings.extend(scan_message(sha, message, rules, allowed, "tag"))
         for ref in history_refs(repo):
             findings.extend(scan_ref(ref, rules))

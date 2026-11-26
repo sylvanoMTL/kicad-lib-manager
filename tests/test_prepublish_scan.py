@@ -565,6 +565,63 @@ def test_history_reads_annotated_tag_objects(tmp_path):
     assert len(scan.history_tags(repo)) == 2
 
 
+def _tag_object(repo: Path, header_name: str, tagger: str) -> str:
+    """Write an annotated tag object by hand (git tag would not write an empty address or a different header name)."""
+    commit = _git(repo, "rev-parse", "HEAD").strip()
+    body = f"object {commit}\ntype commit\ntag {header_name}\n{tagger}\n\nnotes\n"
+    done = subprocess.run(
+        [GIT, "hash-object", "-t", "tag", "-w", "--stdin"],
+        cwd=repo,
+        env=_git_env(),
+        input=body.encode("utf-8"),
+        capture_output=True,
+        check=False,
+    )
+    assert done.returncode == 0, done.stderr.decode("utf-8", "replace")
+    return done.stdout.decode("ascii").strip()
+
+
+@pytest.mark.slow
+@requires_git
+def test_history_checks_a_tagger_without_an_address_and_the_name_in_the_tag_header(tmp_path):
+    """IN-13: `Name <>` is an identity that is not allow-listed, and the header name is published like a ref name."""
+    repo = tmp_path / "r"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    (repo / "clean.txt").write_text("nothing private here\n", encoding="utf-8")
+    _git(repo, "add", "clean.txt")
+    _git(repo, "commit", "-q", "-m", "clean start")
+    code, out = _scan(repo, "--history")
+    assert code == 0, out
+
+    allowed_tagger = "tagger dev <1+dev@users.noreply.github.com> 1700000000 +0000"
+    sha = _tag_object(repo, "fine", allowed_tagger)
+    _git(repo, "update-ref", "refs/tags/fine", sha)
+    code, out = _scan(repo, "--history")
+    assert code == 0, out
+
+    # a tagger line with a name and an empty address
+    sha = _tag_object(repo, "fine", "tagger Someone <> 1700000000 +0000")
+    _git(repo, "update-ref", "refs/tags/fine", sha)
+    code, out = _scan(repo, "--history")
+    assert code == 1, out
+    assert [line.split("\t")[0] for line in out.splitlines() if "\t" in line] == ["commit_identity"], out
+    assert all(line.split("\t")[1].startswith("tag:") for line in out.splitlines() if "\t" in line), out
+
+    # an owner term in the header name of a tag that is published under another ref name
+    term = "Zorblax" + "Quux"
+    terms = tmp_path / "terms.txt"
+    terms.write_text(term + "\n", encoding="utf-8")
+    sha = _tag_object(repo, "v-" + term, allowed_tagger)
+    _git(repo, "update-ref", "refs/tags/fine", sha)
+    code, out = _scan(repo, "--history", "--deny-terms-file", str(terms))
+    assert code == 1, out
+    hits = [line for line in out.splitlines() if "\t" in line]
+    assert [line.split("\t")[0] for line in hits] == ["owner_term"], out
+    assert hits[0].split("\t")[1] == f"tag:{sha[:12]}", out
+    assert term not in out
+
+
 @pytest.mark.slow
 @requires_git
 def test_history_judges_a_blob_by_every_name_it_had(tmp_path):
