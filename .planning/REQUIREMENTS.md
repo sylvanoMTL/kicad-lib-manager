@@ -34,14 +34,14 @@ Research: `.planning/research/SUMMARY.md` (and STACK, FEATURES, ARCHITECTURE, PI
 
 ### Repo split (SPLIT) — interactive phase, not an autonomous run
 
-- [ ] **SPLIT-01**: A public tool repo holds the app code, tests, pyproject, planning and build scripts, and no library content
-- [ ] **SPLIT-02**: A private library collection holds `Custom` and the third-party libraries, no code; the owner's KiCad keeps working (every table URI resolves, zero missing libraries before vs after)
-- [ ] **SPLIT-03**: The public repo's history contains nothing private or licence-restricted (pre-publish scan for owner paths, vendor downloads, part data); how the history is handled is decided in the session
-- [ ] **SPLIT-04**: The test suite passes from a fresh clone of the tool repo without the collection, within a stated skip budget (a synthetic sample replaces the TI vendor zip if it can't be published)
-- [ ] **SPLIT-05**: The docs are split: developer docs in the tool repo; naming, the atomic rule and path variables in the collection README
-- [ ] **SPLIT-06**: A licence is chosen and added; the README covers install and first run
-- [ ] **SPLIT-07**: The visibility of both GitHub repos is decided and set (both `sylvanoMTL/kicad_libraries` and `sylvanoMTL/kicad_custom_library` are public as of 2026-11-22)
-- [ ] **SPLIT-08**: The dev workflow after the split is documented: the tool runs against a chosen collection (the main checkout for KiCad, scratch collections for tests)
+- [x] **SPLIT-01**: A public tool repo holds the app code, tests, pyproject, planning and build scripts, and no library content
+- [x] **SPLIT-02**: A private library collection holds `Custom` and the third-party libraries, no code; the owner's KiCad keeps working (every table URI resolves, zero missing libraries before vs after)
+- [x] **SPLIT-03**: The public repo's history contains nothing private or licence-restricted (pre-publish scan for owner paths, vendor downloads, part data); how the history is handled is decided in the session
+- [x] **SPLIT-04**: The test suite passes from a fresh clone of the tool repo without the collection, within a stated skip budget (a synthetic sample replaces the TI vendor zip if it can't be published)
+- [x] **SPLIT-05**: The docs are split: developer docs in the tool repo; naming, the atomic rule and path variables in the collection README
+- [x] **SPLIT-06**: A licence is chosen and added; the README covers install and first run
+- [x] **SPLIT-07**: The visibility of both GitHub repos is decided and set (both `sylvanoMTL/kicad_libraries` and `sylvanoMTL/kicad_custom_library` are public as of 2026-11-22)
+- [x] **SPLIT-08**: The dev workflow after the split is documented: the tool runs against a chosen collection (the main checkout for KiCad, scratch collections for tests)
 
 ### Library catalog (CAT)
 
@@ -135,14 +135,14 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ROOT-10 | Phase 15 | Complete |
 | ROOT-11 | Phase 15 | Complete |
 | ROOT-12 | Phase 15 | Complete |
-| SPLIT-01 | Phase 16 | Pending |
-| SPLIT-02 | Phase 16 | Pending |
-| SPLIT-03 | Phase 16 | Pending |
-| SPLIT-04 | Phase 16 | Pending |
-| SPLIT-05 | Phase 16 | Pending |
-| SPLIT-06 | Phase 16 | Pending |
-| SPLIT-07 | Phase 16 | Pending |
-| SPLIT-08 | Phase 16 | Pending |
+| SPLIT-01 | Phase 16 | Complete |
+| SPLIT-02 | Phase 16 | Complete |
+| SPLIT-03 | Phase 16 | Complete |
+| SPLIT-04 | Phase 16 | Complete |
+| SPLIT-05 | Phase 16 | Complete |
+| SPLIT-06 | Phase 16 | Complete |
+| SPLIT-07 | Phase 16 | Complete |
+| SPLIT-08 | Phase 16 | Complete |
 | CAT-01 | Phase 17 | Pending |
 | CAT-02 | Phase 17 | Pending |
 | CAT-03 | Phase 17 | Pending |

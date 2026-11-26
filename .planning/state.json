@@ -16,7 +16,7 @@
     {
       "number": "16",
       "name": "Repo Split",
-      "status": "in_progress"
+      "status": "complete"
     },
     {
       "number": "17",
@@ -46,8 +46,8 @@
   ],
   "next": {
     "command": "/gsd-progress --next",
-    "label": "Advance to the next step",
-    "reason": "Phase 3 of 8 · 25% · executing"
+    "label": "Advance to the next step (plan phase 17)",
+    "reason": "Phase 4 of 8 — needs a plan"
   },
-  "updated_at": "2026-11-26T14:02:45.145Z"
+  "updated_at": "2026-11-26T16:06:30.085Z"
 }

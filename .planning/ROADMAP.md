@@ -45,7 +45,7 @@ The phases follow the owner's fixed order, one phase per area. Phase 14 speeds u
 
 - [x] **Phase 14: Test Suite Speed-Up** - A quick parallel run fits the GSD test gate, and the full suite runs in parallel with the same results as the serial run (completed 2026-11-23)
 - [x] **Phase 15: Choose Library Folder and New Collection** - The app runs from any folder on a library folder it resolves or the user chooses, and can create a new empty collection (completed 2026-11-23)
-- [ ] **Phase 16: Repo Split** - Public tool repo and private library collection split apart, with the owner's KiCad unchanged (interactive phase, not autonomous)
+- [x] **Phase 16: Repo Split** - Public tool repo and private library collection split apart, with the owner's KiCad unchanged (interactive phase, not autonomous) (completed 2026-11-26)
 - [ ] **Phase 17: Library Catalog** - Add, update and remove third-party KiCad libraries from GitHub, from a curated list or by URL; WurthElektronik becomes a catalog entry
 - [ ] **Phase 18: Project-Local Table Model** - Generate Tables writes project-local tables into the chosen KiCad project, never KiCad's global tables
 - [ ] **Phase 19: Menu Regroup** - Menus regrouped into File / Libraries / KiCad / Help with the new actions placed and every shortcut unchanged
@@ -154,7 +154,7 @@ Plans:
   - D14 Repo visibility: `sylvanoMTL/kicad_libraries` and `sylvanoMTL/kicad_custom_library` are both public as of 2026-11-22. Make them private, or accept public and treat the split as stopping future exposure only.
 **Research flags**: Interactive session first (D1, D10, D12, D13, D14). `git filter-repo` with gitlinks is unverified: rehearse on a throwaway clone and diff `git ls-tree -r HEAD`.
 **Notes**: Rehearse on `git clone --no-local` copies first, with a `git bundle` and a `pre-split` tag; keep the library layouts and compare the resolved table URI list before and after (the 2026-10-21 incident). The live split runs from the main checkout KiCad reads (D-26). WurthElektronik stays a submodule in the collection until Phase 17. The tool repo gets Windows CI (`pytest -m "not slow"`); the legacy in-repo fallback is removed, the conftest live-collection guard is repointed and the library corpus becomes opt-in (`KICAD_TEST_CORPUS`). About 25 test modules read `Custom`, `WurthElektronik`, `downloaded_examples` or `.planning`; each is classified so the public suite can't go green by skipping. CLAUDE.md is split between the two repos. PITFALLS.md 8, 9, 10, 11, 12, 22.
-**Plans**: 18/18 plans executed (13 code plans in waves 1-4, the rehearsal, 4 live-run plans; waves 6-9 are interactive)
+**Plans**: 18/18 plans complete (13 code plans in waves 1-4, the rehearsal, 4 live-run plans; waves 6-9 are interactive)
 
 Plans:
 **Wave 1**
@@ -285,7 +285,7 @@ Phases execute in numeric order: 14 → 15 → 16 → 17 → 18 → 19 → 20 �
 |-------|-----------|----------------|--------|-----------|
 | 14. Test Suite Speed-Up | v3.0 | 6/6 | Complete    | 2026-11-23 |
 | 15. Choose Library Folder and New Collection | v3.0 | 16/16 | Complete    | 2026-11-23 |
-| 16. Repo Split | v3.0 | 18/18 | In Progress | - |
+| 16. Repo Split | v3.0 | 18/18 | Complete    | 2026-11-26 |
 | 17. Library Catalog | v3.0 | 0/TBD | Not started | - |
 | 18. Project-Local Table Model | v3.0 | 0/TBD | Not started | - |
 | 19. Menu Regroup | v3.0 | 0/TBD | Not started | - |

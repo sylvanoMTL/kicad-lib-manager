@@ -2,44 +2,44 @@
 gsd_state_version: "1.0"
 milestone: v3.0
 milestone_name: Public Library Manager
-current_phase: 16
-current_phase_name: Repo Split
-status: executing
-stopped_at: Phase 16 context gathered
-last_updated: "2026-11-26T14:02:45.069Z"
-last_activity: 2026-11-25
-last_activity_desc: Phase 16 execution resumed (wave continue)
-state_head: b0058d8c87676d9c6b85d8e70db4dfd90484fe6f
+current_phase: 17
+current_phase_name: Library Catalog
+status: planning
+stopped_at: Phase 16 complete, ready to plan Phase 17
+last_updated: "2026-11-26T16:06:30.003Z"
+last_activity: 2026-11-26
+last_activity_desc: Phase 16 complete, transitioned to Phase 17
+state_head: fdffe77c1a5c81be431962377496021a9a5348e6
 progress:
   total_phases: 8
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 40
   completed_plans: 40
-  percent: 25
+  percent: 38
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-11-23)
+See: .planning/PROJECT.md (updated 2026-11-26)
 
 **Core value:** A downloaded vendor package ends up as a correctly named, correctly linked part in the right `Custom/` library (Footprint field `<Lib>:<FP>`, 3D model at `${CUSTOM_3DMODEL_DIR}/<file>.step`) without hand-editing any KiCad file.
-**Current focus:** Phase 16 — Repo Split
+**Current focus:** Phase 17 — Library Catalog
 
 ## Current Position
 
-Phase: 16 (Repo Split) — EXECUTING
-Plan: 1 of 18
-Status: Executing Phase 16
-Last activity: 2026-11-25 — Phase 16 execution resumed (wave continue)
+Phase: 17 — Library Catalog
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-11-26 — Phase 16 complete, transitioned to Phase 17
 
-Progress: [███░░░░░░░] 25%
+Progress: [████░░░░░░] 38%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 203
+- Total plans completed: 221
 - Average duration: -
 - Total execution time: 0.0 hours
 
@@ -62,6 +62,7 @@ Progress: [███░░░░░░░] 25%
 | 13 | 28 | - | - |
 | 14 | 6 | - | - |
 | 15 | 16 | - | - |
+| 16 | 18 | - | - |
 
 **Recent Trend:**
 - Last 5 plans: -
@@ -103,6 +104,7 @@ The full decision log is in the PROJECT.md Key Decisions table. The v1.0 per-pha
 - [Phase 15]: The manual UAT was automated (real app driven with QTest, screenshots, isolated scratch state, offscreen + native on-screen at 175%); scripts in the session scratchpad `uat15/`. Main window minimum width 965-974 px accepted until the Phase 19 toolbar rework.
 - [v3.0 roadmap]: Eight phases in the owner's fixed order, one per area (14 TEST, 15 ROOT, 16 SPLIT, 17 CAT, 18 TBL, 19 MENU, 20 PY, 21 PKG). Phases 14-15 run autonomously (`/gsd-autonomous --to 15`) and are not split further; Phase 16 (repo split) is interactive. The freeze-tool spike is in Phase 21, not Phase 15.
 - [Phase 16]: After three red CI runs from test timing races on GitHub's runner (not app defects) the owner chose to simplify: a green CI run no longer gates the split; the tool repo stays private until the owner flips it. The 4th run (f8c06b8) went green.
+- [Phase 16]: Split done 2026-11-26: `kicad_libraries` kept as the private collection with its history (code removed in one commit); the public tool repo `kicad-lib-manager` (MIT) started from an allow-listed copy with a fresh history; both library repos private, the tool repo flipped public by the owner. KiCad tables resolve identically (428 entries, 0 missing). Fresh-clone CI 4004 passed, 1 skipped (budget 10); `corpus` / `needs_kicad` deselected with counts. `Source.LEGACY` is gone; the `Kicad_Libraries-importer` worktree is retired.
 
 ### Pending Todos
 
@@ -110,12 +112,13 @@ The full decision log is in the PROJECT.md Key Decisions table. The v1.0 per-pha
 
 ### Blockers/Concerns
 
-- [Phase 16]: Both GitHub repos, `sylvanoMTL/kicad_libraries` and `sylvanoMTL/kicad_custom_library`, are currently PUBLIC (verified with `gh repo view`, 2026-11-22), although CLAUDE.md and PROJECT.md describe `Custom/` as private. The visibility is decided in Phase 16 (D14, SPLIT-07). It does not block Phases 14-15.
+- [Phase 16]: Code review (16-REVIEW.md, 16-REVIEW-DISPOSITION.md): all 32 findings still open, including CR-01 (the history scan never inspects annotated tag objects) and CR-02 (an email or drive-letter path right after a JSON escape is invisible to the scan), plus WR-01..WR-20 and IN-01..IN-10. They weaken the pre-publish scan / pre-push hook that guards the public repo; GitHub's copy scanned clean and was grepped by hand at verification. Resolve or disposition before pushing an annotated tag or relying on the hook alone.
 - [Phase 15]: D4 decided by the owner 2026-11-22: a new collection runs `git init -b main` inside `Custom/` (Custom is its own repo, the collection root is a plain folder, no parent option in the commit step).
 
-None block Phase 16 otherwise. Open, non-blocking:
+None block Phase 17. Open, non-blocking:
 
-- [Phase 15]: Review IN-01, IN-03, IN-05, IN-06, IN-07 deferred with reasons (15-REVIEW-DISPOSITION.md); legacy own-folder fallback (Source.LEGACY) to be removed in Phase 16; first-run window cannot appear when the app runs from a checkout that is itself a collection (by design until Phase 16)
+- [Phase 16]: UI review (16-UI-REVIEW.md, 6/8 on the two touched pillars): the `set by --library-root` / `set by KICAD_LIBMGR_ROOT` tags are documented by design; `MainWindow(source=...)` defaults silently to `Source.CHOSEN`; no log line says why a checkout that is itself a collection now gets the first-run window.
+- [Phase 15]: Review IN-01, IN-03, IN-05, IN-06, IN-07 deferred with reasons (15-REVIEW-DISPOSITION.md)
 
 - [Phase 14]: Review IN-01..IN-05 deferred with reasons (14-REVIEW-DISPOSITION.md); WR-01..WR-04 fixed
 
@@ -125,7 +128,6 @@ None block Phase 16 otherwise. Open, non-blocking:
 - [Phase 13]: UI review advisory items (13-UI-REVIEW.md, 16/24): accessible names on icon-only controls, User Guide wording, spacing of the new windows not rendered
 - [Backlog]: 999.1 regroup the main-window menus (now MENU-01..MENU-03, Phase 19); 999.3 re-test the KiCad-open question from the main checkout; 999.4 Finishing strip with a real kicad-cli rebuild
 - [From v1.0]: Phase 4 WR-04 deferred as REF-01 (split `build_plan`); Phase 4 IN-01/02/03/05 and Phase 5 IN-01..IN-06 not addressed. REVIEW-DISPOSITION files under `milestones/v1.0-phases/` and `milestones/v2.0-phases/`.
-- [Repo]: in the `Kicad_Libraries-importer` worktree the `Custom` submodule is checked out at 8f7d454 ("Added and modified some components") while the parent records d78f3f7; the gitlink bump is pending and outside the milestone close.
 
 ### Quick Tasks Completed
 
@@ -147,12 +149,11 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-24T09:57:21.929Z
-Stopped at: Phase 16 context gathered
-Resume file: .planning/phases/16-repo-split/16-CONTEXT.md
+Last session: 2026-11-26
+Stopped at: Phase 16 complete, ready to plan Phase 17
+Resume file: None
 
 ## Operator Next Steps
 
-- Phase 16 (repo split) is interactive: start with `/gsd-discuss-phase 16`
-- Phase 16 (repo split) is interactive: `/gsd-discuss-phase 16` and step-by-step execution, not `/gsd-autonomous`
-- Merge `feature/part-importer` into `main` and push the `v2.0` tag when ready (tag created locally, not pushed)
+- Phase 17 (Library Catalog): `/gsd-discuss-phase 17` (no CONTEXT.md yet; D2, D6, D7, D11 to decide at plan time)
+- Phase 16 review findings (CR-01, CR-02 and the rest) are open: `/gsd-code-review 16 --fix` or a quick task before relying on the pre-push scan for tags
