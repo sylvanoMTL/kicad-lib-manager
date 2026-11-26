@@ -20,6 +20,7 @@ unusable input. Stdlib only; the script never imports the application package.
 """
 
 import argparse
+import importlib.util
 import os
 import shutil
 import stat
@@ -38,6 +39,15 @@ DEFAULT_MESSAGE = "Import the KiCad library manager\n\nCo-Authored-By: Claude Op
 _TRAILER = "Claude-" + "Session:"
 _SESSION_URL = "claude.ai/" + "code/session"
 _CHMOD_BATCH = 200
+
+
+def _email_is_allowed(email: str) -> bool:
+    """The pre-publish scan's own rule for a commit address (a noreply address or a reserved example domain)."""
+    path = Path(__file__).resolve().parent.parent / "prepublish_scan.py"
+    spec = importlib.util.spec_from_file_location("_prepublish_scan_for_build", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.is_allowed_email(email.strip())
 
 
 class BuildError(Exception):
@@ -175,9 +185,19 @@ def build(
     name: str,
     email: str,
     message: str = DEFAULT_MESSAGE,
+    allow_any_email: bool = False,
 ) -> list[str]:
-    """Export, scrub, verify and commit the tool repository in dest; return summary lines."""
+    """Export, scrub, verify and commit the tool repository in dest; return summary lines.
+
+    The email goes into the first public commit, so it must pass the scan's own address rule
+    (a noreply address or a reserved example domain) unless allow_any_email is set.
+    """
     source, dest = Path(source), Path(dest)
+    if not allow_any_email and not _email_is_allowed(email):
+        raise BuildError(
+            "the commit email is not a noreply address (GitHub's id+name@users.noreply.github.com form is expected); "
+            "pass --allow-any-email to use it anyway"
+        )
     if dest.exists() and (not dest.is_dir() or any(dest.iterdir())):
         raise BuildError(f"destination is not empty: {dest}")
     try:
@@ -252,6 +272,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--name", required=True, help="commit author and committer name")
     parser.add_argument("--email", required=True, help="commit author and committer email")
     parser.add_argument("--message", default=DEFAULT_MESSAGE, help="first commit message")
+    parser.add_argument("--allow-any-email", action="store_true", help="accept an email the pre-publish scan would not allow-list")
     return parser
 
 
@@ -261,7 +282,15 @@ def main(argv: list[str] | None = None) -> int:
         allow = load_allow_list(args.allow_list)
         mapping = parse_map(args.map)
         lines = build(
-            args.source, args.ref, args.dest, allow, mapping=mapping, name=args.name, email=args.email, message=args.message
+            args.source,
+            args.ref,
+            args.dest,
+            allow,
+            mapping=mapping,
+            name=args.name,
+            email=args.email,
+            message=args.message,
+            allow_any_email=args.allow_any_email,
         )
     except (OSError, ValueError) as error:
         print(f"build_tool_repo: {error}", file=sys.stderr)
@@ -271,6 +300,7 @@ def main(argv: list[str] | None = None) -> int:
         return error.code
     for line in lines:
         print(line)
+    print("build_tool_repo: next, in the new clone: git config prepublish.denyTermsFile <your deny-terms file>, so the push scan knows your names")
     return 0
 
 

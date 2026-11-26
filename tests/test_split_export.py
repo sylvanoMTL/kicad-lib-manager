@@ -391,6 +391,21 @@ def test_build_exports_only_the_allow_list(split, tmp_path):
     assert split.verify_export.verify(dest, split.verify_export.load_allow_list(ALLOW_LIST)) == []
 
 
+def test_build_refuses_a_personal_email_without_the_override(split, tmp_path):
+    outsider = "pe" + "rson" + "@" + "mail" + ".test"
+    allow = split.verify_export.load_allow_list(ALLOW_LIST)
+    dest = tmp_path / "tool"
+    with pytest.raises(split.build_tool_repo.BuildError, match="noreply"):
+        split.build_tool_repo.build(
+            tmp_path / "unused", "pre-split", dest, allow, mapping=[], name=OWNER_NAME, email=outsider
+        )
+    assert not dest.exists()
+    assert split.build_tool_repo._email_is_allowed(OWNER_EMAIL)
+    assert not split.build_tool_repo._email_is_allowed(outsider)
+    assert split.build_tool_repo.main(["--source", str(tmp_path), "--ref", "x", "--dest", str(dest), "--allow-list", str(ALLOW_LIST),
+                                       "--name", "n", "--email", outsider]) == 2
+
+
 def test_build_drops_a_session_line_from_a_given_message(split):
     clean = split.build_tool_repo.clean_message
     message = f"Import\n\nCo-Authored-By: Claude Test <noreply@anthropic.com>\nClaude-Session: {SESSION_URL}\n"
