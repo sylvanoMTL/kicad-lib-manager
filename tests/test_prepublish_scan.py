@@ -421,3 +421,26 @@ def test_history_reads_annotated_tag_objects(tmp_path):
     assert all(line.split("\t")[1].startswith("tag:") for line in out.splitlines() if "\t" in line), out
     assert outsider not in out
     assert len(scan.history_tags(repo)) == 2
+
+
+@pytest.mark.slow
+@requires_git
+def test_history_judges_a_blob_by_every_name_it_had(tmp_path):
+    """The same bytes under an exempt name and a vendor name: the vendor name is judged whichever git lists first."""
+    repo = tmp_path / "r"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    (repo / "tests" / "fixtures").mkdir(parents=True)
+    (repo / "zparts").mkdir()
+    body = "(kicad_symbol_lib (version 20231120))\n"
+    (repo / "tests" / "fixtures" / "a.kicad_sym").write_text(body, encoding="utf-8")
+    (repo / "zparts" / "a.kicad_sym").write_text(body, encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "two names")
+    _git(repo, "rm", "-q", "-r", "zparts")
+    _git(repo, "commit", "-q", "-m", "drop the vendor name")
+    code, out = _scan(repo, "--tree")
+    assert code == 0, out
+    code, out = _scan(repo, "--history")
+    assert code == 1, out
+    assert "vendor_file\tzparts/a.kicad_sym" in out.splitlines(), out

@@ -262,6 +262,20 @@ def _scan_lines(text: str, where_of, rules: Rules, allowed: list[Finding] | None
     return found
 
 
+def _is_vendor_file(path: str, data: bytes) -> bool:
+    """True for a licence-restricted vendor file: a vendor suffix or magic outside tests/fixtures/."""
+    if path.startswith(FIXTURES_PREFIX):
+        return False
+    return path.casefold().endswith(VENDOR_SUFFIXES) or data.startswith(VENDOR_MAGICS)
+
+
+def scan_alias(path: str, data: bytes, rules: Rules) -> list[Finding]:
+    """Findings for a further path a blob has in the history: only the vendor-file decision, which depends on the name."""
+    if "vendor_file" not in rules.skipped and _is_vendor_file(path, data):
+        return [Finding("vendor_file", path)]
+    return []
+
+
 def scan_blob(path: str, data: bytes, rules: Rules, allowed: list[Finding] | None = None) -> list[Finding]:
     """Findings for one file or blob; hits an inline marker suppresses are appended to `allowed` when given."""
     found: list[Finding] = []
@@ -270,10 +284,8 @@ def scan_blob(path: str, data: bytes, rules: Rules, allowed: list[Finding] | Non
         if rule not in rules.skipped:
             found.append(Finding(rule, path))
 
-    exempt = path.startswith(FIXTURES_PREFIX)
-    if not exempt:
-        if path.casefold().endswith(VENDOR_SUFFIXES) or data.startswith(VENDOR_MAGICS):
-            add("vendor_file")
+    if _is_vendor_file(path, data):
+        add("vendor_file")
     if len(data) > MAX_BLOB_BYTES:
         add("large_blob")
         return found
@@ -473,8 +485,26 @@ def has_commits(repo: Path | str) -> bool:
     return bool(_git(repo, "rev-list", "--all", "-n", "1").strip())
 
 
-def history_blobs(repo: Path | str) -> Iterator[tuple[str, bytes]]:
-    """Every blob reachable from any ref once, as (a path it had, its bytes), through one git cat-file --batch process.
+def blob_paths(repo: Path | str) -> dict[str, list[str]]:
+    """Every path each blob had in any commit reachable from any ref, by blob id (from the raw diff of every commit)."""
+    raw = _git(repo, "log", "--all", "--raw", "--no-abbrev", "--no-renames", "-z", "--format=", "--root")
+    tokens = raw.split(b"\0")
+    found: dict[str, dict[str, None]] = {}
+    i = 0
+    while i < len(tokens):
+        token = tokens[i].lstrip(b"\n")
+        if token.startswith(b":") and i + 1 < len(tokens):
+            fields = token.split()
+            if len(fields) >= 5 and fields[4] != b"D":
+                found.setdefault(fields[3].decode("ascii"), {})[tokens[i + 1].decode("utf-8", errors="replace")] = None
+            i += 2
+        else:
+            i += 1
+    return {sha: list(paths) for sha, paths in found.items()}
+
+
+def history_blobs(repo: Path | str) -> Iterator[tuple[str, bytes, list[str]]]:
+    """Every blob reachable from any ref once, as (a path it had, its bytes, its other paths), through one git cat-file --batch process.
 
     A blob over MAX_BLOB_BYTES is cut at one byte past the cap (enough for scan_blob to report large_blob).
     """
@@ -486,6 +516,7 @@ def history_blobs(repo: Path | str) -> Iterator[tuple[str, bytes]]:
             paths[sha] = path
     if not paths:
         return
+    aliases = blob_paths(repo)
     process = subprocess.Popen(
         ["git", "-C", str(repo), "cat-file", "--batch"],
         stdin=subprocess.PIPE,
@@ -523,7 +554,8 @@ def history_blobs(repo: Path | str) -> Iterator[tuple[str, bytes]]:
                 remaining -= len(chunk)
             out.read(1)  # the newline after the content
             if kind == b"blob":
-                yield paths[sha], data
+                first = paths[sha]
+                yield first, data, [other for other in aliases.get(sha, ()) if other != first]
     finally:
         if process.stdout:
             process.stdout.close()
@@ -602,9 +634,11 @@ def run(args) -> tuple[list[Finding], list[Finding], tuple[int, int, int]]:
             files += 1
             findings.extend(scan_blob(path, data, rules, allowed))
     if do_history:
-        for path, data in history_blobs(repo):
+        for path, data, others in history_blobs(repo):
             blobs += 1
             findings.extend(scan_blob(path, data, rules, allowed))
+            for other in others:
+                findings.extend(scan_alias(other, data, rules))
         for sha, an, ae, cn, ce, message in history_commits(repo):
             commits += 1
             findings.extend(scan_identity(sha, an, ae, rules))
