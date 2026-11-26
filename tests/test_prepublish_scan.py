@@ -73,6 +73,38 @@ def test_workstation_paths_are_found():
         assert blob("a.txt", "value = " + clean) == [], clean
 
 
+def test_a_placeholder_user_folder_is_a_sample_not_a_workstation_path():
+    """Docs and tests quote made-up users (bob, alice, user, <user>), the way example.org is quoted for addresses."""
+    for user in ("bob", "Alice", "user", "USERNAME", "<user>", "<username>"):
+        samples = [
+            drive_path("C", "Users", SLASH).replace("someone", user),
+            drive_path("C", "Users", BACKSLASH * 2).replace("someone", user),
+            SLASH + "c" + SLASH + "Users" + SLASH + user + SLASH + "a",
+            SLASH + "mnt" + SLASH + "c" + SLASH + "Users" + SLASH + user + SLASH + "a",
+            "file:///" + "C%3A" + SLASH + "Users" + SLASH + user + SLASH + "x",
+            BACKSLASH * 2 + "server" + BACKSLASH + "share" + BACKSLASH + "Users" + BACKSLASH + user,
+            SLASH + "Users" + SLASH + user + SLASH + "a",
+            SLASH + "home" + SLASH + user + SLASH + "a",
+            "pytest" + "-of-" + user + SLASH + "test_x0",
+            # behind a JSON line-break escape (CR-02)
+            "x" + BACKSLASH + "n" + "C:" + BACKSLASH * 2 + "Users" + BACKSLASH * 2 + user + BACKSLASH * 2 + "a",
+        ]
+        for sample in samples:
+            assert blob("a.txt", "`" + sample + "`") == [], (user, sample)
+    # a real name, a name that only starts with a placeholder, an empty user folder and a clone folder still hit
+    for path in (
+        drive_path("C", "Users", BACKSLASH),
+        SLASH + "c" + SLASH + "Users" + SLASH + "bobby" + SLASH + "a",
+        SLASH + "home" + SLASH + "users2" + SLASH + "a",
+        "C:" + BACKSLASH + "Users" + BACKSLASH,
+        "C:" + SLASH + "Git_Repo_Clones" + SLASH + "bob" + SLASH + "a",
+    ):
+        assert blob("a.txt", "value = " + path) == [Finding("workstation_path", "a.txt:1")], path
+    # a placeholder next to a real path on the same line does not hide the real one
+    both = "C:" + SLASH + "Users" + SLASH + "bob" + SLASH + "a and " + drive_path("C", "Users", SLASH)
+    assert blob("a.txt", both) == [Finding("workstation_path", "a.txt:1")]
+
+
 def test_a_line_break_escape_does_not_hide_an_address_or_a_path():
     """Planning state, junit and JSON logs quote a line break as backslash-n; the letter must not shield what follows."""
     address = "pe" + "rson" + "@" + "mail" + ".test"
@@ -83,9 +115,9 @@ def test_a_line_break_escape_does_not_hide_an_address_or_a_path():
         assert blob("a.json", "Author:" + quoted + address) == [Finding("email", "a.json:1")], escape
         assert blob("a.json", "a" + quoted + owner, rules) == [Finding("owner_email", "a.json:1")], escape
         for sep in (SLASH, BACKSLASH * 2):
-            path = "C:" + sep + "Users" + sep + "bob" + sep + "a"
+            path = "C:" + sep + "Users" + sep + "someone" + sep + "a"
             assert blob("a.json", "x" + quoted + path) == [Finding("workstation_path", "a.json:1")], (escape, sep)
-        assert blob("a.json", "x" + quoted + SLASH + "c" + SLASH + "Users" + SLASH + "bob" + SLASH + "a") == [
+        assert blob("a.json", "x" + quoted + SLASH + "c" + SLASH + "Users" + SLASH + "someone" + SLASH + "a") == [
             Finding("workstation_path", "a.json:1")
         ]
     # an escape that hides nothing stays quiet

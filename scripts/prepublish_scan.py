@@ -118,6 +118,12 @@ _WORKSTATION_PATTERNS = (
     re.compile(_PYTEST_OF + r"(?!runner\b|<user>)[^\s\\/]+"),
 )
 
+# Made-up user folders that docs and tests quote as samples, like example.org for addresses:
+# a path into one of them is not a workstation path. Matched whole, ignoring case.
+PLACEHOLDER_USERS = frozenset({"bob", "alice", "user", "username", "<user>", "<username>"})
+_USER_FOLDERS = frozenset({"users"})
+_SEGMENT_PATTERN = re.compile(r"[\\/]*([^\\/\s\"'`]+)")
+
 _EMAIL_PATTERN = re.compile(
     r"(?<![\\\w.%+-])[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9-]{1,63}(?:\.[A-Za-z0-9-]{1,63}){0,8}\.[A-Za-z]{2,24}(?![\w-])"
 )
@@ -226,6 +232,28 @@ def _unlisted_email(variants: list[str], rules: Rules) -> bool:
     return False
 
 
+def _path_user(text: str, match: re.Match) -> str:
+    """The user folder a workstation-path match points into, or "" when it names none."""
+    found = match.group(0)
+    if found.casefold().startswith(_PYTEST_OF):
+        return found[len(_PYTEST_OF):]
+    parts = [part for part in re.split(r"[\\/]+", found) if part]
+    if not parts:
+        return ""
+    if parts[-1].casefold() in _USER_FOLDERS:
+        # the match ends at the user folder's parent: the user is the next segment
+        following = _SEGMENT_PATTERN.match(text, match.end())
+        return following.group(1) if following else ""
+    if found.endswith(("/", "\\")) and len(parts) >= 2 and parts[-2].casefold() in {_USERS.casefold(), _HOME}:
+        return parts[-1]
+    return ""
+
+
+def _is_workstation_path(pattern: re.Pattern, text: str) -> bool:
+    """True when any match of the pattern in the text points somewhere other than a placeholder user folder."""
+    return any(_path_user(text, m).casefold() not in PLACEHOLDER_USERS for m in pattern.finditer(text))
+
+
 def _line_hits(line: str, rules: Rules) -> list[str]:
     """Rule names that hit one line, each once, in report order."""
     hits: list[str] = []
@@ -236,7 +264,7 @@ def _line_hits(line: str, rules: Rules) -> list[str]:
         if unescaped != line:
             variants.append(unescaped)
     for pattern in rules.patterns["workstation_path"]:
-        if any(pattern.search(text) for text in variants):
+        if any(_is_workstation_path(pattern, text) for text in variants):
             hits.append("workstation_path")
             break
     folded = line.casefold()
