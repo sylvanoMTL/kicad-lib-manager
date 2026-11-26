@@ -199,14 +199,16 @@ def _inside(path: Path, folder: Path) -> bool:
 def plan(repo: Path, pre_split_tag: str | None = None) -> CutoverPlan:
     """What the cutover would do, and every reason it must not run. Writes nothing.
 
-    With pre_split_tag the tag must name the commit HEAD is on: the safety net the messages promise.
+    With pre_split_tag the tag must name the commit HEAD is on: the safety net the messages promise. The full
+    ref name is resolved (refs/tags/NAME), so a branch or remote-tracking ref of the same name does not count:
+    it moves with the next commit and restores nothing. The pre-split bundle is not looked at.
     """
     repo = Path(repo)
     result = CutoverPlan(repo=repo)
     problems = result.problems
 
     if pre_split_tag is not None:
-        tagged = _git(repo, "rev-parse", "--verify", "-q", f"{pre_split_tag}^{{commit}}")
+        tagged = _git(repo, "rev-parse", "--verify", "-q", f"refs/tags/{pre_split_tag}^{{commit}}")
         now = _git(repo, "rev-parse", "--verify", "-q", "HEAD")
         if tagged.returncode != 0:
             problems.append(f"the pre-split tag {pre_split_tag} does not exist")
@@ -426,6 +428,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     _report(found, args.apply)
     if not args.apply:
+        if not args.pre_split_tag:
+            print("cutover: no safety net checked yet: pass --pre-split-tag NAME to check that the tag names HEAD")
         print("cutover: dry run only, nothing was written; run again with --apply to make the commit")
         return 0
     return apply(repo, found, args.message)

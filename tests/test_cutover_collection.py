@@ -220,6 +220,7 @@ def test_dry_run_writes_nothing(tmp_path):
         assert path in out
         assert sha in out
     assert "dry run" in out.lower()
+    assert "no safety net checked yet" in out
 
     assert coll.head() == head
     assert coll.git("status", "--porcelain").strip() == ""
@@ -323,5 +324,9 @@ def test_refusals(tmp_path):
     # the safety net is checked, not assumed: --apply needs the tag, and the tag must be on HEAD
     attempt("stale_tag", "not on HEAD", prepare=lambda c: c.git("commit", "-q", "--allow-empty", "-m", "after the tag"))
     attempt("no_such_tag", "does not exist", flags=("--apply", "--pre-split-tag", "nope"))
+    # a branch of that name on HEAD is not a tag: it moves with the next commit and restores nothing
+    attempt("branch_for_tag", "does not exist", prepare=lambda c: c.git("branch", "safety"), flags=("--apply", "--pre-split-tag", "safety"))
+    # a dry run given a tag checks it too
+    attempt("dry_stale_tag", "not on HEAD", prepare=lambda c: c.git("commit", "-q", "--allow-empty", "-m", "after the tag"), flags=("--pre-split-tag", "pre-split"))
     # the dry run refuses too
     attempt("dry_dirty", "uncommitted", prepare=lambda c: (c.parent / "pyproject.toml").write_text("changed\n", encoding="utf-8"), flags=())
