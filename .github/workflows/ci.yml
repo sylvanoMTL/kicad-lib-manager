@@ -36,5 +36,8 @@ jobs:
       - name: Quick test run
         run: python -m pytest --junitxml=junit.xml
 
+      # The floor sits below the passed count of this quick run: 4031 passed, 3 skipped on 2026-11-26 with
+      # KiCad hidden (KICAD_TEST_HIDE_KICAD=1), the corpus and needs_kicad tests deselected. Measure again
+      # and revise it whenever tests move between markers or a large group of tests is added or removed.
       - name: Skip budget
         run: python scripts/check_skip_budget.py junit.xml --max-skips 10 --min-passed 3500
