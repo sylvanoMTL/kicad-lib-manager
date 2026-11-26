@@ -1,10 +1,10 @@
 ---
 phase: 16-repo-split
-fixed_at: 2026-11-26T14:30:00Z
+fixed_at: 2026-11-26T18:30:00Z
 review_path: .planning/phases/16-repo-split/16-REVIEW.md
 iteration: 1
-findings_in_scope: 22
-fixed: 22
+findings_in_scope: 17
+fixed: 17
 skipped: 0
 status: all_fixed
 ---
@@ -15,207 +15,212 @@ status: all_fixed
 **Source review:** .planning/phases/16-repo-split/16-REVIEW.md
 **Iteration:** 1
 
+The previous fix report (CR-01, CR-02 and WR-01 to WR-20) is in commit a705743; this report replaces it in the
+phase folder and covers the findings of the re-review: WR-21 to WR-23 and IN-01 to IN-14.
+
 **Summary:**
-- Findings in scope: 22 (CR-01, CR-02, WR-01 to WR-20; Info findings out of scope)
-- Fixed: 22
+- Findings in scope: 17 (WR-21 to WR-23, IN-01 to IN-14)
+- Fixed: 17
 - Skipped: 0
 
-Where the fixes ran: in the main checkout of the tool repository on branch `main`, not in a separate git worktree
-(the coordinator asked for commits in this clone and was waiting on this run). Every gate below ran in that checkout, so the
-numbers can be reproduced from it. No file was pushed; nothing outside the findings was changed except one clean-up commit
-(afdf90b) that restored the CRLF line endings two test files had lost while they were edited.
-
-## Fixed Issues
-
-### CR-01: The history scan never inspects annotated tag objects
-**Files modified:** `scripts/prepublish_scan.py`, `tests/test_prepublish_scan.py`
-**Commit:** 272591e
-**Applied fix:** New `history_tags` reads every annotated tag object the object walk lists (nested tags too), takes tagger name and
-address and the message, and runs them through `scan_identity` and `scan_message` (reported as `tag:<id>`). Slow test with a tagger
-address that is not a noreply address and a session line in the tag message; a lightweight tag and an allowed annotated tag stay clean.
-Status: fixed: requires human verification (new walk logic; checked on throwaway repositories only).
-
-### CR-02: An email or drive-letter path right after a JSON escape sequence is invisible to the scan
-**Files modified:** `scripts/prepublish_scan.py`, `scripts/split/scrub.py`, `tests/test_prepublish_scan.py`, `tests/test_split_export.py`
-**Commit:** c4c3457
-**Applied fix:** `_line_hits` matches the path and email patterns on the original line and on a copy where the quoted line-break
-escapes (backslash then n, r or t) are replaced by a space. `scrub.py` accepts the same escapes before a drive-letter or git-bash path
-(and carries the WSL, URL-encoded and UNC spellings of WR-07). Tests cover all three escapes before an address, an owner address and
-both path styles, and that an escape hiding nothing stays quiet.
-Status: fixed: requires human verification (regex logic).
-Consequence to know about: the widened rules now flag two lines of `16-REVIEW.md` itself, which quotes the review's own sample strings
-(see the scan result below). That is the new rule working; it is not an active leak.
-
-### WR-01: Owner-specific rules switch off silently, and CI never has them
-**Files modified:** `scripts/prepublish_scan.py`, `.githooks/pre-push`, `.github/workflows/ci.yml`, `tests/test_prepublish_scan.py`, `tests/test_githooks.py`
-**Commit:** a84d05a
-**Applied fix:** The scan prints `prepublish_scan: no owner deny list in use ...` to stderr when neither deny source gives anything.
-The pre-push hook refuses (exit 1) when `prepublish.denyTermsFile` is empty unless `PREPUBLISH_ALLOW_NO_DENY_LIST=1` is set. The CI
-step carries a comment that owner terms are enforced by the hook only (the workflow text avoids the words the CI text test forbids).
-Tests: the note, and the hook's refusal, opt-out and normal path.
-
-### WR-02: History walk decides the vendor-file check from one path per blob
-**Files modified:** `scripts/prepublish_scan.py`, `tests/test_prepublish_scan.py`
-**Commit:** 0da43ab
-**Applied fix:** `blob_paths` collects every path a blob had from the raw log of all commits; `history_blobs` yields the other paths and
-the scan judges each (`scan_alias`). Slow test: the same bytes under an exempt fixture name and a vendor name, the vendor name
-deleted later; verified to fail without the fix.
-Status: fixed: requires human verification.
-
-### WR-03: The commit-msg hook is weaker than the scan that will later reject the history
-**Files modified:** `.githooks/commit-msg`, `scripts/split/build_tool_repo.py`, `tests/test_githooks.py`, `tests/test_split_export.py`
-**Commit:** 279c899
-**Applied fix:** The hook uses `grep -v -i -E` with an optional-indent trailer pattern and the URL pattern; `clean_message` compares
-case-insensitively. Tests run the hook on a message file with lower-case, indented, tabbed and upper-case variants.
-
-### WR-04: Text rules are skipped for any blob with a NUL in its first 8 KiB, for UTF-16 without a BOM, and for other encodings
-**Files modified:** `scripts/prepublish_scan.py`, `tests/test_prepublish_scan.py`
-**Commit:** 30ac20a
-**Applied fix:** `_decode` always returns text: UTF-32 and UTF-16 with a BOM, UTF-16 and UTF-32 without one (by the share of NUL bytes),
-and any other NUL-bearing data read like `strings` (NULs become line breaks). `scan_blob` no longer returns early on binary data.
-This tree and history still scan with no new finding from binary files (see the scan result).
-Status: fixed: requires human verification (a binary file now gets text rules; no false positive appeared on this repository).
-
-### WR-05: File names, folder names and ref names are not run through the text rules
-**Files modified:** `scripts/prepublish_scan.py`, `tests/test_prepublish_scan.py`
-**Commit:** 3dfed6b
-**Applied fix:** `scan_blob`, `scan_alias` and `scan_ref(name, rules)` pass the path or ref name through the text rules and report the
-same rule names with the path or `ref:<name>` as place. `scan_ref` keeps working without rules.
-
-### WR-06: Vendor-file detection is by suffix and two magic prefixes only
-**Files modified:** `scripts/prepublish_scan.py`, `tests/test_prepublish_scan.py`
-**Commit:** 6a00484
-**Applied fix:** More suffixes (archives, STL, EAGLE, OrCAD, Altium families, spreadsheets, CSV) and magics (gzip, 7z, PDF, RAR).
-Under `tests/fixtures/` only the two small text suffixes the fixtures use are exempt, and a magic hit is never exempt. Not done:
-the optional idea of opening zip blobs and scanning their members (the review marked it optional); a fixture archive is now
-flagged by name or magic instead of being skipped.
-
-### WR-07: Workstation-path patterns miss WSL, URL-encoded and UNC spellings
-**Files modified:** `scripts/prepublish_scan.py`, `tests/test_prepublish_scan.py` (and `scripts/split/scrub.py`, done in the CR-02 commit)
-**Commit:** 586c268 (scan side); scrub side in c4c3457
-**Applied fix:** Three new patterns (WSL mount, URL-encoded drive colon, UNC share with a user folder) and the matching scrub rules.
-
-### WR-08: `cutover_collection.py` reads its templates from inside the folder it is about to delete
-**Files modified:** `scripts/split/cutover_collection.py`, `tests/test_cutover_collection.py`
-**Commit:** 34d946d
-**Applied fix:** `plan()` reads the three templates into memory and `apply` writes from those bytes; `plan()` refuses when the
-templates folder lies inside the repository being cut over; a failed step prints the way back (`git reset -q` then `git checkout -- .`).
-The script is a one-off kept for the record and was only run against throwaway repositories in tests.
-
-### WR-09: The cutover never checks the safety net its messages promise
-**Files modified:** `scripts/split/cutover_collection.py`, `tests/test_cutover_collection.py`
-**Commit:** 02e47d0
-**Applied fix:** `--pre-split-tag NAME` is required with `--apply` (exit 2 otherwise) and the tag must exist and name HEAD (checked in
-the dry run too); a git timeout becomes a failed step instead of a traceback; failed steps print the way back (from WR-08). Not
-possible to check from the script: that the new tool repository was pushed before the code leaves the collection; the docstring
-now states it as a prerequisite.
-
-### WR-10: `sync_planning.py` overwrites uncommitted work in the tool checkout and cannot see conflicts
-**Files modified:** `scripts/split/sync_planning.py`, `tests/test_split_export.py`
-**Commit:** 8c87748
-**Applied fix:** Refuses (exit 2) when `.planning/` of the destination has uncommitted changes; a file whose destination copy no longer
-matches the export of the `--since` tag is printed as `conflict <path>`, left alone, and the command exits 1. Slow test for both.
-Status: fixed: requires human verification (the conflict rule assumes the same `--map` as the build).
-
-### WR-11: `build_tool_repo.py` writes any `--email` into the first public commit
-**Files modified:** `scripts/split/build_tool_repo.py`, `tests/test_split_export.py`
-**Commit:** e7193e1
-**Applied fix:** `build` refuses (exit 2) an email the scan's own `is_allowed_email` rejects unless `--allow-any-email` is given,
-before anything is written; on success it prints a reminder to set `prepublish.denyTermsFile` in the new clone.
-
-### WR-12: `test_compare_reports_differences` assertions are satisfied by any diff line (reviewer B)
-**Files modified:** `tests/test_uri_diff.py`
-**Commit:** 0541570
-**Applied fix:** The four checks name the entry: the full removed and added lines are asserted, and a helper lists the (kind, entry)
-pairs of every difference line so a wrong entry cannot pass. The real output also reports the added, changed and gone entries as
-missing or changed, so the expected sets include those and nothing else.
-
-### WR-13: Every behavioural test of the publishing controls is `slow`, so CI never runs it (reviewer B)
-**Files modified:** `tests/test_githooks.py`, `tests/README.md`
-**Commit:** 3f86cf1
-**Applied fix:** The commit-msg hook tests now run the hook on a message file with no `git init`, so they are quick and run in CI
-(one slow test keeps the hook wired through `core.hooksPath` and a real commit). For the git-bound tests the review's alternative was
-taken: `tests/README.md` records that CI never runs them and lists the one `--full` command to run before every publish. A CI
-`--full` step was not added: the CI text test forbids it, and it could not be checked from here.
-
-### WR-14: The scan's history walk is never tested on a blob that left the tree (reviewer B)
-**Files modified:** `tests/test_prepublish_scan.py`
-**Commit:** 2ceaa2c
-**Applied fix:** Slow test: a planted path committed and removed (tree clean, history not), `--tree` alone, `--history` alone, `--path`,
-`--deny-terms-file`, `prepublish.denyTermsFile` and `prepublish.denyEmailsFromRepo`, and a missing configured terms file exiting 2.
-
-### WR-15: The corpus audit can be bypassed by common spellings, and its mark check is per module (reviewer B)
-**Files modified:** `tests/test_corpus_audit.py`, `tests/test_sexpr.py`
-**Commit:** 8e1177a
-**Applied fix:** Root names ending in ROOT or REPO, a path after the folder name, `os.path.join` and a bare `parent.parent` are found;
-a skip reason held in a module constant is found; a new per-test audit (AST based: reader calls, module names that reach them, mark
-aliases, parametrize marks, class and module marks) replaces trusting one mark per module. `test_tokenizer_matches_reference_parser`
-no longer reads the live Custom files; they moved to a new `corpus`-marked test. Planted-case tests cover each new spelling.
-
-### WR-16: The allow-list tests would not notice private local files being admitted (reviewer B)
-**Files modified:** `tests/test_split_export.py`
-**Commit:** b957481
-**Applied fix:** The owner-local files named by the review join the negative sample and the verify-export parametrization, and the
-shipped-list check refuses entries that name `.claude`, `env`, `.env`, `.local.`, deny-terms or junit.
-
-### WR-17: `test_a_raising_callback_does_not_stop_the_next_delivery` can still deliver `first` before the poll timer is stopped (reviewer C)
-**Files modified:** `tests/test_background.py`
-**Commit:** c41be07
-**Applied fix:** The test waits on each task's own `_returned` event (no event loop turn, so the 15 ms poll timer cannot drain) and
-stops the timer after the second start. Module run three times serially: 9 passed each time.
-
-### WR-18: Two off-thread waits kept a 250 ms and a 1 s budget while their siblings went to 30 s (reviewer C)
-**Files modified:** `tests/test_new_collection_dialog.py`, `tests/test_help_dialog.py`
-**Commit:** 3afc64d
-**Applied fix:** The "at once, not after the debounce" intent is asserted off the timer (`_debounce.interval() == 0` right after the
-click) with the 30 s wait for the check; the help fold wait is 30 s. Both modules run three times serially: green.
-
-### WR-19: Further small waits left in the same modules that the fix commits otherwise raised (reviewer C)
-**Files modified:** `tests/test_import_dialog.py`, `tests/test_new_collection_dialog.py`, `tests/test_choose_folder_dialog.py`, `tests/test_first_run_dialog.py`, `tests/test_main_window.py`
-**Commit:** 3a400b6
-**Applied fix:** Each listed wait now has `timeout=30000`. For the two `dialog.width()` waits the timeout was added to the existing
-condition instead of switching to `resize_and_wait`, because that helper also waits for the height. A shared budget constant was not
-introduced. The three small dialog modules ran three times serially: green.
-
-### WR-20: Worker hold gates of 5 s are now shorter than the 30 s waits placed before the assertions that rely on the held state (reviewer C)
-**Files modified:** `tests/test_main_window.py`, `tests/test_migration_dialog_run.py`
-**Commit:** 527b585
-**Applied fix:** The six listed gates are held for 60 s (the tests release them in `finally`). `test_main_window.py`,
-`test_migration_dialog_run.py` and `test_import_dialog.py` ran with `--full -n 4`: 370 passed.
-
-## Skipped Issues
-
-None.
+Where the fixes ran: in an isolated git worktree of this clone on a temporary branch, using the project venv by absolute
+path. The 17 commits were then fast-forwarded onto `main`, the worktree and the temporary branch were removed, and nothing
+was pushed. The gates below ran in that worktree (same tree as `main` at da807fd); the final scan ran in the main checkout.
+Every changed file kept its CRLF line endings (checked by counting LF-only lines in all 17 changed files: none).
 
 ## Verification
 
-All of it ran in the main checkout (no worktree).
+- Quick suite (`python -m pytest`, parallel, `slow` skipped): 4045 passed, 3 skipped in 95 s. The 3 skips are the two
+  symlink-privilege skips and the real-config skip, within the budget of 10. Run once at the end, in the worktree.
+- The CI floor was measured the way CI runs: with KiCad hidden (`KICAD_TEST_HIDE_KICAD=1`) the quick run gave 4031 passed,
+  3 skipped (corpus and needs_kicad tests deselected); that number is recorded beside `--min-passed 3500` (IN-05).
+- Targeted runs with `--full` (slow tests included): `tests/test_prepublish_scan.py` 28 passed, `tests/test_cutover_collection.py`
+  11 passed, `tests/test_split_export.py` 38 passed. The timing tests of IN-09 and IN-10 were run three times serially
+  (`-n 0`): `tests/test_help_dialog.py` 74 passed three times, `tests/test_choose_folder_dialog.py` plus
+  `tests/test_new_collection_dialog.py` 40 passed three times.
+- Pre-publish scan `python scripts/prepublish_scan.py --tree --history` in the main checkout after the last commit: **1 finding,
+  exit 1**: `workstation_path` at `.planning/phases/16-repo-split/16-REVIEW.md:170`. See "Needs a decision" below. Before the
+  IN-12 commit the scan was clean (426 files, 544 blobs, 64 commits); with the last commit, no other file or commit is flagged.
 
-- Quick suite (`python -m pytest`, run once at the end): **4037 passed, 3 skipped, 4 warnings in 99 s**, 42 corpus tests deselected
-  (no corpus folder set). The 3 skips are the two Windows symlink-privilege skips and the real-KiCad-config opt-in; the skip budget is 10.
-- Slow modules the fixes touch, run with `--full` while working: `test_prepublish_scan.py`, `test_githooks.py`,
-  `test_cutover_collection.py`, `test_split_export.py`, `test_help_dialog.py`, `test_uri_diff.py`: all green;
-  `test_import_dialog.py`, `test_main_window.py`, `test_migration_dialog_run.py` with `--full -n 4`: 370 passed.
-- Pre-publish scan (`scripts/prepublish_scan.py --tree --history`, run once at the end): **exit 1, 2 findings**:
-  `workstation_path` at `.planning/phases/16-repo-split/16-REVIEW.md:171` and `:215`. Both are the review's own quoted sample
-  strings (a drive path after a JSON line-break escape, and a WSL-style path). They are caught because CR-02 and WR-07 widened the
-  rules; they were clean before (425 files, 471 blobs, 27 commits). The file is committed (so it is in the tree and the history) and
-  this fixer may not edit `.planning/` other than this report. **Action for the owner before the next push:** reword those two lines
-  of `16-REVIEW.md` (describe the sample instead of quoting it) or append an inline allow marker for the `workstation_path` rule; the
-  history cannot be left clean without that edit being committed first in a way the owner chooses (a new commit is enough for the tree
-  scan, but the old blob stays in history, so a marker is the practical route, or rewrite only if the history is still unpublished).
-  Without it the pre-push hook and CI will fail on those two lines.
+## Needs a decision
 
-## Notes for the owner
+The IN-12 fix (a JSON-escaped UNC path is now read with its doubled backslashes collapsed) newly flags one existing,
+committed line: line 170 of `16-REVIEW.md` quotes, as an example in the text of IN-12, a doubled-backslash UNC path whose
+user folder is written `<name>`. `<name>` is not in the placeholder list (`bob`, `alice`, `user`, `username`, `<user>`,
+`<username>`), which is the owner's decision, so the rule reports it. The rule was not weakened to hide this. The file is a
+planning artifact outside this fix's scope, and the same text is in the blob of the (unpushed) review commit 7e75d79, so a
+push would be refused by the pre-push hook and by CI until either (a) the quoted example in `16-REVIEW.md` is reworded to use
+`<user>` and the review commit is amended or rewritten before the push (origin/main is at a1c90c9, so only 7e75d79 and the 17
+fix commits are unpushed), or (b) the owner adds `<name>` to the placeholder list.
 
-- `.githooks/pre-push` now refuses a push from a clone without `prepublish.denyTermsFile` (WR-01). This clone has it set, so
-  nothing changes here; a fresh clone needs the key or `PREPUBLISH_ALLOW_NO_DENY_LIST=1`.
-- `cutover_collection.py --apply` now needs `--pre-split-tag` (WR-09); `sync_planning.py` can exit 1 on conflicts (WR-10);
-  `build_tool_repo.py` needs `--allow-any-email` for a non-noreply address (WR-11). All three are one-off scripts and were only
-  exercised on throwaway repositories.
+## Fixed Issues
+
+### WR-21: A placeholder user folder is matched by its first word only, so a real profile folder that starts with a placeholder name is treated as a sample
+
+**Files modified:** `scripts/prepublish_scan.py`, `tests/test_prepublish_scan.py`
+**Commit:** 4e1284a
+**Status:** fixed: requires human verification (a rule change)
+**Applied fix:** The user folder is read up to the next separator, quote, backtick or end of line, spaces included, and
+compared whole (trailing blanks trimmed). A folder named with a placeholder name, a space and a surname now reports
+`workstation_path` for the backslash, doubled-backslash, slash, git-bash, WSL, URL-encoded and UNC spellings; the bare placeholder
+(with trailing blanks, or a quote right after it) stays a sample. The placeholder-user rule itself is unchanged. New test
+`test_a_profile_folder_with_a_space_is_read_whole_not_by_its_first_word`. The scan of the tree and history was unchanged by it.
+
+### WR-22: The planning-sync conflict check reports false conflicts: on a second sync with the same `--since` and on any checkout that converts line endings
+
+**Files modified:** `scripts/split/sync_planning.py`, `tests/test_split_export.py`
+**Commit:** 3909d2c
+**Status:** fixed: requires human verification (comparison logic)
+**Applied fix:** The conflict check now compares the committed bytes of the destination (`git show HEAD:<path>`, no line-ending
+conversion; equal to the working copy because the clean check has already passed) with the scrubbed `--since` version, for both
+the changed and the added case; a file that is not committed counts as edited. The docstring and the `--since` help text now say
+that `--since` is the ref the checkout was last brought to: the build tag for the first sync, then the `--ref` of the previous
+sync. I chose the "require --since to be the previous --ref and say so" option from the review instead of recording a
+`.synced-ref` file, so that no new file is added to an allow-listed folder; a second sync that still passes the older tag reports
+conflicts, as documented. New slow tests: a second sync from the last synced ref has no conflict, and a clean checkout with
+`core.autocrlf=true` (working copy in CRLF) syncs without a conflict (the second test fails on the old code).
+
+### WR-23: The cutover's safety-net check accepts a branch name and never looks at the bundle
+
+**Files modified:** `scripts/split/cutover_collection.py`, `tests/test_cutover_collection.py`
+**Commit:** 5e01802
+**Status:** fixed: requires human verification (a check)
+**Applied fix:** The check resolves `refs/tags/NAME^{commit}`, so a branch or a remote-tracking ref of that name no longer passes
+("does not exist"). A dry run without `--pre-split-tag` now prints "no safety net checked yet: pass --pre-split-tag NAME ...", and a
+dry run given a tag checks it too. The optional `--pre-split-bundle FILE` with `git bundle verify` was not added: the docstring says
+the bundle is not looked at. New refusal cases (`branch_for_tag`, `dry_stale_tag`) and an assertion on the dry-run note.
+
+### IN-01: `uri_diff.py` resolves variables with the process environment as the lowest priority
+
+**Files modified:** `scripts/split/uri_diff.py`, `tests/test_uri_diff.py`
+**Commit:** b2b0cbf
+**Applied fix:** The module docstring documents the precedence (process environment, then `kicad_common.json`, then `--var`) and
+says KiCad may prefer an operating-system variable, so both snapshots of a proof should come from the same shell. New `snapshot`
+options: `--no-env` (ignore the process environment) and `--redact-home` (write the user's home folder as `<HOME>` in the snapshot,
+whole path segments only). The default order and output are unchanged, so existing snapshots still compare; redaction is opt-in
+because both snapshots of a proof must use the same flag. New tests for both options and for the segment rule.
+
+### IN-02: `tests/zipfixtures.py` builds the sample zip into the shared system temp at import time
+
+**Files modified:** `tests/ulfixtures.py`, `tests/zipfixtures.py`
+**Commit:** decc72e
+**Applied fix:** The sample-zip cache folder is now per user (`kicad_lib_manager_tests-<user name, sanitised>` under the system
+temp folder, with a fixed fallback name when no user name is known), so another user of a shared temp folder cannot pre-create it.
+The `zipfixtures.py` docstring now names the exception (`UL_ZIP`, built at import into that cache). The build was not made lazy:
+`UL_ZIP` is imported by name in many test modules and used as a default argument, so a lazy form would still run at import and
+would need edits in a dozen modules; an unwritable temp folder fails every test anyway (`tmp_path` needs it).
+
+### IN-03: `str.splitlines()` shifts reported line numbers
+
+**Files modified:** `scripts/prepublish_scan.py`, `tests/test_prepublish_scan.py`
+**Commit:** 35e05f0
+**Status:** fixed: requires human verification (line splitting)
+**Applied fix:** The per-line scan splits on CRLF, CR or LF only, so form feed, `\x1c`-`\x1e`, `\x85`, U+2028 and U+2029 no
+longer shift the reported number; the `_decode` docstring says that for NUL-bearing data the number counts runs. I left the two
+other `splitlines()` uses alone on purpose: the corpus-window builder reports no number, and the commit and tag message scan keeps
+the wider split because it looks for a session trailer at the start of a line (more line starts is the safer direction there). New
+test `test_reported_line_numbers_follow_the_editor_not_str_splitlines`.
+
+### IN-04: `build_tool_repo.py` cleanup swallows its own failures and the scrub covers only `.planning`
+
+**Files modified:** `scripts/split/build_tool_repo.py`, `tests/test_split_export.py`
+**Commit:** ba07eff
+**Applied fix:** `_rmtree` and `_clear` now return the items they could not remove, and a failed build appends "the clean-up could
+not remove N item(s) of the failed export; delete them by hand: ..." to its error (the exit code is kept). Parent folders that
+`mkdir(parents=True)` created are removed again when empty. The scrub was not extended: it would also rewrite the made-up sample
+folders that `CLAUDE.md` and the docs quote (the generic home rule replaces any user name), so the module docstring now states
+that the push scan is the only guard for a path in any file other than `.planning`. New tests for the parent removal and for the
+failure report.
+
+### IN-05: `--min-passed 3500` is a bare constant in CI
+
+**Files modified:** `.github/workflows/ci.yml`
+**Commit:** 3cefe27
+**Applied fix:** A comment above the step records the measured count (4031 passed, 3 skipped on 2026-11-26 with KiCad hidden, the
+corpus and needs_kicad tests deselected) and says to measure again when tests move between markers or a large group is added or
+removed. The floor itself is unchanged (3500). `tests/test_ci_workflow.py` still passes.
+
+### IN-06: `test_markers.py` cannot be collected on Python 3.10
+
+**Files modified:** `tests/test_markers.py`
+**Commit:** ee8f14f
+**Applied fix:** The module-level `import tomllib` is gone; the one test that reads `pyproject.toml` does
+`tomllib = pytest.importorskip("tomllib")`. Checked by reading, because only a 3.14 venv exists here: the module's remaining imports
+are `ast`, `pytest` and `runfixtures`, all available on 3.10, and `tomllib` appears only inside that test. Not changed, out of
+this finding's scope: `tests/test_isolation.py` also has a module-level `import tomllib`, so it still cannot be collected on 3.10.
+
+### IN-07: Dead loop in `test_read_only_git_allow_list_is_exact`
+
+**Files modified:** `tests/test_markers.py`
+**Commit:** bcc14a6
+**Applied fix:** The test (an assertion that the dict is empty, followed by a loop over it) is removed. `_READ_ONLY_GIT_TESTS` and
+its use in `test_requires_git_tests_are_slow` stay, and the comment above the dict says to add the exactness check back with the
+first entry.
+
+### IN-08: `test_ci_workflow.py` checks match comments and any step
+
+**Files modified:** `tests/test_ci_workflow.py`
+**Commit:** 0f25c62
+**Applied fix:** Comment lines are stripped before every check; each command in the step-order test must occur exactly once; the
+runner, timeout and trigger checks are line-anchored and there must be a single `runs-on`; the Python version is read from the
+setup-python step and `fetch-depth: 0` from the checkout step; no `write` permission (or `write-all`) may appear at any level. Checked
+by mutating a copy of the workflow (commented runner, job-level write, moved scan step, commented fetch depth): each was caught.
+
+### IN-09: `test_owner_choice_is_remembered_after_close_escape_and_parent_deleted` fixed the Escape branch but not the Close-button branch
+
+**Files modified:** `tests/test_help_dialog.py`
+**Commit:** ed088b2
+**Applied fix:** The Close branch waits with `qtbot.waitUntil(lambda: not dialog.isVisible(), timeout=30000)` before its assertion,
+the same pattern as the Escape branch. `tests/test_help_dialog.py` ran three times serially: 74 passed each time.
+
+### IN-10: Debounce tests assert "nothing started yet" after a 100 ms wall-clock wait against a 300 ms debounce
+
+**Files modified:** `tests/test_choose_folder_dialog.py`, `tests/test_new_collection_dialog.py`
+**Commit:** da807fd
+**Applied fix:** Both tests no longer wait 100 ms. Right after the last edit they assert that the debounce timer is still active and
+that no check has started; no event is processed between the edit and the assertion, so the result does not depend on the clock. The
+later settle and the "one check for three edits" assertions are unchanged. The two modules ran three times serially: 40 passed each time.
+
+### IN-11: `_decode` reads UTF-32 big-endian without a byte order mark as garbage, so its text is not scanned
+
+**Files modified:** `scripts/prepublish_scan.py`, `tests/test_prepublish_scan.py`
+**Commit:** a7e4cd3
+**Status:** fixed: requires human verification (decoding heuristic)
+**Applied fix:** Before the UTF-16 branches, `_decode` tests the 4-byte stride: when bytes 1, 2 and 3 of each group are mostly NUL
+it decodes UTF-32 little endian, when bytes 0, 1 and 2 are it decodes UTF-32 big endian (same 30 % share as the UTF-16 test). The
+encoding test now lists UTF-32 big and little endian without a BOM; UTF-16 and plain binary noise still behave as before.
+
+### IN-12: A JSON-escaped UNC path and other JSON escapes still hide a path or an address
+
+**Files modified:** `scripts/prepublish_scan.py`, `tests/test_prepublish_scan.py`
+**Commit:** d2d2a2d
+**Status:** fixed: requires human verification (rule change; it flags one existing committed line, see "Needs a decision")
+**Applied fix:** A second variant of each line has every doubled backslash collapsed (a JSON-escaped UNC share starts with four),
+and the escape variant now also covers `\f`, `\b` and the `\u000x`, `\u001x`, `\u0085`, U+2028 and U+2029 escapes. Two
+refinements were needed so ordinary text stays quiet: an escape preceded by a backslash is an escaped backslash and not an escape
+(`\\b` is a separator and a letter), and an escape is replaced by a line break, which also ends a user folder name that now may
+hold spaces (WR-21), so a placeholder folder followed by a path part such as `notes` or `file` stays a sample. New test
+`test_json_escapes_beyond_n_r_t_and_a_doubled_unc_path_do_not_hide_a_finding`.
+
+### IN-13: Annotated tags with an empty tagger address skip the identity check, and the name in the tag header is never read
+
+**Files modified:** `scripts/prepublish_scan.py`, `tests/test_prepublish_scan.py`
+**Commit:** db4bf69
+**Status:** fixed: requires human verification (scan logic)
+**Applied fix:** `history_tags` now also returns the name from the `tag <name>` header line (its tuples have five fields instead of
+four). `run` applies the identity check whenever the tagger line has a name or an address (an empty address is never allow-listed),
+and runs the header name through the text rules at `tag:<id>`. New slow test with hand-written tag objects: a tagger with a name and
+an empty address is reported as `commit_identity`, and an owner term in the header name of a tag published under another ref name is
+reported as `owner_term`.
+
+### IN-14: Formatting slip in the marker pattern definition
+
+**Files modified:** `scripts/prepublish_scan.py`
+**Commit:** 5925b54
+**Applied fix:** `_MARKER_PATTERN = re.compile(...)` now has the space after `=`.
 
 ---
 
-_Fixed: 2026-11-26_
+_Fixed: 2026-11-26T18:30:00Z_
 _Fixer: Claude (gsd-code-fixer)_
 _Iteration: 1_
