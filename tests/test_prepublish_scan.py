@@ -492,3 +492,63 @@ def test_history_judges_a_blob_by_every_name_it_had(tmp_path):
     code, out = _scan(repo, "--history")
     assert code == 1, out
     assert "vendor_file\tzparts/a.kicad_sym" in out.splitlines(), out
+
+
+@pytest.mark.slow
+@requires_git
+def test_history_reports_a_path_that_left_the_tree_and_the_options_work(tmp_path):
+    repo = tmp_path / "r"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    planted = drive_path("C", "Users", SLASH).replace("someone", "zq9plant")
+    (repo / "old.txt").write_text("path = " + planted + "\n", encoding="utf-8")
+    (repo / "keep.txt").write_text("nothing private here\n", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "add")
+    _git(repo, "rm", "-q", "old.txt")
+    _git(repo, "commit", "-q", "-m", "drop old")
+
+    # the tree is clean; the history still holds the planted path, and only --history says so
+    code, out = _scan(repo, "--tree")
+    assert code == 0, out
+    code, out = _scan(repo, "--history")
+    assert code == 1, out
+    assert "workstation_path\told.txt:1" in out.splitlines(), out
+    assert "zq9plant" not in out
+    code, out = _scan(repo)
+    assert code == 1, out
+
+    # --path limits the tree scan only
+    (repo / "new.txt").write_text("path = " + planted + "\n", encoding="utf-8")
+    code, out = _scan(repo, "--tree", "--path", "keep.txt")
+    assert code == 0, out
+    code, out = _scan(repo, "--tree", "--path", "new.txt")
+    assert code == 1 and "workstation_path\tnew.txt:1" in out.splitlines(), out
+    (repo / "new.txt").unlink()
+
+    # a deny-terms file, given or configured, adds the owner_term rule; a missing configured file fails closed
+    terms = tmp_path / "terms.txt"
+    terms.write_text("# owner terms\nzq9plant\n", encoding="utf-8")
+    code, out = _scan(repo, "--history", "--deny-terms-file", str(terms))
+    assert "owner_term\told.txt:1" in out.splitlines(), out
+    _git(repo, "config", "prepublish.denyTermsFile", str(terms))
+    code, out = _scan(repo, "--history")
+    assert "owner_term\told.txt:1" in out.splitlines(), out
+    _git(repo, "config", "prepublish.denyTermsFile", str(tmp_path / "missing-terms.txt"))
+    code, out = _scan(repo, "--tree")
+    assert code == 2, out
+    assert "cannot read the deny file" in out
+    _git(repo, "config", "--unset", "prepublish.denyTermsFile")
+
+    # prepublish.denyEmailsFromRepo makes another repository's commit addresses the owner's
+    other = tmp_path / "other"
+    other.mkdir()
+    _git(other, "init", "-q", "-b", "main")
+    owner = "ow" + "ner" + "@" + "priv" + ".test"
+    (other / "f.txt").write_text("x\n", encoding="utf-8")
+    _git(other, "add", "f.txt")
+    _git(other, "-c", "user.name=o", "-c", "user.email=" + owner, "commit", "-q", "--author=o <" + owner + ">", "-m", "o")
+    (repo / "notes.txt").write_text("write to " + owner + "\n", encoding="utf-8")
+    _git(repo, "config", "prepublish.denyEmailsFromRepo", str(other))
+    code, out = _scan(repo, "--tree")
+    assert "owner_email\tnotes.txt:1" in out.splitlines(), out
