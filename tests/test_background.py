@@ -77,11 +77,12 @@ def test_a_raising_callback_does_not_stop_the_next_delivery(qtbot, monkeypatch):
 
     dispatcher = background._dispatcher()
     first = run_in_background(lambda: 1, bad)
-    qtbot.waitUntil(lambda: not first.is_running(), timeout=30000)
+    # Wait on the thread's own event, which turns no event loop: the 15 ms poll timer cannot fire and deliver `first`
+    assert first._returned.wait(30)
     second = run_in_background(lambda: 2, got.append)
-    # No tick between the puts: nothing is delivered until the one drain below
+    # No tick between the puts: nothing is delivered until the one drain below (add() restarts the timer, so stop it now)
     dispatcher._timer.stop()
-    qtbot.waitUntil(lambda: not second.is_running(), timeout=30000)
+    assert second._returned.wait(30)
     assert not first.is_done() and not second.is_done()
 
     dispatcher._drain()  # one drain must deliver both: the first raises, the second still arrives
