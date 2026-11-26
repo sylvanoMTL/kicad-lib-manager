@@ -168,6 +168,7 @@ class Collection:
             path.write_bytes(text.encode("utf-8"))
         git(self.parent, "add", "--", *files)
         git(self.parent, "commit", "-q", "-m", "Collection with code")
+        git(self.parent, "tag", "pre-split")
         self.files = files
 
     def git(self, *args: str, check: bool = True) -> str:
@@ -241,7 +242,7 @@ def test_apply_keeps_gitlinks_and_untracks_samples(tmp_path):
     (coll.parent / "kicad_lib_manager" / "__pycache__" / "a.pyc").write_bytes(b"\0")
     (coll.parent / "tests" / "notes.txt").write_text("keep me\n", encoding="utf-8")
 
-    done = coll.run("--apply")
+    done = coll.run("--apply", "--pre-split-tag", "pre-split")
     assert done.returncode == 0, done.stdout + done.stderr
 
     listed = {line.partition("\t")[2] for line in coll.git("ls-tree", "-r", "HEAD").splitlines()}
@@ -288,8 +289,20 @@ def test_templates_inside_the_repository_are_refused(tmp_path, monkeypatch):
 
 @pytest.mark.slow
 @requires_git
+def test_apply_without_a_tag_is_a_usage_error(tmp_path):
+    coll = Collection(tmp_path)
+    head = coll.head()
+    done = coll.run("--apply")
+    assert done.returncode == 2, done.stdout + done.stderr
+    assert "--pre-split-tag" in done.stdout
+    assert coll.head() == head
+    assert coll.git("status", "--porcelain").strip() == ""
+
+
+@pytest.mark.slow
+@requires_git
 def test_refusals(tmp_path):
-    def attempt(name: str, reason: str, *, prepare=None, wurth: bool = True, extra=None, flags=("--apply",)):
+    def attempt(name: str, reason: str, *, prepare=None, wurth: bool = True, extra=None, flags=("--apply", "--pre-split-tag", "pre-split")):
         coll = Collection(tmp_path / name, wurth=wurth, extra=extra)
         if prepare is not None:
             prepare(coll)
@@ -307,5 +320,8 @@ def test_refusals(tmp_path):
     attempt("branch", "not on main", prepare=lambda c: c.git("switch", "-c", "other"))
     attempt("no_wurth", "gitlink", wurth=False)
     attempt("unexpected", "extra/x.txt", extra={"extra/x.txt": "x\n"})
+    # the safety net is checked, not assumed: --apply needs the tag, and the tag must be on HEAD
+    attempt("stale_tag", "not on HEAD", prepare=lambda c: c.git("commit", "-q", "--allow-empty", "-m", "after the tag"))
+    attempt("no_such_tag", "does not exist", flags=("--apply", "--pre-split-tag", "nope"))
     # the dry run refuses too
     attempt("dry_dirty", "uncommitted", prepare=lambda c: (c.parent / "pyproject.toml").write_text("changed\n", encoding="utf-8"), flags=())

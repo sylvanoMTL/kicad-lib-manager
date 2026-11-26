@@ -18,7 +18,10 @@ remote URL are unchanged. It never runs git clean, git reset or git push, and de
 folder only when what is left in it is cache content.
 
 Usage:
-    python scripts/split/cutover_collection.py --repo DIR [--apply] [--message TEXT]
+    python scripts/split/cutover_collection.py --repo DIR [--apply --pre-split-tag NAME] [--message TEXT]
+
+--apply needs --pre-split-tag: the tag must name the commit HEAD is on (the state to return to), and
+the new tool repository should be pushed before this runs; the script cannot check that.
 
 Exit codes: 0 done (or dry run shown), 1 refused or a check failed, 2 unusable input.
 """
@@ -89,7 +92,10 @@ class CutoverPlan:
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess:
     env = {**os.environ, "GIT_OPTIONAL_LOCKS": "0"}
-    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, env=env, timeout=600)
+    try:
+        return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, env=env, timeout=600)
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(args, 124, b"", b"git timed out after 600 s")
 
 
 def _text(done: subprocess.CompletedProcess) -> str:
@@ -190,11 +196,22 @@ def _inside(path: Path, folder: Path) -> bool:
     return True
 
 
-def plan(repo: Path) -> CutoverPlan:
-    """What the cutover would do, and every reason it must not run. Writes nothing."""
+def plan(repo: Path, pre_split_tag: str | None = None) -> CutoverPlan:
+    """What the cutover would do, and every reason it must not run. Writes nothing.
+
+    With pre_split_tag the tag must name the commit HEAD is on: the safety net the messages promise.
+    """
     repo = Path(repo)
     result = CutoverPlan(repo=repo)
     problems = result.problems
+
+    if pre_split_tag is not None:
+        tagged = _git(repo, "rev-parse", "--verify", "-q", f"{pre_split_tag}^{{commit}}")
+        now = _git(repo, "rev-parse", "--verify", "-q", "HEAD")
+        if tagged.returncode != 0:
+            problems.append(f"the pre-split tag {pre_split_tag} does not exist")
+        elif now.returncode != 0 or _text(tagged).strip() != _text(now).strip():
+            problems.append(f"the pre-split tag {pre_split_tag} is not on HEAD; tag the current state first")
 
     head = _git(repo, "symbolic-ref", "--short", "-q", "HEAD")
     result.branch = _text(head).strip() if head.returncode == 0 else None
@@ -378,7 +395,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repo", required=True, help="the top folder of the collection checkout")
     parser.add_argument("--apply", action="store_true", help="make the commit; without it the plan is only printed")
     parser.add_argument("--message", default=DEFAULT_MESSAGE, help="the commit message")
+    parser.add_argument("--pre-split-tag", metavar="NAME", help="tag that names the pre-split commit HEAD is on (required with --apply)")
     args = parser.parse_args(argv)
+    if args.apply and not args.pre_split_tag:
+        print("cutover: --apply needs --pre-split-tag NAME (the tag that restores the previous state)")
+        return 2
     repo = Path(args.repo)
     if not repo.is_dir():
         print(f"cutover: {repo} is not a folder")
@@ -397,7 +418,7 @@ def main(argv: list[str] | None = None) -> int:
     if not args.message.strip():
         print("cutover: --message must not be empty")
         return 2
-    found = plan(repo)
+    found = plan(repo, args.pre_split_tag)
     if found.problems:
         for problem in found.problems:
             print(f"cutover: refused: {problem}")
