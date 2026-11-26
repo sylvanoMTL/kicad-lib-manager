@@ -1,8 +1,8 @@
 """Meta-tests for the slow marker and strict markers (Phase 14, TEST-06)."""
 
 import ast
-import tomllib
 
+import pytest
 from runfixtures import REPO_ROOT, TESTS_DIR, collect_repo, run_pytest, write_tree
 
 # Tests carrying requires_git that only read this checkout and create no repository (id -> reason).
@@ -43,6 +43,7 @@ def test_slow_marker_is_registered_and_used():
 
 def test_corpus_and_needs_kicad_are_registered():
     """pyproject registers corpus and needs_kicad, and the wurth entry says it implies corpus."""
+    tomllib = pytest.importorskip("tomllib")  # Python 3.11+; the module must still import on 3.10
     data = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     markers = data["tool"]["pytest"]["ini_options"]["markers"]
 
