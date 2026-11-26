@@ -663,7 +663,7 @@ def test_tokenizer_matches_reference_parser():
     noise = ["".join(rng.choices(_TOKEN_PIECES, k=rng.randint(0, 14))) for _ in range(20_000)]
     with zipfile.ZipFile(UL_ZIP) as zf:
         ul = [zf.read(m).decode("utf-8-sig") for m in (UL_SYMBOL_MEMBER, UL_FOOTPRINT_MEMBER)]
-    texts = forms + noise + [_symbol_library(300)] + ul + _custom_texts()
+    texts = forms + noise + [_symbol_library(300)] + ul
     assert len(texts) >= 22_000
     for text in texts:
         assert _outcome(parse, text) == _outcome(_reference_parse, text), repr(text[:200])
@@ -673,6 +673,15 @@ def test_tokenizer_matches_reference_parser():
                 limit,
                 repr(text[:200]),
             )
+
+
+@pytest.mark.corpus
+def test_tokenizer_matches_reference_parser_on_the_custom_library():
+    """The same comparison on the live Custom/ files: a part of the collection can fail it, so it carries the corpus mark."""
+    texts = _custom_texts()
+    assert texts, "the corpus collection has no .kicad_sym or .kicad_mod file under Custom/"
+    for text in texts:
+        assert _outcome(parse, text) == _outcome(_reference_parse, text), repr(text[:200])
 
 
 @pytest.mark.corpus
