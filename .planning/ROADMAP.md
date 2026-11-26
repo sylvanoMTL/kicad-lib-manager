@@ -154,7 +154,7 @@ Plans:
   - D14 Repo visibility: `sylvanoMTL/kicad_libraries` and `sylvanoMTL/kicad_custom_library` are both public as of 2026-11-22. Make them private, or accept public and treat the split as stopping future exposure only.
 **Research flags**: Interactive session first (D1, D10, D12, D13, D14). `git filter-repo` with gitlinks is unverified: rehearse on a throwaway clone and diff `git ls-tree -r HEAD`.
 **Notes**: Rehearse on `git clone --no-local` copies first, with a `git bundle` and a `pre-split` tag; keep the library layouts and compare the resolved table URI list before and after (the 2026-10-21 incident). The live split runs from the main checkout KiCad reads (D-26). WurthElektronik stays a submodule in the collection until Phase 17. The tool repo gets Windows CI (`pytest -m "not slow"`); the legacy in-repo fallback is removed, the conftest live-collection guard is repointed and the library corpus becomes opt-in (`KICAD_TEST_CORPUS`). About 25 test modules read `Custom`, `WurthElektronik`, `downloaded_examples` or `.planning`; each is classified so the public suite can't go green by skipping. CLAUDE.md is split between the two repos. PITFALLS.md 8, 9, 10, 11, 12, 22.
-**Plans**: 16/18 plans executed (13 code plans in waves 1-4, the rehearsal, 4 live-run plans; waves 6-9 are interactive)
+**Plans**: 17/18 plans executed (13 code plans in waves 1-4, the rehearsal, 4 live-run plans; waves 6-9 are interactive)
 
 Plans:
 **Wave 1**
@@ -188,7 +188,7 @@ Plans:
 - [x] 16-14-PLAN.md — Live 2: build from pre-split, scan, owner approval, private `kicad-lib-manager`, CI, tool checkout with its own env and local setup, handoff
 
 **Wave 8** *(interactive; new session in the tool checkout after the handoff sync)*
-- [ ] 16-15-PLAN.md — Live 3: remove-code commit in the main checkout, URI diff identical with zero missing, push, smoke start, old venvs
+- [x] 16-15-PLAN.md — Live 3: remove-code commit in the main checkout, URI diff identical with zero missing, push, smoke start, old venvs
 
 **Wave 9** *(interactive; tool checkout session)*
 - [ ] 16-16-PLAN.md — Live 4: read-only retirement inventory and final scan of GitHub's copy, owner approves what the retirement removes, worktree retired and memory moved as approved, owner flips the tool repo public
@@ -285,7 +285,7 @@ Phases execute in numeric order: 14 → 15 → 16 → 17 → 18 → 19 → 20 �
 |-------|-----------|----------------|--------|-----------|
 | 14. Test Suite Speed-Up | v3.0 | 6/6 | Complete    | 2026-11-23 |
 | 15. Choose Library Folder and New Collection | v3.0 | 16/16 | Complete    | 2026-11-23 |
-| 16. Repo Split | v3.0 | 16/18 | In Progress | - |
+| 16. Repo Split | v3.0 | 17/18 | In Progress | - |
 | 17. Library Catalog | v3.0 | 0/TBD | Not started | - |
 | 18. Project-Local Table Model | v3.0 | 0/TBD | Not started | - |
 | 19. Menu Regroup | v3.0 | 0/TBD | Not started | - |
