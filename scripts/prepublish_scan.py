@@ -145,6 +145,7 @@ _SESSION_URL_PATTERN = re.compile(r"(?i)claude\.ai/code/session[_/-]?[A-Za-z0-9_
 _TRAILER_PATTERN = re.compile(r"(?i)^\s*Claude-Session:")
 _REF_PATTERN = re.compile(r"(?:^|/)worktree-agent-")
 _ESCAPE_PATTERN = re.compile(r"\\[nrt]")
+_LINE_BREAK = re.compile(r"\r\n|\r|\n")
 _MARKER_PATTERN = re.compile(r"scan:\s*allow\s+([A-Za-z_][A-Za-z0-9_ ,]*)")
 
 PATTERNS: dict[str, tuple[re.Pattern, ...]] = {
@@ -290,6 +291,7 @@ def _decode(data: bytes) -> str:
     UTF-32 and UTF-16 (with or without a byte order mark; recognised by the share of NUL bytes) are decoded as
     such. Any other data with NUL bytes (a binary file, or a text file that starts with a NUL to hide from the
     scan) is read like `strings` does: the NULs become line breaks, so the text runs in it are still scanned.
+    For such data the line number in a finding counts the runs between NULs and line breaks, not editor lines.
     """
     if data[:4] in (b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff"):
         return data.decode("utf-32", errors="replace")
@@ -308,7 +310,9 @@ def _decode(data: bytes) -> str:
 
 def _scan_lines(text: str, where_of, rules: Rules, allowed: list[Finding] | None) -> list[Finding]:
     found: list[Finding] = []
-    for number, line in enumerate(text.splitlines(), 1):
+    # Not str.splitlines(): it also breaks at form feed, \x1c-\x1e, \x85, U+2028 and U+2029, which an editor
+    # does not count as line breaks, so the reported number would differ from the one the person sees
+    for number, line in enumerate(_LINE_BREAK.split(text), 1):
         hits = _line_hits(line, rules)
         if not hits:
             continue

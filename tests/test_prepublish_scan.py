@@ -206,6 +206,16 @@ def test_text_is_scanned_whatever_its_encoding():
     assert scan.scan_blob("a.bin", bytes(range(256)) * 4, scan.build_rules()) == []
 
 
+def test_reported_line_numbers_follow_the_editor_not_str_splitlines():
+    """Form feed, \\x1c-\\x1e, \\x85, U+2028 and U+2029 are not line breaks to an editor."""
+    address = "pe" + "rson" + "@" + "mail" + ".test"
+    for odd in ("\x0c", "\x1c", "\x1d", "\x1e", "\x85", " ", " "):
+        text = "one" + odd + "two\nthree\r\n" + address + "\n"
+        assert blob("a.txt", text) == [Finding("email", "a.txt:3")], repr(odd)
+    # a lone CR still ends a line
+    assert blob("a.txt", "one\rtwo\r" + address) == [Finding("email", "a.txt:3")]
+
+
 def test_vendor_files():
     suffixes = (
         ".zip .stp .step .wrl .kicad_sym .kicad_mod .kicad_pcb .kicad_sch .kicad_pro .lib .dcm .pdf .igs .iges .7z .rar"
