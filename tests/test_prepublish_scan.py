@@ -105,6 +105,32 @@ def test_a_placeholder_user_folder_is_a_sample_not_a_workstation_path():
     assert blob("a.txt", both) == [Finding("workstation_path", "a.txt:1")]
 
 
+def test_a_profile_folder_with_a_space_is_read_whole_not_by_its_first_word():
+    """WR-21: a profile folder named "<placeholder> <surname>" is a real person's folder, whatever the path style."""
+    for user in ("Bob Smith", "Alice Jones", "User Name", "bob smith", "<user> x"):
+        samples = [
+            "C:" + BACKSLASH + "Users" + BACKSLASH + user + BACKSLASH + "a",
+            "C:" + BACKSLASH * 2 + "Users" + BACKSLASH * 2 + user + BACKSLASH * 2 + "a",
+            "C:" + SLASH + "Users" + SLASH + user + SLASH + "a",
+            SLASH + "c" + SLASH + "Users" + SLASH + user + SLASH + "a",
+            SLASH + "mnt" + SLASH + "c" + SLASH + "Users" + SLASH + user + SLASH + "a",
+            "file:///" + "C%3A" + SLASH + "Users" + SLASH + user + SLASH + "x",
+            BACKSLASH * 2 + "server" + BACKSLASH + "share" + BACKSLASH + "Users" + BACKSLASH + user,
+            # at the end of the line and followed by a quote
+            "C:" + BACKSLASH + "Users" + BACKSLASH + user,
+            '"C:' + BACKSLASH + "Users" + BACKSLASH + user + '"',
+        ]
+        for sample in samples:
+            assert blob("a.txt", "value = " + sample) == [Finding("workstation_path", "a.txt:1")], (user, sample)
+    # the placeholder alone, with trailing blanks or a quote right after it, stays a sample
+    for sample in (
+        "C:" + BACKSLASH + "Users" + BACKSLASH + "bob   ",
+        '"C:' + BACKSLASH + "Users" + BACKSLASH + 'bob"',
+        "C:" + SLASH + "Users" + SLASH + "Bob" + SLASH + "a",
+    ):
+        assert blob("a.txt", sample) == [], sample
+
+
 def test_a_line_break_escape_does_not_hide_an_address_or_a_path():
     """Planning state, junit and JSON logs quote a line break as backslash-n; the letter must not shield what follows."""
     address = "pe" + "rson" + "@" + "mail" + ".test"

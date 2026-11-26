@@ -119,10 +119,11 @@ _WORKSTATION_PATTERNS = (
 )
 
 # Made-up user folders that docs and tests quote as samples, like example.org for addresses:
-# a path into one of them is not a workstation path. Matched whole, ignoring case.
+# a path into one of them is not a workstation path. Matched whole, ignoring case: a Windows profile folder can
+# hold spaces ("Bob Smith"), so the folder name runs to the next separator, quote or end of line, spaces included.
 PLACEHOLDER_USERS = frozenset({"bob", "alice", "user", "username", "<user>", "<username>"})
 _USER_FOLDERS = frozenset({"users"})
-_SEGMENT_PATTERN = re.compile(r"[\\/]*([^\\/\s\"'`]+)")
+_SEGMENT_PATTERN = re.compile(r"[\\/]*([^\\/\"'`]+)")
 
 _EMAIL_PATTERN = re.compile(
     r"(?<![\\\w.%+-])[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9-]{1,63}(?:\.[A-Za-z0-9-]{1,63}){0,8}\.[A-Za-z]{2,24}(?![\w-])"
@@ -243,7 +244,7 @@ def _path_user(text: str, match: re.Match) -> str:
     if parts[-1].casefold() in _USER_FOLDERS:
         # the match ends at the user folder's parent: the user is the next segment
         following = _SEGMENT_PATTERN.match(text, match.end())
-        return following.group(1) if following else ""
+        return following.group(1).rstrip() if following else ""
     if found.endswith(("/", "\\")) and len(parts) >= 2 and parts[-2].casefold() in {_USERS.casefold(), _HOME}:
         return parts[-1]
     return ""
