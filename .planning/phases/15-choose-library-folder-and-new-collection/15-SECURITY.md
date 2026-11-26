@@ -116,3 +116,11 @@ Deferred review hardening (non-gate, see 15-REVIEW-DISPOSITION.md): IN-03 (proce
 - [x] `status: verified` set in frontmatter
 
 **Approval:** verified 2026-11-23
+
+## Security Audit 2026-11-26
+
+| Metric | Count |
+|---|---|
+| Threats found | 46 |
+| Closed | 46 |
+| Open | 0 |
