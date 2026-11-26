@@ -1610,14 +1610,14 @@ def test_skip_is_offered_while_symbols_are_read(make_window, qtbot):
         progress("Parsing symbol: WE_S", 5, 100)
         checking("WurthElektronik")
         at_symbols.set()
-        released.wait(5)
+        released.wait(60)  # held longer than any wait before the state it holds (the tests always set it in finally)
         # The 3D model path check reaches each source in turn
         checking("Custom")
         custom_reported.set()
-        custom_go.wait(5)
+        custom_go.wait(60)
         checking("WurthElektronik")
         wurth_reported.set()
-        wurth_go.wait(5)
+        wurth_go.wait(60)
         answers.append(skip("WurthElektronik"))
         checking(None)
         return _wurth_scan_result(["WurthElektronik"])
@@ -1659,9 +1659,9 @@ def test_a_skip_click_after_the_check_ended_logs_no_skip(make_window, qtbot):
     def scan():
         _skip, checking = make_window.hooks
         checking("WurthElektronik")
-        clicked.wait(5)
+        clicked.wait(60)
         checking(None)
-        release.wait(5)
+        release.wait(60)
         return _wurth_scan_result([])
 
     w = make_window([scan], wait=False)

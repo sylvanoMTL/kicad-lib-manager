@@ -140,7 +140,7 @@ def test_run_applies_on_a_worker_with_tag_first(qtbot, make_dialog, tmp_path):
         assert any(i.code == "migration.tagged" for i in pre_issues)
         if progress is not None:
             progress("Writing files...", 1, 2)
-        gate.wait(5)  # held open so the test can observe the running page before it completes
+        gate.wait(60)  # held open so the test can observe the running page before it completes
         return MigrationResult(True, tuple(pre_issues), ("x",), (), None, plan, {})
 
     core = core_with(
