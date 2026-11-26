@@ -123,14 +123,14 @@ Status: fixed: requires human verification (the conflict rule assumes the same `
 **Applied fix:** `build` refuses (exit 2) an email the scan's own `is_allowed_email` rejects unless `--allow-any-email` is given,
 before anything is written; on success it prints a reminder to set `prepublish.denyTermsFile` in the new clone.
 
-### WR-12: `test_compare_reports_differences` assertions are satisfied by any diff line
+### WR-12: `test_compare_reports_differences` assertions are satisfied by any diff line (reviewer B)
 **Files modified:** `tests/test_uri_diff.py`
 **Commit:** 0541570
 **Applied fix:** The four checks name the entry: the full removed and added lines are asserted, and a helper lists the (kind, entry)
 pairs of every difference line so a wrong entry cannot pass. The real output also reports the added, changed and gone entries as
 missing or changed, so the expected sets include those and nothing else.
 
-### WR-13: Every behavioural test of the publishing controls is `slow`, so CI never runs it
+### WR-13: Every behavioural test of the publishing controls is `slow`, so CI never runs it (reviewer B)
 **Files modified:** `tests/test_githooks.py`, `tests/README.md`
 **Commit:** 3f86cf1
 **Applied fix:** The commit-msg hook tests now run the hook on a message file with no `git init`, so they are quick and run in CI
@@ -138,13 +138,13 @@ missing or changed, so the expected sets include those and nothing else.
 taken: `tests/README.md` records that CI never runs them and lists the one `--full` command to run before every publish. A CI
 `--full` step was not added: the CI text test forbids it, and it could not be checked from here.
 
-### WR-14: The scan's history walk is never tested on a blob that left the tree
+### WR-14: The scan's history walk is never tested on a blob that left the tree (reviewer B)
 **Files modified:** `tests/test_prepublish_scan.py`
 **Commit:** 2ceaa2c
 **Applied fix:** Slow test: a planted path committed and removed (tree clean, history not), `--tree` alone, `--history` alone, `--path`,
 `--deny-terms-file`, `prepublish.denyTermsFile` and `prepublish.denyEmailsFromRepo`, and a missing configured terms file exiting 2.
 
-### WR-15: The corpus audit can be bypassed by common spellings, and its mark check is per module
+### WR-15: The corpus audit can be bypassed by common spellings, and its mark check is per module (reviewer B)
 **Files modified:** `tests/test_corpus_audit.py`, `tests/test_sexpr.py`
 **Commit:** 8e1177a
 **Applied fix:** Root names ending in ROOT or REPO, a path after the folder name, `os.path.join` and a bare `parent.parent` are found;
@@ -152,32 +152,32 @@ a skip reason held in a module constant is found; a new per-test audit (AST base
 aliases, parametrize marks, class and module marks) replaces trusting one mark per module. `test_tokenizer_matches_reference_parser`
 no longer reads the live Custom files; they moved to a new `corpus`-marked test. Planted-case tests cover each new spelling.
 
-### WR-16: The allow-list tests would not notice private local files being admitted
+### WR-16: The allow-list tests would not notice private local files being admitted (reviewer B)
 **Files modified:** `tests/test_split_export.py`
 **Commit:** b957481
 **Applied fix:** The owner-local files named by the review join the negative sample and the verify-export parametrization, and the
 shipped-list check refuses entries that name `.claude`, `env`, `.env`, `.local.`, deny-terms or junit.
 
-### WR-17: `test_a_raising_callback_does_not_stop_the_next_delivery` can still deliver `first` early
+### WR-17: `test_a_raising_callback_does_not_stop_the_next_delivery` can still deliver `first` before the poll timer is stopped (reviewer C)
 **Files modified:** `tests/test_background.py`
 **Commit:** c41be07
 **Applied fix:** The test waits on each task's own `_returned` event (no event loop turn, so the 15 ms poll timer cannot drain) and
 stops the timer after the second start. Module run three times serially: 9 passed each time.
 
-### WR-18: Two off-thread waits kept a 250 ms and a 1 s budget
+### WR-18: Two off-thread waits kept a 250 ms and a 1 s budget while their siblings went to 30 s (reviewer C)
 **Files modified:** `tests/test_new_collection_dialog.py`, `tests/test_help_dialog.py`
 **Commit:** 3afc64d
 **Applied fix:** The "at once, not after the debounce" intent is asserted off the timer (`_debounce.interval() == 0` right after the
 click) with the 30 s wait for the check; the help fold wait is 30 s. Both modules run three times serially: green.
 
-### WR-19: Further small waits left in the same modules
+### WR-19: Further small waits left in the same modules that the fix commits otherwise raised (reviewer C)
 **Files modified:** `tests/test_import_dialog.py`, `tests/test_new_collection_dialog.py`, `tests/test_choose_folder_dialog.py`, `tests/test_first_run_dialog.py`, `tests/test_main_window.py`
 **Commit:** 3a400b6
 **Applied fix:** Each listed wait now has `timeout=30000`. For the two `dialog.width()` waits the timeout was added to the existing
 condition instead of switching to `resize_and_wait`, because that helper also waits for the height. A shared budget constant was not
 introduced. The three small dialog modules ran three times serially: green.
 
-### WR-20: Worker hold gates of 5 s are shorter than the 30 s waits placed before the assertions that rely on them
+### WR-20: Worker hold gates of 5 s are now shorter than the 30 s waits placed before the assertions that rely on the held state (reviewer C)
 **Files modified:** `tests/test_main_window.py`, `tests/test_migration_dialog_run.py`
 **Commit:** 527b585
 **Applied fix:** The six listed gates are held for 60 s (the tests release them in `finally`). `test_main_window.py`,
