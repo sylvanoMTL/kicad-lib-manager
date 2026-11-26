@@ -540,6 +540,57 @@ def test_sync_planning_protects_work_in_the_tool_checkout(split, tmp_path, capsy
 
 @pytest.mark.slow
 @requires_git
+def test_sync_planning_second_sync_from_the_last_synced_ref_has_no_false_conflict(split, tmp_path):
+    """WR-22: a clean tool checkout is never reported as edited when --since is the ref the last sync used."""
+    source = _make_source(tmp_path)
+    dest = tmp_path / "tool"
+    _build(split, source, dest)
+    _git(dest, "config", "user.name", "Fixture User")
+    _git(dest, "config", "user.email", "fixture@example.invalid")
+    allow = split.verify_export.load_allow_list(ALLOW_LIST)
+    mapping = split.scrub.parse_map([f"{WORKTREE}="])
+
+    _write(source, ".planning/STATE.md", "first change\n")
+    _write(source, ".planning/phases/16-repo-split/16-13-SUMMARY.md", "added\n")
+    _commit_all(source, "later work 1")
+    first = _git(source, "rev-parse", "HEAD").strip()
+    lines = split.sync_planning.sync(source, first, "pre-split", dest, allow, mapping)
+    assert lines == ["M .planning/STATE.md", "A .planning/phases/16-repo-split/16-13-SUMMARY.md"]
+    _commit_all(dest, "synced 1")
+
+    _write(source, ".planning/STATE.md", "second change\n")
+    _write(source, ".planning/phases/16-repo-split/16-13-SUMMARY.md", "added, then changed\n")
+    _commit_all(source, "later work 2")
+    lines = split.sync_planning.sync(source, "main", first, dest, allow, mapping)
+    assert lines == ["M .planning/STATE.md", "M .planning/phases/16-repo-split/16-13-SUMMARY.md"]
+    assert (dest / ".planning" / "STATE.md").read_text(encoding="utf-8") == "second change\n"
+
+
+@pytest.mark.slow
+@requires_git
+def test_sync_planning_compares_the_committed_copy_not_the_converted_working_copy(split, tmp_path):
+    """WR-22: with core.autocrlf the working copy holds CRLF bytes although nothing was edited."""
+    source = _make_source(tmp_path)
+    dest = tmp_path / "tool"
+    _build(split, source, dest)
+    _git(dest, "config", "core.autocrlf", "true")
+    state = dest / ".planning" / "STATE.md"
+    state.unlink()
+    _git(dest, "checkout", "--", ".planning/STATE.md")
+    assert b"\r\n" in state.read_bytes()
+    assert _git(dest, "status", "--porcelain", "--", ".planning/").strip() == ""
+
+    allow = split.verify_export.load_allow_list(ALLOW_LIST)
+    mapping = split.scrub.parse_map([f"{WORKTREE}="])
+    _write(source, ".planning/STATE.md", "source change\n")
+    _commit_all(source, "later work")
+    lines = split.sync_planning.sync(source, "main", "pre-split", dest, allow, mapping)
+    assert lines == ["M .planning/STATE.md"]
+    assert state.read_text(encoding="utf-8") == "source change\n"
+
+
+@pytest.mark.slow
+@requires_git
 def test_sync_planning_refuses_an_unknown_ref(split, tmp_path, capsys):
     source = tmp_path / "not-a-repository"
     source.mkdir()

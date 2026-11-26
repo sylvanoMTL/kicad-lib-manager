@@ -8,8 +8,13 @@ by the allow-list is reported as `skip <path>` and left alone. Nothing outside .
 destination is ever touched. The script does not commit: the caller scans, commits and pushes.
 
 It refuses (exit 2) when .planning/ of the destination has uncommitted changes, and it leaves a file
-alone, printing `conflict <path>`, when the copy in the destination no longer matches what the export
-of the --since tag wrote (someone edited it there): a sync never overwrites or deletes such a file.
+alone, printing `conflict <path>`, when the committed copy in the destination (HEAD, so a checkout that
+converts line endings cannot matter) no longer matches what the scrubbed --since ref holds (someone edited
+it there): a sync never overwrites or deletes such a file.
+
+--since is the ref the destination was last brought to: the tag the tool repository was built from for the
+first sync, then the --ref of the previous sync (a sync from an older ref reports every file the earlier
+syncs changed as a conflict, because the destination no longer holds that older version).
 
 Usage:
     python scripts/split/sync_planning.py --source DIR --ref REF --since TAG --dest DIR
@@ -77,16 +82,21 @@ def _require_clean_planning(dest: Path) -> None:
         raise SyncError(f"{PLANNING}/ of {dest} has uncommitted changes (commit or stash them first): {shown}")
 
 
-def _edited_in_dest(source: Path, since: str, path: str, target: Path, mapping: list[tuple[str, str]]) -> bool:
-    """True when the destination copy is not what the export of the since tag wrote (or is missing)."""
+def _committed(dest: Path, path: str) -> bytes | None:
+    """The bytes of the file at HEAD of the destination (no line-ending conversion), or None when it is not committed."""
+    try:
+        return _git(dest, "show", f"HEAD:{path}")
+    except SyncError:
+        return None
+
+
+def _edited_in_dest(source: Path, since: str, path: str, dest: Path, mapping: list[tuple[str, str]]) -> bool:
+    """True when the committed destination copy is not the scrubbed since version (or is not committed)."""
     try:
         expected = scrub_bytes(_git(source, "show", f"{since}:{path}"), mapping)
     except SyncError:
-        return False  # not in the since tag: a new file, judged by the caller
-    try:
-        return target.read_bytes() != expected
-    except OSError:
-        return True
+        return False  # not in the since ref: a new file, judged by the caller
+    return _committed(dest, path) != expected
 
 
 def sync(
@@ -103,9 +113,9 @@ def sync(
         target = dest / path
         if not path.startswith(f"{PLANNING}/") or not allow.allowed(path) or not _inside_planning(dest, target):
             lines.append(f"skip {path}")
-        elif status in "MTD" and target.exists() and _edited_in_dest(source, since, path, target, mapping):
+        elif status in "MTD" and target.exists() and _edited_in_dest(source, since, path, dest, mapping):
             lines.append(f"conflict {path}")
-        elif status == "A" and target.exists() and target.read_bytes() != scrub_bytes(_git(source, "show", f"{ref}:{path}"), mapping):
+        elif status == "A" and target.exists() and _committed(dest, path) != scrub_bytes(_git(source, "show", f"{ref}:{path}"), mapping):
             lines.append(f"conflict {path}")
         elif status in "AMT":
             data = _git(source, "show", f"{ref}:{path}")
@@ -133,7 +143,7 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Copy the scrubbed .planning/ delta between a tag and a ref into a tool checkout.")
     parser.add_argument("--source", type=Path, required=True, help="the private repository")
     parser.add_argument("--ref", required=True, help="the ref holding the newer planning files")
-    parser.add_argument("--since", required=True, help="the tag the tool repository was built from")
+    parser.add_argument("--since", required=True, help="the ref the tool checkout was last brought to: the build tag for the first sync, then the --ref of the previous sync")
     parser.add_argument("--dest", type=Path, required=True, help="the tool checkout")
     parser.add_argument("--allow-list", type=Path, required=True, help="allow-list file")
     parser.add_argument("--map", action="append", default=[], metavar="OLD=NEW", help="folder to scrub from the text (repeatable)")
