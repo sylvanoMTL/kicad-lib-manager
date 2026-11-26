@@ -123,7 +123,7 @@ _WORKSTATION_PATTERNS = (
 # hold spaces ("Bob Smith"), so the folder name runs to the next separator, quote or end of line, spaces included.
 PLACEHOLDER_USERS = frozenset({"bob", "alice", "user", "username", "<user>", "<username>"})
 _USER_FOLDERS = frozenset({"users"})
-_SEGMENT_PATTERN = re.compile(r"[\\/]*([^\\/\"'`]+)")
+_SEGMENT_PATTERN = re.compile(r"[\\/]*([^\\/\"'`\r\n\t]+)")
 
 _EMAIL_PATTERN = re.compile(
     r"(?<![\\\w.%+-])[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9-]{1,63}(?:\.[A-Za-z0-9-]{1,63}){0,8}\.[A-Za-z]{2,24}(?![\w-])"
@@ -144,7 +144,8 @@ _SECRET_PATTERNS = (
 _SESSION_URL_PATTERN = re.compile(r"(?i)claude\.ai/code/session[_/-]?[A-Za-z0-9_-]{8,}")
 _TRAILER_PATTERN = re.compile(r"(?i)^\s*Claude-Session:")
 _REF_PATTERN = re.compile(r"(?:^|/)worktree-agent-")
-_ESCAPE_PATTERN = re.compile(r"\\[nrt]")
+# A JSON string escape that is a control character or a line break (not an escaped backslash: `\\b` is a backslash and a b)
+_ESCAPE_PATTERN = re.compile(r"(?<!\\)\\(?:[nrtfb]|u(?:000[0-9a-fA-F]|001[0-9a-fA-F]|0085|202[89]))")
 _LINE_BREAK = re.compile(r"\r\n|\r|\n")
 _MARKER_PATTERN = re.compile(r"scan:\s*allow\s+([A-Za-z_][A-Za-z0-9_ ,]*)")
 
@@ -259,12 +260,18 @@ def _is_workstation_path(pattern: re.Pattern, text: str) -> bool:
 def _line_hits(line: str, rules: Rules) -> list[str]:
     """Rule names that hit one line, each once, in report order."""
     hits: list[str] = []
-    # A JSON or log line quotes a line break as backslash-n: the n would hide the start of a path or an address behind it
-    variants = [line]
-    if "\\" in line:
-        unescaped = _ESCAPE_PATTERN.sub(" ", line)
-        if unescaped != line:
-            variants.append(unescaped)
+    # A JSON or log line quotes a line break as backslash-n: the n would hide the start of a path or an address behind it.
+    # JSON also doubles every backslash of a path (a UNC share then starts with four): read those once collapsed too.
+    bases = [line]
+    if "\\\\" in line:
+        bases.append(line.replace("\\\\", "\\"))
+    variants = list(bases)
+    for base in bases:
+        if "\\" in base:
+            # a line break, not a blank: it also ends a user folder name that holds spaces (`C:\Users\bob\notes`)
+            unescaped = _ESCAPE_PATTERN.sub("\n", base)
+            if unescaped not in variants:
+                variants.append(unescaped)
     for pattern in rules.patterns["workstation_path"]:
         if any(_is_workstation_path(pattern, text) for text in variants):
             hits.append("workstation_path")

@@ -151,6 +151,31 @@ def test_a_line_break_escape_does_not_hide_an_address_or_a_path():
     assert blob("a.json", "x" + BACKSLASH + "n" + "someone@example.org") == []
 
 
+def test_json_escapes_beyond_n_r_t_and_a_doubled_unc_path_do_not_hide_a_finding():
+    address = "pe" + "rson" + "@" + "mail" + ".test"
+    for escape in ("f", "b", "u000a", "u000D", "u0085", "u2028", "u2029"):
+        quoted = BACKSLASH + escape
+        assert blob("a.json", "Author:" + quoted + address) == [Finding("email", "a.json:1")], escape
+        assert blob("a.json", "x" + quoted + "C:" + BACKSLASH * 2 + "Users" + BACKSLASH * 2 + "someone" + BACKSLASH * 2 + "a") == [
+            Finding("workstation_path", "a.json:1")
+        ], escape
+    # a JSON-escaped UNC share holds four backslashes at the start and two between the parts
+    unc = BACKSLASH * 4 + "server" + BACKSLASH * 2 + "share" + BACKSLASH * 2 + "Users" + BACKSLASH * 2
+    assert blob("a.json", '"' + unc + 'someone"') == [Finding("workstation_path", "a.json:1")]
+    assert blob("a.json", '"' + unc + 'bob"') == []
+    # an escaped backslash in front of a b, n or t is a path separator, not an escape: a placeholder stays a sample
+    for user in ("nina", "tom"):
+        assert blob("a.json", '"C:' + BACKSLASH * 2 + "Users" + BACKSLASH * 2 + user + '"') == [
+            Finding("workstation_path", "a.json:1")
+        ], user
+    assert blob("a.json", '"C:' + BACKSLASH * 2 + "Users" + BACKSLASH * 2 + 'bob"') == []
+    # a placeholder folder followed by a folder or file that starts like an escape stays a sample
+    for tail in ("notes.txt", "file.txt", "bin", "temp", "run", "bar"):
+        for sep in (BACKSLASH, BACKSLASH * 2):
+            sample = "C:" + sep + "Users" + sep + "bob" + sep + tail
+            assert blob("a.json", sample) == [], sample
+
+
 def test_owner_email_and_terms():
     address = "ow" + "ner" + "@" + "priv" + ".test"
     term = "Zorblax" + "Quux"
