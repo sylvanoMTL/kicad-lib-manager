@@ -4,7 +4,9 @@
 Steps, in order: refuse a destination that is not empty; resolve the ref; refuse an allowed gitlink;
 export the tracked files of the ref that the allow-list names (git archive of the ref, never the
 working tree, so untracked and ignored files cannot be swept in); scrub workstation paths in the
-exported .planning/ text; check the result with verify_export; then git init on branch main, set the
+exported .planning/ text (only there: the push scan is the one guard for a path in any other exported
+file, because a scrub would also rewrite the made-up sample folders that CLAUDE.md and the docs quote);
+check the result with verify_export; then git init on branch main, set the
 local identity, core.hooksPath .githooks and core.autocrlf false, and make one commit.
 
 The commit message keeps the Co-Authored-By trailer and carries no Claude-Session line or claude.ai
@@ -147,32 +149,71 @@ def _export(source: Path, ref: str, dest: Path, allow: AllowList, pathspecs: lis
     return sorted(written), sorted(executable)
 
 
-def _force_remove(func, path, _error) -> None:
-    """rmtree error handler: git's object files are read-only on Windows, so make them writable and retry."""
-    try:
-        os.chmod(path, stat.S_IWRITE)
-        func(path)
-    except OSError:
-        pass
+def _rmtree(path: Path) -> list[str]:
+    """Remove a folder tree; return what could not be removed (empty when everything went).
 
+    git's object files are read-only on Windows, so a failed removal is retried once after making the
+    item writable; an item that still resists is listed, not ignored.
+    """
+    left: list[str] = []
 
-def _rmtree(path: Path) -> None:
+    def force_remove(func, item, _error) -> None:
+        try:
+            os.chmod(item, stat.S_IWRITE)
+            func(item)
+        except OSError:
+            left.append(str(item))
+
     if sys.version_info >= (3, 12):
-        shutil.rmtree(path, onexc=_force_remove)
+        shutil.rmtree(path, onexc=force_remove)
     else:
-        shutil.rmtree(path, onerror=_force_remove)
+        shutil.rmtree(path, onerror=force_remove)
+    return left
 
 
-def _clear(dest: Path, created: bool) -> None:
-    """Remove what a failed build wrote (the destination was empty or absent when it started)."""
+def _missing_folders(dest: Path) -> list[Path]:
+    """The folders mkdir(parents=True) would have to create for dest, outermost first (dest is the last)."""
+    missing: list[Path] = []
+    folder = Path(dest).absolute()
+    while not folder.exists() and folder != folder.parent:
+        missing.append(folder)
+        folder = folder.parent
+    return missing[::-1]
+
+
+def _clear(dest: Path, created: bool, made: list[Path] | None = None) -> list[str]:
+    """Remove what a failed build wrote (the destination was empty or absent when it started).
+
+    `made` are the folders the build created above and including dest; the ones above dest are removed
+    again when they are empty. Returns the items that could not be removed.
+    """
+    left: list[str] = []
     if created:
-        _rmtree(dest)
-        return
+        left += _rmtree(dest)
+        for folder in reversed(made or []):
+            if folder != Path(dest).absolute():
+                try:
+                    folder.rmdir()
+                except OSError:
+                    break  # not empty (or in use): it is not ours to remove
+        return left
     for child in dest.iterdir():
         if child.is_dir():
-            _rmtree(child)
+            left += _rmtree(child)
         else:
-            child.unlink(missing_ok=True)
+            try:
+                child.unlink(missing_ok=True)
+            except OSError:
+                left.append(str(child))
+    return left
+
+
+def _cleanup_note(left: list[str]) -> str:
+    """The sentence a failed build adds when its clean-up left something behind (empty when it did not)."""
+    if not left:
+        return ""
+    shown = ", ".join(left[:5]) + (f" and {len(left) - 5} more" if len(left) > 5 else "")
+    return f"\nthe clean-up could not remove {len(left)} item(s) of the failed export; delete them by hand: {shown}"
 
 
 def build(
@@ -215,6 +256,7 @@ def build(
         raise BuildError(f"no allow-listed path exists in {ref}")
 
     created = not dest.exists()
+    made = _missing_folders(dest)
     dest.mkdir(parents=True, exist_ok=True)
     try:
         files, executable = _export(source, ref, dest, allow, pathspecs)
@@ -223,12 +265,13 @@ def build(
         if problems:
             raise BuildError("the export failed verification:\n" + "\n".join(problems), code=1)
         sha = _commit(dest, files, executable, name, email, message)
-    except BuildError:
-        _clear(dest, created)
+    except BuildError as error:
+        note = _cleanup_note(_clear(dest, created, made))
+        if note:
+            raise BuildError(str(error) + note, code=error.code) from error
         raise
     except OSError as error:
-        _clear(dest, created)
-        raise BuildError(f"cannot write the export: {error}") from error
+        raise BuildError(f"cannot write the export: {error}" + _cleanup_note(_clear(dest, created, made))) from error
 
     counts: dict[str, int] = {}
     for rel in files:

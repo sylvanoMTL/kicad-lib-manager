@@ -459,6 +459,49 @@ def test_a_failed_build_is_cleaned_up_even_with_read_only_git_objects(split, tmp
             assert list(dest.iterdir()) == []
 
 
+def test_a_failed_build_removes_the_parent_folders_it_created(split, tmp_path):
+    build = split.build_tool_repo
+    dest = tmp_path / "one" / "two" / "tool"
+    made = build._missing_folders(dest)
+    assert [folder.name for folder in made] == ["one", "two", "tool"]
+    dest.mkdir(parents=True)
+    (dest / "file.txt").write_text("x\n", encoding="utf-8")
+    assert build._clear(dest, True, made) == []
+    assert not (tmp_path / "one").exists()
+    assert tmp_path.is_dir()
+
+    # a parent that gained something else in the meantime is not ours to remove
+    dest = tmp_path / "three" / "tool"
+    made = build._missing_folders(dest)
+    dest.mkdir(parents=True)
+    (tmp_path / "three" / "other.txt").write_text("x\n", encoding="utf-8")
+    assert build._clear(dest, True, made) == []
+    assert not dest.exists()
+    assert (tmp_path / "three" / "other.txt").is_file()
+
+    # an existing destination keeps its folder, and an existing parent is never in the list
+    dest = tmp_path / "four"
+    dest.mkdir()
+    assert build._missing_folders(dest) == []
+
+
+def test_a_failed_build_reports_what_its_clean_up_could_not_remove(split, tmp_path, monkeypatch):
+    build = split.build_tool_repo
+    dest = tmp_path / "tool"
+    (dest / "sub").mkdir(parents=True)
+
+    def stuck(path, onexc=None, onerror=None):
+        (onexc or onerror)(os.remove, str(Path(path) / "stuck.bin"), None)
+
+    monkeypatch.setattr(build.shutil, "rmtree", stuck)
+    left = build._clear(dest, False)
+    assert [Path(item).name for item in left] == ["stuck.bin"]
+    note = build._cleanup_note(left)
+    assert "could not remove 1 item" in note and "stuck.bin" in note
+    assert build._cleanup_note([]) == ""
+    assert "and 2 more" in build._cleanup_note([f"x{i}" for i in range(7)])
+
+
 def test_build_refuses_a_non_empty_dest(split, tmp_path, capsys):
     dest = tmp_path / "tool"
     dest.mkdir()
