@@ -149,7 +149,10 @@ def test_text_is_scanned_whatever_its_encoding():
 
 
 def test_vendor_files():
-    suffixes = (".zip .stp .step .wrl .kicad_sym .kicad_mod .kicad_pcb .kicad_sch .kicad_pro .lib .dcm .pdf .igs .iges .7z .rar").split()
+    suffixes = (
+        ".zip .stp .step .wrl .kicad_sym .kicad_mod .kicad_pcb .kicad_sch .kicad_pro .lib .dcm .pdf .igs .iges .7z .rar"
+        " .tar .gz .tgz .xz .bz2 .stl .lbr .olb .bxl .epw .SchDoc .PcbDoc .SchLib .PcbLib .IntLib .xls .xlsx .csv"
+    ).split()
     rules = scan.build_rules()
     for suffix in suffixes:
         assert scan.scan_blob("parts/x" + suffix, b"text", rules) == [Finding("vendor_file", "parts/x" + suffix)], suffix
@@ -158,7 +161,14 @@ def test_vendor_files():
     assert scan.scan_blob("data/a.txt", b"ISO-10303-21;\nHEADER;", rules) == [Finding("vendor_file", "data/a.txt")]
     # The same bytes inside a literal of a source file are not a file header
     assert scan.scan_blob("src/m.py", b'MAGIC = b"PK\\x03\\x04"\nSTEP = b"ISO-10303-21"\n', rules) == []
-    assert scan.scan_blob("tests/fixtures/z.bin", b"PK\x03\x04rest", rules) == []
+    # renamed archives and documents are found by their first bytes
+    for magic in (b"\x1f\x8b\x08rest", b"7z\xbc\xaf\x27\x1crest", b"%PDF-1.7\nrest", b"Rar!\x1a\x07rest"):
+        assert scan.scan_blob("data/a.dat", magic, rules) == [Finding("vendor_file", "data/a.dat")], magic
+    # tests/fixtures/ exempts only the two small text suffixes the fixtures use, never an archive or another vendor suffix
+    assert scan.scan_blob("tests/fixtures/z.bin", b"PK\x03\x04rest", rules) == [Finding("vendor_file", "tests/fixtures/z.bin")]
+    assert scan.scan_blob("tests/fixtures/z.zip", b"text", rules) == [Finding("vendor_file", "tests/fixtures/z.zip")]
+    assert scan.scan_blob("tests/fixtures/z.kicad_sym", b"(text)", rules) == []
+    assert scan.scan_blob("tests/fixtures/z.kicad_sym", b"PK\x03\x04", rules) == [Finding("vendor_file", "tests/fixtures/z.kicad_sym")]
 
 
 def test_fixtures_exemption_is_a_whole_segment():

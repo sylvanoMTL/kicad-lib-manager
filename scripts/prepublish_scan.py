@@ -66,8 +66,29 @@ VENDOR_SUFFIXES = (
     ".kicad_pro",
     ".lib",
     ".dcm",
+    ".tar",
+    ".gz",
+    ".tgz",
+    ".xz",
+    ".bz2",
+    ".stl",
+    ".lbr",
+    ".olb",
+    ".bxl",
+    ".epw",
+    ".schdoc",
+    ".pcbdoc",
+    ".schlib",
+    ".pcblib",
+    ".intlib",
+    ".xls",
+    ".xlsx",
+    ".csv",
 )
-VENDOR_MAGICS = (b"PK\x03\x04", b"ISO-10303-21")
+# zip, STEP, gzip, 7z, PDF, RAR
+VENDOR_MAGICS = (b"PK\x03\x04", b"ISO-10303-21", b"\x1f\x8b", b"7z\xbc\xaf\x27\x1c", b"%PDF-", b"Rar!")
+# Under tests/fixtures/ only these two (small text parts the tests build on) are exempt, never an archive by magic
+FIXTURE_SUFFIXES = (".kicad_sym", ".kicad_mod")
 
 # Rules that run on every text line, in report order
 TEXT_RULES = ("workstation_path", "owner_email", "email", "owner_term", "secret", "session_url")
@@ -276,10 +297,13 @@ def _scan_lines(text: str, where_of, rules: Rules, allowed: list[Finding] | None
 
 
 def _is_vendor_file(path: str, data: bytes) -> bool:
-    """True for a licence-restricted vendor file: a vendor suffix or magic outside tests/fixtures/."""
-    if path.startswith(FIXTURES_PREFIX):
+    """True for a licence-restricted vendor file: a vendor suffix or magic, except a FIXTURE_SUFFIXES file under tests/fixtures/."""
+    if data.startswith(VENDOR_MAGICS):
+        return True
+    name = path.casefold()
+    if name.endswith(FIXTURE_SUFFIXES) and path.startswith(FIXTURES_PREFIX):
         return False
-    return path.casefold().endswith(VENDOR_SUFFIXES) or data.startswith(VENDOR_MAGICS)
+    return name.endswith(VENDOR_SUFFIXES)
 
 
 def _name_findings(name: str, where: str, rules: Rules) -> list[Finding]:
