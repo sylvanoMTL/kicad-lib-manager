@@ -145,7 +145,7 @@ _SESSION_URL_PATTERN = re.compile(r"(?i)claude\.ai/code/session[_/-]?[A-Za-z0-9_
 _TRAILER_PATTERN = re.compile(r"(?i)^\s*Claude-Session:")
 _REF_PATTERN = re.compile(r"(?:^|/)worktree-agent-")
 _ESCAPE_PATTERN = re.compile(r"\\[nrt]")
-_MARKER_PATTERN =re.compile(r"scan:\s*allow\s+([A-Za-z_][A-Za-z0-9_ ,]*)")
+_MARKER_PATTERN = re.compile(r"scan:\s*allow\s+([A-Za-z_][A-Za-z0-9_ ,]*)")
 
 PATTERNS: dict[str, tuple[re.Pattern, ...]] = {
     "workstation_path": _WORKSTATION_PATTERNS,
