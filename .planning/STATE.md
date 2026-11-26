@@ -112,7 +112,8 @@ The full decision log is in the PROJECT.md Key Decisions table. The v1.0 per-pha
 
 ### Blockers/Concerns
 
-- [Phase 16]: Code review fixed 2026-11-26 (16-REVIEW-FIX.md, 16-REVIEW-DISPOSITION.md): CR-01, CR-02 and WR-01..WR-20 fixed (22 commits), and the pre-publish scan now treats placeholder user folders (bob, alice, user, <user>) as samples, so the review's quoted sample paths no longer block pushes. IN-01..IN-10 stay open (Info, out of the fix scope). `cutover_collection.py --apply` now needs `--pre-split-tag`, `build_tool_repo.py` needs `--allow-any-email` for a non-noreply address, and the pre-push hook refuses without `prepublish.denyTermsFile` unless `PREPUBLISH_ALLOW_NO_DENY_LIST=1`.
+- [Phase 16]: Code review closed 2026-11-26 (16-REVIEW-DISPOSITION.md: 39 of 39 fixed). Round 1: CR-01, CR-02, WR-01..WR-20 (fix report in a705743). Round 2, a re-review of the fix changes: WR-21..WR-23 and IN-01..IN-14 (16-REVIEW-FIX.md). The pre-publish scan treats placeholder user folders (bob, alice, user, username, <user>, <username>, <name>) as samples, matched on the whole folder name. `cutover_collection.py --apply` needs `--pre-split-tag` (a tag, not a branch); `build_tool_repo.py` needs `--allow-any-email` for a non-noreply address; `sync_planning.py --since` must be the previous sync's `--ref`; the pre-push hook refuses without `prepublish.denyTermsFile` unless `PREPUBLISH_ALLOW_NO_DENY_LIST=1`.
+- [Phase 20]: `tests/test_isolation.py` imports `tomllib` at module level, so it cannot be collected on Python 3.10 (noted by the Phase 16 fixer); moot once 3.14 is the minimum.
 - [Phase 15]: D4 decided by the owner 2026-11-22: a new collection runs `git init -b main` inside `Custom/` (Custom is its own repo, the collection root is a plain folder, no parent option in the commit step).
 
 None block Phase 17. Open, non-blocking:
@@ -156,4 +157,3 @@ Resume file: None
 ## Operator Next Steps
 
 - Phase 17 (Library Catalog): `/gsd-discuss-phase 17` (no CONTEXT.md yet; D2, D6, D7, D11 to decide at plan time)
-- Phase 16 Info findings IN-01..IN-10 remain: `/gsd-code-review 16 --fix --all` if wanted
