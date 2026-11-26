@@ -38,12 +38,17 @@ _PYTEST_OF = "pytest" + "-of-"
 # a user folder name, or a placeholder in angle brackets such as the one a document uses to describe the pattern
 _NAME = r"(?:<[^<>\s]+>|[^\\/\s\"'<>|:*?`]+)"
 
-_HOME_RE = re.compile(
-    r"(?i)(?:(?<![A-Za-z0-9_.])[a-z]:" + _SEP + "+|(?<![\\w.\\-/\\\\])/[a-z]/)" + _USERS + _SEP + "+" + _NAME
-)
-_REPOS_RE = re.compile(
-    r"(?i)(?:(?<![A-Za-z0-9_.])[a-z]:" + _SEP + "+|(?<![\\w.\\-/\\\\])/[a-z]/)" + _REPOS + r"(?![\w.\-])"
-)
+# A line break quoted as backslash-n, -r or -t (JSON, logs) hides the start of a path behind its letter
+_AFTER_ESCAPE = r"(?<=\\[nrt])"
+_BEFORE_DRIVE = r"(?:(?<![A-Za-z0-9_.])|" + _AFTER_ESCAPE + ")"
+_BEFORE_GITBASH = r"(?:(?<![\w.\-/\\])|" + _AFTER_ESCAPE + ")"
+# drive letter with a colon or its URL-encoded form, git-bash and WSL (/mnt/c/) spellings, and a UNC share
+_DRIVE = _BEFORE_DRIVE + r"[a-z](?::|%3a)" + _SEP + "+"
+_GITBASH = _BEFORE_GITBASH + "(?:/mnt)?/[a-z]/"
+_UNC = r"(?<![\w\\])\\\\[^\\/\s\"'<>|:*?`]+\\[^\\/\s\"'<>|:*?`]+\\"
+
+_HOME_RE = re.compile(r"(?i)(?:" + _DRIVE + "|" + _GITBASH + "|" + _UNC + ")" + _USERS + _SEP + "+" + _NAME)
+_REPOS_RE = re.compile(r"(?i)(?:" + _DRIVE + "|" + _GITBASH + ")" + _REPOS + r"(?![\w.\-])")
 _PYTEST_RE = re.compile(r"(?i)" + re.escape(_PYTEST_OF) + r"(?!runner\b)[^\s\\/]+")
 
 
@@ -70,8 +75,8 @@ def _path_patterns(old: str) -> list[re.Pattern]:
     segments = [part for part in drive.group(2).split("/") if part]
     tail = "".join(_SEP + re.escape(part) for part in segments)
     return [
-        re.compile(r"(?i)(?<![A-Za-z0-9_.])" + re.escape(letter + ":") + tail + _TAIL),
-        re.compile(r"(?i)(?<![\w.\-/\\])" + re.escape("/" + letter) + tail + _TAIL),
+        re.compile(r"(?i)" + _BEFORE_DRIVE + re.escape(letter + ":") + tail + _TAIL),
+        re.compile(r"(?i)" + _BEFORE_GITBASH + re.escape("/" + letter) + tail + _TAIL),
     ]
 
 

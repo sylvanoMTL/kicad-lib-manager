@@ -69,6 +69,26 @@ def test_workstation_paths_are_found():
         assert blob("a.txt", "value = " + clean) == [], clean
 
 
+def test_a_line_break_escape_does_not_hide_an_address_or_a_path():
+    """Planning state, junit and JSON logs quote a line break as backslash-n; the letter must not shield what follows."""
+    address = "pe" + "rson" + "@" + "mail" + ".test"
+    owner = "ow" + "ner" + "@" + "priv" + ".test"
+    rules = scan.build_rules(deny_emails=[owner])
+    for escape in ("n", "t", "r"):
+        quoted = BACKSLASH + escape
+        assert blob("a.json", "Author:" + quoted + address) == [Finding("email", "a.json:1")], escape
+        assert blob("a.json", "a" + quoted + owner, rules) == [Finding("owner_email", "a.json:1")], escape
+        for sep in (SLASH, BACKSLASH * 2):
+            path = "C:" + sep + "Users" + sep + "bob" + sep + "a"
+            assert blob("a.json", "x" + quoted + path) == [Finding("workstation_path", "a.json:1")], (escape, sep)
+        assert blob("a.json", "x" + quoted + SLASH + "c" + SLASH + "Users" + SLASH + "bob" + SLASH + "a") == [
+            Finding("workstation_path", "a.json:1")
+        ]
+    # an escape that hides nothing stays quiet
+    assert blob("a.json", "text" + BACKSLASH + "n" + "@" + "pytest.mark.not_registered") == []
+    assert blob("a.json", "x" + BACKSLASH + "n" + "someone@example.org") == []
+
+
 def test_owner_email_and_terms():
     address = "ow" + "ner" + "@" + "priv" + ".test"
     term = "Zorblax" + "Quux"

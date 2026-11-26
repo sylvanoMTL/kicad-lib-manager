@@ -105,7 +105,8 @@ _SECRET_PATTERNS = (
 _SESSION_URL_PATTERN = re.compile(r"(?i)claude\.ai/code/session[_/-]?[A-Za-z0-9_-]{8,}")
 _TRAILER_PATTERN = re.compile(r"(?i)^\s*Claude-Session:")
 _REF_PATTERN = re.compile(r"(?:^|/)worktree-agent-")
-_MARKER_PATTERN = re.compile(r"scan:\s*allow\s+([A-Za-z_][A-Za-z0-9_ ,]*)")
+_ESCAPE_PATTERN = re.compile(r"\\[nrt]")
+_MARKER_PATTERN =re.compile(r"scan:\s*allow\s+([A-Za-z_][A-Za-z0-9_ ,]*)")
 
 PATTERNS: dict[str, tuple[re.Pattern, ...]] = {
     "workstation_path": _WORKSTATION_PATTERNS,
@@ -183,22 +184,34 @@ def _marked_rules(line: str) -> set[str]:
     return names
 
 
+def _unlisted_email(variants: list[str], rules: Rules) -> bool:
+    """True when any text of the line holds an address that is neither allow-listed nor an owner address."""
+    for text in variants:
+        for match in rules.patterns["email"][0].finditer(text):
+            address = match.group(0).casefold()
+            if not (address in rules.deny_emails or is_allowed_email(address)):
+                return True
+    return False
+
+
 def _line_hits(line: str, rules: Rules) -> list[str]:
     """Rule names that hit one line, each once, in report order."""
     hits: list[str] = []
+    # A JSON or log line quotes a line break as backslash-n: the n would hide the start of a path or an address behind it
+    variants = [line]
+    if "\\" in line:
+        unescaped = _ESCAPE_PATTERN.sub(" ", line)
+        if unescaped != line:
+            variants.append(unescaped)
     for pattern in rules.patterns["workstation_path"]:
-        if pattern.search(line):
+        if any(pattern.search(text) for text in variants):
             hits.append("workstation_path")
             break
     folded = line.casefold()
     if rules.deny_emails and any(address in folded for address in rules.deny_emails):
         hits.append("owner_email")
-    for match in rules.patterns["email"][0].finditer(line):
-        address = match.group(0).casefold()
-        if address in rules.deny_emails or is_allowed_email(address):
-            continue
+    if _unlisted_email(variants, rules):
         hits.append("email")
-        break
     if rules.deny_terms and any(term in folded for term in rules.deny_terms):
         hits.append("owner_term")
     for pattern in rules.patterns["secret"]:

@@ -148,6 +148,14 @@ def test_scrub_maps_and_generic_rules(split):
     assert scrub.scrub_text(f"temp {PYTEST_OF}runner/x", mapping) == f"temp {PYTEST_OF}runner/x"
 
 
+def test_scrub_sees_a_path_after_a_quoted_line_break(split):
+    scrub = split.scrub
+    quoted = chr(92) + "n"
+    assert scrub.scrub_text("a" + quoted + HOME + "/x", []) == "a" + quoted + "<home>/x"
+    assert scrub.scrub_text("a" + quoted + "/c/" + "Users/someone/x", []) == "a" + quoted + "<home>/x"
+    assert scrub.scrub_text("a" + chr(92) + "t" + REPOS + "/b", []) == "a" + chr(92) + "t<repos-folder>/b"
+
+
 def test_scrub_without_a_map_still_applies_the_generic_rules(split):
     scrub = split.scrub
     text = f"{HOME}/a and {REPOS}/b"
