@@ -31,7 +31,7 @@ created: "2026-11-23"
 
 - **After every task commit:** the one or two targeted modules for that task (`-n 0`, under 30 s); a test that creates a real git repository is `@pytest.mark.slow` and is run by node id with `--full`
 - **After every plan wave:** the orchestrator runs bare `pytest` (quick, ~70 s; post-merge gate)
-- **Before `/gsd-verify-work`:** `pytest --full` green, plus `tests/test_docs_atomic.py` and `tests/test_help_dialog.py` after the docs plan
+- **Before `/gsd-verify-work`:** `pytest --full` green, plus `tests/test_docs_split.py` (was `test_docs_atomic.py` until plan 16-07) and `tests/test_help_dialog.py` after the docs plan
 - **Max feedback latency:** 70 seconds (quick run)
 
 ---
@@ -59,7 +59,7 @@ Task IDs are `15-<plan>-<task>` from the plans (filled at planning, 2026-11-23);
 | 15-13-01, 15-13-02 | 15-13 (gap 1) | 6 | ROOT-03, ROOT-07, ROOT-11 | T-15-35, T-15-36, T-15-37 | a main-window folder check (switch, Recent existence) blocked on a dead drive at close is never a live QThread: the real window in a child process exits 0 with no `QThread: Destroyed`; a late answer switches and saves nothing; results are delivered on the GUI thread | child process + offscreen GUI + unit | `pytest tests/test_exit_with_hung_check.py tests/test_background.py tests/test_main_window_root.py -n 0` | ✅ (new: test_exit_with_hung_check, test_background, hungcheckchild) | ✅ green |
 | 15-14-01, 15-14-02 | 15-14 (gap 3) | 6 | ROOT-03, ROOT-06, ROOT-07 | T-15-38, T-15-39 | New Collection content never overlaps (footnote below the preview) from setup or Choose; Choose strip rows show wrapped text in full; neither dialog can be shorter than its content; default scale in process and QT_SCALE_FACTOR 1.75 in a child | offscreen geometry + child process | `pytest tests/test_dialog_geometry.py tests/test_new_collection_dialog.py tests/test_choose_folder_dialog.py -n 0` | ✅ (new: test_dialog_geometry, geometryfixtures, dialoggeometrychild) | ✅ green |
 | 15-15-01, 15-15-02, 15-15-03 | 15-15 (gap 1) | 7 | ROOT-03, ROOT-05, ROOT-06, ROOT-07 | T-15-40, T-15-41, T-15-42 | Choose, first-run and New Collection checks run on daemon threads and exit 0 when blocked at close (child modes choose, first-run, new-collection); a creation is never cancelled; no folder-check module uses a QThread (AST guard); the parking helper is gone | child process + offscreen GUI + AST | `pytest tests/test_exit_with_hung_check.py tests/test_choose_folder_dialog.py tests/test_first_run_dialog.py tests/test_new_collection_dialog.py -n 0` | ✅ | ✅ green |
-| 15-16-01, 15-16-02, 15-16-03 | 15-16 (gaps 2, 4) | 7 | ROOT-03, ROOT-06, ROOT-08 | T-15-43, T-15-44, T-15-45 | the real New Collection skeleton (empty `.pretty`) shows the empty page with focus on Import Part...; the saved scan carries the empty flags (format 3); after a switch the Destination follows from the old folder or a blank box and a Destination elsewhere stays | unit + offscreen GUI + docs | `pytest tests/test_empty_libraries.py tests/test_main_window_root.py tests/test_scan_cache.py tests/test_docs_atomic.py tests/test_help_dialog.py -n 0` | ✅ (new: test_empty_libraries) + ✅ | ✅ green |
+| 15-16-01, 15-16-02, 15-16-03 | 15-16 (gaps 2, 4) | 7 | ROOT-03, ROOT-06, ROOT-08 | T-15-43, T-15-44, T-15-45 | the real New Collection skeleton (empty `.pretty`) shows the empty page with focus on Import Part...; the saved scan carries the empty flags (format 3); after a switch the Destination follows from the old folder or a blank box and a Destination elsewhere stays | unit + offscreen GUI + docs | `pytest tests/test_empty_libraries.py tests/test_main_window_root.py tests/test_scan_cache.py tests/test_docs_split.py tests/test_help_dialog.py -n 0` (`test_docs_atomic.py` was replaced by `test_docs_split.py` in plan 16-07) | ✅ (new: test_empty_libraries) + ✅ | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -111,4 +111,12 @@ Task IDs are `15-<plan>-<task>` from the plans (filled at planning, 2026-11-23);
 |---|---|
 | Gaps found | 0 |
 | Resolved | 0 |
+| Escalated | 0 |
+
+## Validation Audit 2026-11-26
+
+| Metric | Count |
+|---|---|
+| Gaps found | 1 |
+| Resolved | 1 |
 | Escalated | 0 |
