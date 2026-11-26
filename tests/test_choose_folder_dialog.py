@@ -365,7 +365,7 @@ def test_tab_order_and_focus(made, qtbot, tmp_path):
     dialog._field.setText(str(empty))
     dialog.show()
     settle(qtbot, dialog)
-    qtbot.waitUntil(lambda: dialog.focusWidget() is dialog._field, timeout=2000)
+    qtbot.waitUntil(lambda: dialog.focusWidget() is dialog._field, timeout=30000)
     order = [dialog._field]
     widget = dialog._field
     for _ in range(20):

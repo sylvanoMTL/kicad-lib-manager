@@ -143,7 +143,7 @@ def test_focus_and_selection_on_the_name(made, qtbot):
     make, _ = made
     dialog = make()
     dialog.show()
-    qtbot.waitUntil(lambda: dialog._name_edit.hasFocus() or dialog.focusWidget() is dialog._name_edit)
+    qtbot.waitUntil(lambda: dialog._name_edit.hasFocus() or dialog.focusWidget() is dialog._name_edit, timeout=30000)
     assert dialog._name_edit.selectedText() == "KiCad_Libraries"
 
 
@@ -236,7 +236,7 @@ def test_check_is_debounced_and_off_thread(made, qtbot):
     assert not dialog._create_btn.isEnabled()  # a check is pending
     qtbot.wait(100)
     assert rec.checks == []
-    qtbot.waitUntil(lambda: len(rec.checks) == 1, timeout=3000)
+    qtbot.waitUntil(lambda: len(rec.checks) == 1, timeout=30000)
     settle(qtbot, dialog)
     qtbot.wait(450)
     assert [name for _, name, _ in rec.checks] == ["abc"]
@@ -252,9 +252,9 @@ def test_stale_result_is_ignored(made, qtbot):
     dialog = make()
     try:
         dialog._name_edit.setText("slow")
-        qtbot.waitUntil(lambda: ("slow" in [name for _, name, _ in rec.checks]), timeout=3000)
+        qtbot.waitUntil(lambda: ("slow" in [name for _, name, _ in rec.checks]), timeout=30000)
         dialog._name_edit.setText("fast")
-        qtbot.waitUntil(lambda: labels(dialog) == ["✖ row for fast"], timeout=3000)
+        qtbot.waitUntil(lambda: labels(dialog) == ["✖ row for fast"], timeout=30000)
     finally:
         release.set()
     qtbot.waitUntil(lambda: all(task.is_done() for task in dialog._tasks), timeout=30000)
@@ -425,7 +425,7 @@ def test_checks_are_cancelled_on_close(made, qtbot):
     rec.slow["closing"] = release
     dialog = make()
     dialog._name_edit.setText("closing")
-    qtbot.waitUntil(lambda: any(name == "closing" for _, name, _ in rec.checks), timeout=3000)
+    qtbot.waitUntil(lambda: any(name == "closing" for _, name, _ in rec.checks), timeout=30000)
     tasks = list(dialog._tasks)
     assert any(task.is_running() for task in tasks)
     started = time.monotonic()

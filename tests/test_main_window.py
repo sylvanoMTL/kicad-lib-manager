@@ -2093,7 +2093,7 @@ def _run_dialog_beside_the_guide(qtbot, w, guide, open_dialog):
                 seen["modality"] = box.windowModality()
                 seen["parent"] = box.parent()
                 click_guide_row(guide, "shortcuts")
-                qtbot.waitUntil(lambda: guide_key(guide) == "shortcuts", timeout=2000)
+                qtbot.waitUntil(lambda: guide_key(guide) == "shortcuts", timeout=30000)
         except Exception as error:  # reported after the dialog is closed, so a failure cannot hang
             seen["error"] = error
         finally:

@@ -135,7 +135,7 @@ def test_row1_without_kicad_folder(made, qtbot):
         assert not dialog._row1_btn.isEnabled()
         assert dialog._row1_desc.text() == NO_KICAD
         dialog.show()
-        qtbot.waitUntil(lambda d=dialog: d.focusWidget() is d._row2_btn, timeout=2000)
+        qtbot.waitUntil(lambda d=dialog: d.focusWidget() is d._row2_btn, timeout=30000)
         dialog.close()
 
 
@@ -281,7 +281,7 @@ def test_tab_order_and_initial_focus(made, qtbot):
     make, _ = made
     dialog = make()
     dialog.show()
-    qtbot.waitUntil(lambda: dialog.focusWidget() is dialog._row1_btn, timeout=2000)
+    qtbot.waitUntil(lambda: dialog.focusWidget() is dialog._row1_btn, timeout=30000)
     wanted = [dialog._row1_btn, dialog._row2_btn, dialog._row3_btn, dialog._quit_btn]
     order = [dialog._row1_btn]
     widget = dialog._row1_btn

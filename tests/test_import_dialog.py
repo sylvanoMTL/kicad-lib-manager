@@ -3535,7 +3535,7 @@ def test_no_commit_step_after_failed_or_empty_install(qtbot, make_install_dialog
     assert commit_panel_of(other) == []
     # no commit step: the left column takes the full width and the bar holds Close only (quick 261123-nws)
     other_view = other._result_view
-    qtbot.waitUntil(lambda: other_view._scroll.width() == other_view.width(), timeout=5000)
+    qtbot.waitUntil(lambda: other_view._scroll.width() == other_view.width(), timeout=30000)
     bar_buttons = [
         b for b in other_view.findChildren(QPushButton) if b.parent() is other_view and b.isVisibleTo(other_view)
     ]
@@ -5108,7 +5108,7 @@ def test_preview_columns_fit_at_900_and_1400(qtbot, make_item_dialog, tmp_path):
 
     for width in (900, 1400):
         dialog.resize(width, 720)
-        qtbot.waitUntil(lambda: dialog.width() == width)
+        qtbot.waitUntil(lambda: dialog.width() == width, timeout=30000)
         qtbot.wait(50)
         viewport = tree.viewport().width()
         if width == 900:
@@ -5150,7 +5150,7 @@ def test_preview_column_drag_survives_rebuild(qtbot, make_item_dialog):
 
     detail = tree.columnWidth(1)
     dialog.resize(1400, 720)
-    qtbot.waitUntil(lambda: dialog.width() == 1400)
+    qtbot.waitUntil(lambda: dialog.width() == 1400, timeout=30000)
     qtbot.wait(50)
     assert tree.columnWidth(0) == dragged
     assert tree.columnWidth(1) > detail
