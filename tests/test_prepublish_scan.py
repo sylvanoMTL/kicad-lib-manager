@@ -57,6 +57,10 @@ def test_workstation_paths_are_found():
         SLASH + "Users" + SLASH + "someone" + SLASH + "file.txt",
         SLASH + "home" + SLASH + "someone" + SLASH + "file.txt",
         "pytest" + "-of-" + "someone" + SLASH + "test_x0",
+        # WSL mount, URL-encoded drive colon, UNC share
+        SLASH + "mnt" + SLASH + "c" + SLASH + "Users" + SLASH + "someone" + SLASH + "file.txt",
+        "file:///" + "C%3A" + SLASH + "Users" + SLASH + "someone" + SLASH + "file.txt",
+        BACKSLASH * 2 + "server" + BACKSLASH + "share" + BACKSLASH + "Users" + BACKSLASH + "someone",
     ]
     for sample in samples:
         assert blob("a.txt", "value = " + sample) == [Finding("workstation_path", "a.txt:1")], sample

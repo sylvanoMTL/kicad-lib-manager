@@ -78,6 +78,12 @@ _WORKSTATION_PATTERNS = (
     re.compile(r"(?i)\b[a-z]:[\\/]+(?:users|git_repo_clones)[\\/]"),
     # git-bash style
     re.compile(r"(?i)(?<![\w.])/[a-z]/(?:users|git_repo_clones)/"),
+    # WSL mount of a drive
+    re.compile(r"(?i)/mnt/[a-z]/(?:users|git_repo_clones)/"),
+    # URL-encoded colon after the drive letter
+    re.compile(r"(?i)[a-z]%3a[\\/]+(?:users|git_repo_clones)[\\/]"),
+    # UNC share that holds a user folder
+    re.compile(r"(?i)(?<![\w\\])\\\\[^\\\s]+\\[^\\\s]+\\users\\"),
     # macOS home
     re.compile(r"(?<![A-Za-z0-9_])/" + _USERS + r"/[^/\s]+/"),
     # Linux home other than the CI runner's
