@@ -1,7 +1,7 @@
 ---
 phase: "17"
 slug: "library-catalog"
-status: draft
+status: approved
 shadcn_initialized: false
 preset: none
 created: "2026-11-27"
@@ -66,7 +66,7 @@ Enumerated by `env\Scripts\python.exe -I -c "import PySide6, PySide6.QtWidgets a
 
 The project's own widgets are a second, separate inventory (the tool above counts Qt classes, not app modules).
 
-Enumerated by `ls kicad_lib_manager/widgets/*.py | wc -l` — 19 files (including `__init__.py`) — project modules of `kicad_lib_manager/widgets` (no package version: they are this repository's own code, not an installed package) — 2026-11-27.
+Enumerated by `ls kicad_lib_manager/widgets/*.py | wc -l` — 19 files (including `__init__.py`) — project modules of `kicad_lib_manager/widgets` — kicad-lib-manager@afa84a6 (this repository's own code at that commit, not an installed package) — 2026-11-27.
 
 The modules this phase names (`theme.py`, `import_result.py` for `ElidedLabel`, `import_dialog.py` for `centre_window` and `TaskWorker`, `background.py`, `help_dialog.py` as the non-modal window model, `log_panel.py`) are a **non-exhaustive** selection, not an allowlist; the executor may use any other module in that folder. No mismatch between sources.
 
@@ -496,6 +496,7 @@ Style (from CLAUDE.md and the owner's plain-language rule): short sentences, the
 | Empty state body | `Clear the search, or press Add by URL... to add a library from GitHub.` |
 | Empty detail pane | `Select a library to see its details.` |
 | Add by URL page heading and body | `Add a library from GitHub` / `Paste the web address of a public GitHub repository that holds KiCad symbol and footprint libraries.` |
+| Add by URL, empty field (tooltip of `Check Repository`) | `Paste a web address first.` |
 | Licence page body | `Read the licence before you download. Nothing is added to your collection yet.` |
 | Tick | `I have read the licence terms` |
 | Download button tooltip when the tick is missing | `Tick the box to confirm you have read the licence terms.` |
@@ -538,6 +539,7 @@ Style (from CLAUDE.md and the owner's plain-language rule): short sentences, the
 | Changed files block an update (D-07) | `✖ {name} cannot be updated: files in {folder} were changed after it was added. Catalog libraries are managed copies, and an update would overwrite your changes. Keep your own changes in Custom/ instead.` |
 | GitHub cannot be reached | `✖ GitHub could not be reached. Check your internet connection, then try again.` |
 | GitHub too slow | `✖ GitHub took too long to answer. Try again later.` |
+| Remove failed (a file in use) | `✖ Could not remove {name}: {plain reason}. Close anything that uses files in {folder}, then try again. The catalog entry was kept.` |
 | Download or check failed (other) | `✖ The download failed: {plain reason}. Nothing was added. The downloaded copy was deleted.` (the raw message goes to the log, see below) |
 | Unreadable record | `The catalog record cannot be read.` as the tooltip of every disabled action |
 
@@ -579,7 +581,7 @@ Style (from CLAUDE.md and the owner's plain-language rule): short sentences, the
 
 Produced by the researcher as a draft from the surfaces below; the ui-phase probe (Step 9.5) may replace these rows idempotently. Surfaces and kinds: C1 File menu entry and count (nav) · C2 catalog window shell (static-content, interactive-control) · C3 search and toolbar (form) · C4 library list (list-collection) · C5 Details page (static-content, interactive-control) · C6 Add by URL page (form) · C7 licence page (form, static-content) · C8 Add preview (list-collection, form) · C9 Update preview (list-collection) · C10 Remove confirmation (static-content, interactive-control) · C11 job strip (interactive-control) · C12 notice strips (static-content) · C13 close question (interactive-control) · C14 log lines and busy refusals (static-content). Error and empty copy lives in the Copywriting Contract; rows reference it.
 
-Applicable state considerations resolved: 42 covered, 6 backstop, 3 unresolved.
+Applicable state considerations resolved: 85 covered, 12 backstop, 3 unresolved.
 
 | Category | Element | Status | Resolution / Reason |
 |----------|---------|--------|---------------------|
@@ -634,6 +636,55 @@ Applicable state considerations resolved: 42 covered, 6 backstop, 3 unresolved.
 | overflow | Windows dark mode / high-contrast themes (all surfaces) | ⚠ unresolved — planner must treat as assumption | Inherited from Phase 5 and 15: semantic colours and the `LogPanel` black text assume the light Windows palette (out of scope). |
 | overflow | Display scaling above 150% (all surfaces) | ⚠ unresolved — planner must treat as assumption | Inherited: sizes are declared at 96 DPI; the 900 x 640 default and the fixed 200 px Status column are not verified at 175% or 200%. Check in the manual UAT. |
 | error | Real network behaviour (credential prompts, proxies, rate limits) | ⚠ unresolved — planner must treat as assumption | The UI states for offline, timeout and not-found are specified, but the real GitHub behaviour (a proxy that needs sign-in, an unauthenticated rate limit on the lookup) is only exercised in the owner-run network checks (D-22, D-24); tests use local repositories. |
+| empty | C1 menu entry | ✅ covered | With no update known (nothing installed, nothing found, not checked yet) the entry reads the plain `Library Catalog...` with the plain tooltip (File menu table). |
+| loading | C1 menu entry | ✅ covered | The entry never shows a loading state: while the startup or a manual check runs it keeps its plain text, and the count appears only when the check finishes. |
+| populated | C1 menu entry | ✅ covered | With updates known the text reads `Library Catalog... (1 update)` or `(n updates)` and the tooltip names the count (File menu table). |
+| partial | C1 menu entry | ✅ covered | Only libraries confirmed to have an update are counted; a library that could not be checked (offline) adds nothing to the count and no error text. |
+| overflow | C1 menu entry | 🧪 backstop | `{ statement: "The longest entry text 'Library Catalog... (12 updates)' fits the File menu, which keeps its minimum width of 350 px, without clipping the shortcut column", verification: backstop }` (menu geometry test). |
+| long-text | C1 menu entry | ✅ covered | The entry text never carries library names (they appear only in the log line), so its length is bounded by the count; the longer sentence lives in the tooltip. |
+| empty | C2 catalog window shell | ✅ covered | With no row selected the detail pane shows `Select a library to see its details.` and the idle focal point (list as anchor, no accent button) applies; with no installed library the header still names the collection. |
+| loading | C2 catalog window shell | ✅ covered | The window builds from the in-memory record and the curated list at once, never blank; statuses read `Installed` in `MUTED` until the check ends, and a folder switch reloads the list and header in one step. |
+| error | C2 catalog window shell | ✅ covered | Window-level errors are the strips of C12 (unreadable record, Git missing); per-action failures show on the page that started them (Copywriting Contract > Refusals). |
+| populated | C2 catalog window shell | ✅ covered | A populated window shows header, toolbar, the list with several statuses, the Details page with its rows and the Close row, with no strip and no job strip. |
+| partial | C2 catalog window shell | ✅ covered | Strips, the result strip and the job strip appear independently of each other; every subset leaves the list, the Search field and `Close` usable. |
+| overflow | C2 catalog window shell | ✅ covered | Below the 900 x 640 default the splitter gives the detail pane its 200 px minimum and the list its 120 px minimum; at the 760 x 520 window minimum the detail pane scrolls instead of growing the window (see the minimum-size backstop row). |
+| zero-one-many | C2 catalog window shell | ✅ covered | There is only one catalog window: choosing the menu action again raises and focuses it and never opens a second one. |
+| long-text | C2 catalog window shell | ✅ covered | The title is fixed text; the collection path in the header is an `ElidedLabel` (middle elision, full path as tooltip), so a long folder never widens the window. |
+| error | C3 search and toolbar | ✅ covered | When a network action cannot run (Git missing, record unreadable, a job or scan running) the button is disabled with the reason as tooltip (Busy rules, C12); Search and `Help` keep working. |
+| populated | C3 search and toolbar | ✅ covered | With text typed the list shows the matching rows, the clear button shows inside the field, and `Check for Updates` and `Add by URL...` stay enabled when idle. |
+| partial | C3 search and toolbar | ✅ covered | A search that matches some rows hides the others and keeps the selection only if its row still matches; `Check for Updates` reads `Checking...` and is disabled while a check runs, while Search stays usable. |
+| overflow | C3 search and toolbar | 🧪 backstop | `{ statement: "At the window minimum (760 px) the Search field shrinks first and Check for Updates and Add by URL... keep their full text, with no horizontal scrolling", verification: backstop }` (offscreen geometry test). |
+| zero-one-many | C3 search and toolbar | ✅ covered | No match shows the `No library matches your search` empty state; one match shows one row; many matches show all of them in alphabetical order. |
+| long-text | C3 search and toolbar | ✅ covered | A very long search text scrolls inside the one-line field (no wrapping, no length limit) and matches case-insensitively on name, description and repository. |
+| populated | C4 library list | ✅ covered | A populated list shows rows of every status in alphabetical order, each with Name, status glyph and words, Licence and Size (Status table). |
+| empty | C6 Add by URL page | ✅ covered | An empty web address field disables `Check Repository` with the tooltip in the Copywriting Contract and shows the placeholder `https://github.com/owner/repository`. |
+| overflow | C6 Add by URL page | ✅ covered | Refusal rows wrap inside the page, and the page sits in the detail pane's scroll area, so several rows never push `Check Repository` out of reach. |
+| long-text | C6 Add by URL page | 🧪 backstop | `{ statement: "A 300-character web address scrolls inside the field, and the cleaned address on the next page is an elided Mono label with the full address as tooltip, without widening the window", verification: backstop }` (offscreen geometry test). |
+| empty | C7 licence page | ✅ covered | Size, licence and counts that are not known show `Unknown`, `Not stated by the repository` or `Could not be read from GitHub` with their note; no row is ever blank. |
+| overflow | C7 licence page | ✅ covered | The page sits in the detail pane's scroll area; the licence note and refusal rows wrap, and `Back to List` and `Download and Check` stay in the bottom row. |
+| long-text | C7 licence page | ✅ covered | The Repository link wraps, and `Will be installed in` is an `ElidedLabel` in Mono with the full path as tooltip; the heading wraps rather than elides. |
+| empty | C8 Add preview | ✅ covered | Sections that do not apply (path variables, `.gitignore` row, licence text) are omitted rather than left blank; the `What will be added` block always has the folder and the catalog record rows. |
+| loading | C8 Add preview | ✅ covered | The preview appears only after the download and checks end; until then the licence page stays with the job strip, and while `Add Library` runs the buttons are disabled and the strip reads `Adding {name}...`. |
+| populated | C8 Add preview | ✅ covered | A populated preview shows the `✓ Downloaded and checked` line, the added items, the path variables, the name-clash list and the licence line, with `Discard Download` and `Add Library`. |
+| loading | C9 Update preview | ✅ covered | Before the preview the job strip reads `Looking for changes in {name}...` and the Details buttons are disabled; the folder is unchanged until `Update Library` is pressed. |
+| populated | C9 Update preview | ✅ covered | A populated preview shows the version change, the files changed, the added libraries and the removed ones (amber with the warning sentence), with `Keep Current Version` and `Update Library`. |
+| overflow | C9 Update preview | 🧪 backstop | `{ statement: "An update with 40 added and 25 removed libraries keeps each list at most 6 rows tall (scrolling) and collapsed behind Show above 3, and the buttons stay visible", verification: backstop }` (offscreen geometry test). |
+| zero-one-many | C9 Update preview | ✅ covered | Zero added or removed libraries show `None`; one or two show their names; more than 3 start collapsed behind `Show` with the count in the heading. |
+| long-text | C9 Update preview | ✅ covered | Library names in the lists elide at the list width with the full name as tooltip; commit ids are short (7 characters) and fixed in Mono. |
+| error | C10 Remove confirmation | ✅ covered | A delete that fails (a file in use) shows the `Could not remove` refusal in the Copywriting Contract, keeps the catalog entry and the row as they were, and offers `Back to List`. |
+| long-text | C10 Remove confirmation | ✅ covered | The folder is an `ElidedLabel` with the full path as tooltip, and the nickname list rows elide with a tooltip; the heading `Remove {name}?` wraps. |
+| long-text | C11 job strip | 🧪 backstop | `{ statement: "A 60-character library name in the step label is elided on the right at the label width, with the full text as tooltip, while the 240 px progress bar and the cancel button keep their size", verification: backstop }` (offscreen geometry test). |
+| loading | C13 close question | ✅ covered | The job keeps running while the question is open and the job strip keeps updating; if the job ends first, `Stop and Close` just closes the window and `Keep Working` keeps it open. |
+| long-text | C13 close question | ✅ covered | The question text wraps inside the box and includes the library name; it is never elided, and the two buttons keep their full labels. |
+| loading | C14 log lines and refusals | ✅ covered | No log line is written while a job runs except the final outcome, a cancellation or a failure; progress lives only in the job strip. |
+| error | C14 log lines and refusals | ✅ covered | A failed job writes one `error` line (`Could not {add|update|reinstall|remove} {name}: {plain reason}`) and the raw text prefixed `Library catalog step failed:`; a refused folder switch writes one `warning` line and a 5000 ms status message (Log lines table). |
+| long-text | C14 log lines and refusals | ✅ covered | The log panel wraps long lines; lists of names in a line are capped (5 names, 4 for the update line, then `and {n} more`) so a line stays readable. |
+| empty | C12 notice strips | ✅ covered | With a readable record, Git found and Git 2.49.1 or newer, no strip is shown and no space is reserved for one. |
+| loading | C12 notice strips | ✅ covered | The Git check runs off the GUI thread; the strips appear when it ends and never block the window from opening. |
+| error | C12 notice strips | ✅ covered | The unreadable-record and Git-not-found strips are `✖` rows in `ERROR` with fixed copy (Copywriting Contract) and disable the actions they make unsafe; the old-Git strip is an amber warning that allows everything. |
+| partial | C12 notice strips | ✅ covered | Strips stack in the fixed order record, Git missing, Git old; any subset can show, and the old-Git strip is not shown together with the Git-missing strip. |
+| long-text | C12 notice strips | ✅ covered | Strip text wraps at 1.5 line height; a long `{reason}` in the unreadable-record strip wraps and also appears in full as the tooltip. |
+| overflow | C12 notice strips | 🧪 backstop | `{ statement: "With all strips that can appear together shown at the window minimum height (520 px), the list keeps at least its 120 px minimum and the toolbar stays visible", verification: backstop }` (offscreen geometry test). |
 
 <!-- Status vocabulary (locked by probe-core projectTruths):
      ✅ covered   → a plain truth string lifted into must_haves.truths
@@ -672,12 +723,12 @@ Not applicable. This is a PySide6 desktop app: there is no component registry, n
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
-- [ ] Dimension 7 Inventory Provenance: PASS
+- [x] Dimension 1 Copywriting: PASS
+- [x] Dimension 2 Visuals: PASS
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: PASS
+- [x] Dimension 5 Spacing: PASS
+- [x] Dimension 6 Registry Safety: PASS
+- [x] Dimension 7 Inventory Provenance: PASS
 
-**Approval:** pending
+**Approval:** approved 2026-11-27 (gsd-ui-checker, 7/7 PASS; the non-blocking Dimension 7 flag is addressed)
