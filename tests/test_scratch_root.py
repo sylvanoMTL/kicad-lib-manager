@@ -286,7 +286,7 @@ def test_bad_scratch_values_exit_2(seams, qtbot, tmp_path, monkeypatch, capsys, 
     else:
         folder.mkdir()
         # The check is faked: a folder the app cannot write cannot be built portably in a test
-        monkeypatch.setattr(startup, "check_scratch_folder", lambda path: "the app cannot write there", raising=False)
+        monkeypatch.setattr(startup, "check_scratch_folder", lambda path: "the app cannot write there")
         value, shown = str(folder), str(folder)
     root = make_collection(tmp_path / "lib")
 

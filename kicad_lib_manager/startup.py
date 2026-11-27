@@ -3,6 +3,7 @@
 import argparse
 import os
 import sys
+import tempfile
 import threading
 from pathlib import Path
 from typing import Callable, Mapping
@@ -184,6 +185,46 @@ def _after_choice(
     )
 
 
+def check_scratch_folder(folder: Path) -> str | None:
+    """None when the scratch folder can be used, else the reason; a folder that fails the check is left as it was."""
+    if not folder.exists():
+        return "it does not exist"
+    if not folder.is_dir():
+        return "it is not a folder"
+    try:
+        settings_folder = folder / userdirs.SETTINGS_FOLDER
+        settings_folder.mkdir(exist_ok=True)
+        with tempfile.TemporaryFile(dir=settings_folder):
+            pass
+    except OSError:
+        return "the app cannot write there"
+    return None
+
+
+def _start_scratch(argv: list[str], environ: Mapping[str, str]) -> "tuple[Issue, ...] | int":
+    """Check and apply the scratch switch before anything is read; the start note, or exit code 2 for a bad value.
+
+    The command line wins over the environment variable. A bad value never falls back to the real folders.
+    """
+    value = scratch_root_arg(argv)
+    source = SCRATCH_OPTION
+    if value is None:
+        value = environ.get(SCRATCH_ENV_VAR)
+        source = SCRATCH_ENV_VAR
+    if value is None:
+        return ()
+    if not value.strip():
+        shown, reason = "", "the value is empty"
+    else:
+        scratch = absolute_folder(value)
+        shown, reason = str(scratch), check_scratch_folder(scratch)
+    if reason is not None:
+        _fatal(f"Not using the scratch folder {shown} (set by {source}): {reason}")
+        return 2
+    apply_scratch_root(scratch)
+    return (Issue(Severity.WARNING, "scratch.in_use", SCRATCH_NOTE.format(folder=scratch)),)
+
+
 def start_window(
     argv: list[str],
     environ: Mapping[str, str],
@@ -200,14 +241,9 @@ def start_window(
     read and checked first (each check bounded by `timeout`), and the first-run window is the only
     dialog, shown only when nothing resolved. The scratch switch, when set, is applied before all of it.
     """
-    scratch_note: tuple[Issue, ...] = ()
-    scratch_value = scratch_root_arg(argv)
-    if scratch_value is None:
-        scratch_value = environ.get(SCRATCH_ENV_VAR)
-    if scratch_value is not None:
-        scratch = absolute_folder(scratch_value)
-        apply_scratch_root(scratch)
-        scratch_note = (Issue(Severity.WARNING, "scratch.in_use", SCRATCH_NOTE.format(folder=scratch)),)
+    scratch_note = _start_scratch(argv, environ)
+    if isinstance(scratch_note, int):
+        return scratch_note
     cli, _rest = parse_args(argv)
     if chosen is _READ:
         chosen = settings.load_library_root()
