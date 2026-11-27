@@ -5,16 +5,16 @@ milestone_name: Public Library Manager
 current_phase: 17
 current_phase_name: Library Catalog
 status: executing
-stopped_at: Completed 17-10-PLAN.md
-last_updated: "2026-11-27T10:31:25.768Z"
+stopped_at: Completed 17-11-PLAN.md
+last_updated: "2026-11-27T10:55:37.743Z"
 last_activity: 2026-11-27
 last_activity_desc: Phase 17 execution started
-state_head: 08fbcb6d92b80c57c75a2c01a14a8c1b6a8df298
+state_head: 47bac92903ce856449cc031275de7f041217039f
 progress:
   total_phases: 8
   completed_phases: 3
   total_plans: 60
-  completed_plans: 50
+  completed_plans: 51
   percent: 38
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-26)
 ## Current Position
 
 Phase: 17 (Library Catalog) — EXECUTING
-Plan: 11 of 20
+Plan: 12 of 20
 Status: Ready to execute
 Last activity: 2026-11-27 — Phase 17 execution started
 
@@ -91,6 +91,7 @@ Progress: [████░░░░░░] 38%
 | Phase 17 P08 | 7 min | 2 tasks | 6 files |
 | Phase 17 P09 | 20 min | 2 tasks | 4 files |
 | Phase 17 P10 | 12 min | 3 tasks | 8 files |
+| Phase 17 P11 | 18 min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -131,6 +132,9 @@ The full decision log is in the PROJECT.md Key Decisions table. The v1.0 per-pha
 - [Phase 17]: 17-10: a failed Remove keeps the catalog entry (rename into .staging first, entry second, delete last)
 - [Phase 17]: 17-10: apply_update resets only to the previewed commit and recomputes the known_dirty baseline after the reset
 - [Phase 17]: 17-10: library changes of an update are compared as (kind, name) so a leaving footprint library is never hidden by a same-named symbol library
+- [Phase 17]: 17-11: the catalog window's Repository link and Details heading elide (full text as tooltip) because Qt cannot break inside an unbroken word; every wrapped label ignores its text width so nothing widens the window
+- [Phase 17]: 17-11: network actions in the catalog window stay disabled until the off-thread Git check answers; every slow read runs through run_in_background with a generation counter that drops late results after a close or root change
+- [Phase 17]: 17-11: folder size on disk is measured off the GUI thread (CatalogServices.size_on_disk) and reads Calculating... first
 
 ### Pending Todos
 
@@ -176,8 +180,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-27T10:31:24.856Z
-Stopped at: Completed 17-10-PLAN.md
+Last session: 2026-11-27T10:55:36.851Z
+Stopped at: Completed 17-11-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
