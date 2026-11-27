@@ -11,7 +11,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Callable
 
-from . import fsutil, kicad_files
+from . import fsutil, kicad_files, userdirs
 from .atomic_check import check_libraries, is_atomic, summary_line
 from .collection import MODELS_DIR, OWN_DIR, STAGING_DIR, THIRD_PARTY_DIR, source_of
 from .changes import mark_changes
@@ -63,7 +63,13 @@ def newest_version_dirs(parent: Path) -> list[Path]:
 
 
 def find_kicad_config_dir(base: Path | None = None) -> Path | None:
-    """Find the newest KiCad user config directory (numeric version order)."""
+    """Find the newest KiCad user config directory (numeric version order).
+
+    Without a base, the scratch folder's kicad folder is read while the scratch switch is set (D-35): an empty
+    one means KiCad's settings are not found, never that the real ones are used.
+    """
+    if base is None:
+        base = userdirs.kicad_config_base()
     if base is None:
         if sys.platform == "win32":
             appdata = os.environ.get("APPDATA")

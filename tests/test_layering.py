@@ -14,12 +14,16 @@ PACKAGE = REPO_ROOT / "kicad_lib_manager"
 ALLOWED = {
     "models": set(),
     "sexpr": set(),
-    "fsutil": {"models"},
+    # the scratch folder for owner checks (Phase 17, D-35); a stdlib-only leaf
+    "userdirs": set(),
+    "fsutil": {"models", "userdirs"},
     "kicad_files": {"sexpr", "fsutil", "models"},
     # collection: library_description keys a catalog library by its id (Phase 17)
     "table_generator": {"collection", "fsutil", "kicad_files", "models", "sexpr"},
     # kicad_files is used from plan 02-05 on
-    "library_scanner": {"atomic_check", "changes", "collection", "fsutil", "kicad_files", "kicad_process", "models"},
+    "library_scanner": {
+        "atomic_check", "changes", "collection", "fsutil", "kicad_files", "kicad_process", "models", "userdirs",
+    },
     "kicad_process": {"procs"},
     # the only module that starts a child process (Phase 15)
     "procs": set(),
@@ -52,6 +56,7 @@ import kicad_lib_manager.table_generator, kicad_lib_manager.library_scanner, kic
 import kicad_lib_manager.gitops, kicad_lib_manager.manufacturers, kicad_lib_manager.atomic_check
 import kicad_lib_manager.changes, kicad_lib_manager.atomic_fixes, kicad_lib_manager.scan_cache
 import kicad_lib_manager.kicad_setup, kicad_lib_manager.procs, kicad_lib_manager.collection
+import kicad_lib_manager.userdirs
 for name in sorted(sys.modules):
     if name.split(".")[0] in ("PySide6", "shiboken6"):
         print(name)

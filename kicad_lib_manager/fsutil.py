@@ -9,6 +9,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import userdirs
 from .models import Issue, Severity
 
 _BOM = b"\xef\xbb\xbf"
@@ -229,7 +230,13 @@ def default_backup_dir(
     platform: str | None = None,
     environ: Mapping[str, str] | None = None,
 ) -> Path:
-    """Per-user backup folder outside the repo; never created here and never imports Qt."""
+    """Per-user backup folder outside the repo; never created here and never imports Qt.
+
+    While the scratch switch is set (D-35) it is the scratch folder's backups, whatever the platform.
+    """
+    scratch = userdirs.backup_base()
+    if scratch is not None:
+        return scratch
     platform = sys.platform if platform is None else platform
     environ = os.environ if environ is None else environ
     if platform == "win32":
