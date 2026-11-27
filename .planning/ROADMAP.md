@@ -204,10 +204,10 @@ Plans:
   2. Add by GitHub URL installs a KiCad library and refuses non-KiCad, KiCad 5-only, PCM-only and private repos with a message saying why; every Add warns about nickname collisions with KiCad stock, other catalog or `Atomic_` libraries and never renames automatically.
   3. User can update an installed library, and remove one (clone and manifest entry) after a confirmation naming what goes. At startup a background check compares each installed library's remote and local commit without downloading, flags "Update available", never blocks, and shows the status as unknown with no error when offline.
   4. The path variables a library needs (for example `WE_3DMODEL_DIR`) are set through the old -> new confirmation, so its 3D models resolve; KiCad's PCM `PCM_` entries, `3rdparty` folder and `installed_packages.json` are never touched; network git runs only in a separate runner (https only, no hooks or credential prompts, no submodule recursion, long paths on, autocrlf off), and the commit path cannot reach the network.
-  5. Würth and SparkFun work end to end (Espressif, 4ms and Alternate-KiCad-Library join the curated list only once verified), and in the owner's collection WurthElektronik is a catalog entry with no missing library or 3D model afterwards.
+  5. Würth and SparkFun work end to end and form the curated list; KiCad's reviewed libraries (such as 4ms and Alternate-KiCad-Library) are listed from KiCad's official add-on list, whose review counts as their verification, and Espressif is rejected from the curated list with its reason (D-33, D-37); in the owner's collection WurthElektronik is a catalog entry with no missing library or 3D model afterwards.
 **Research flags**: Decide at plan time: D2 (clone location and Würth path: `ThirdParty/<id>/` with a one-time rewrite of about 89 `WurthElektronik/...` URIs, or `<Vendor>/<Repo>` with Würth kept in place; `source_of` handles both), D6 (minimum git: 2.49.1+ for CVE-2025-48384 with a warning below; this machine has 2.49.0), D7 (update by `fetch --depth 1 origin <ref>` + `reset --hard FETCH_HEAD` on a clean tree, recommended, or `merge --ff-only`), D11 (curated list and licence gate: refuse libraries with no licence, or warn and ask for acknowledgement; research leans to the latter). Research: Git LFS pointer detection during staging (`version https://git-lfs`) and the GitHub 304 / ETag cost of the startup check (60 requests per hour unauthenticated). Unverified: Git Credential Manager versus `GIT_TERMINAL_PROMPT=0` (test with a private URL, also set `GCM_INTERACTIVE=Never`); the 3D model paths of Espressif, 4ms and Alternate-KiCad-Library.
 **Notes**: Build order from research: (a) `catalog/gitnet.py` plus a `gitops.launch()` extraction, a layering test that commit-path modules cannot import gitnet, and a threat-model note; (b) manifest, curated list, `scan_source`, `sync_kicad_path_vars(extra_vars=...)`; (c) add / update / remove as plan, preview, apply, tested against local bare repos through `file://` (no network in tests); (d) catalog dialog with progress, Cancel and licence display; (e) the Würth conversion. Catalog Add and Remove change only the collection and its manifest; tables are written by Generate Tables (project-local from Phase 18). The update check runs automatically at startup (owner, 2026-11-22). The Würth conversion is a previewed transaction from the main checkout with a rollback tag: clone, verify the library set, define `WE_3DMODEL_DIR` (7,612 footprint model paths use it), Generate, rescan with zero missing, then remove the submodule (`deinit -f`, `git rm`, delete `.git/modules/...`). PITFALLS.md 6, 15-22.
-**Plans**: 17/20 plans executed in 14 waves (16 code plans, 3 owner checkpoints, 1 curated-list update); executors run sequentially on main this run
+**Plans**: 17/27 plans executed in 19 waves (23 code plans, 3 owner checkpoints, 1 curated-list update); executors run sequentially on main this run. Plans 17-21 to 17-27 were inserted after the 17-17 owner check (its findings 1-6 and 8, decisions D-33 to D-37) and run before 17-18
 
 Plans:
 **Wave 1**
@@ -250,13 +250,30 @@ Plans:
 - [x] 17-17-PLAN.md — D-22 real-network checks (SparkFun, 4ms, Alternate-KiCad-Library, Espressif), Cancel, offline start, a real update
 
 **Wave 12** *(blocked on Wave 11)*
-- [ ] 17-18-PLAN.md — Promote passed candidates to the curated list; record failures in REJECTED
+- [ ] 17-21-PLAN.md — Catalog window fixes from 17-17: file count while a download is checked, size on disk in the list, Remove page counts by kind, one name for a library added by address (`catalog/names.py`)
 
-**Wave 13** *(owner checkpoint)*
-- [ ] 17-19-PLAN.md — Würth conversion rehearsal on a `--no-local` copy with scratch KiCad settings
+**Wave 13** *(blocked on Wave 12 completion)*
+- [ ] 17-22-PLAN.md — D-33 reader: KiCad's add-on list (`catalog/addons.py`), cache-aware and hardened, listings with not-addable reasons, KiCad's licence names, fixture and no-network guard
+- [ ] 17-23-PLAN.md — Main window fixes from 17-17: refreshing state with a spinning wheel and file count over the trees, one log line per catalog library, catalog names in the trees
 
-**Wave 14** *(owner checkpoint, live run)*
-- [ ] 17-20-PLAN.md — Live Würth conversion from the main checkout
+**Wave 14** *(blocked on Wave 13 completion)*
+- [ ] 17-24-PLAN.md — D-33/D-34 names: KiCad's add-on names (`PCM_`) decided from a library's own links, recorded in `catalog.json`, applied by every scan; KiCad's own add-on manager left alone
+
+**Wave 15** *(blocked on Wave 14 completion)*
+- [ ] 17-25-PLAN.md — D-33/D-36 window: KiCad's add-on list in the catalog (rows, Cannot be added yet, Listed in, Add from the list, licence from the list, Names in KiCad; offline the last kept copy with its date)
+- [ ] 17-27-PLAN.md — D-35 scratch switch for owner checks: `--scratch-root` / `KICAD_LIBMGR_SCRATCH_ROOT` move the app's settings, saved scans, backups and KiCad's settings folder under one folder
+
+**Wave 16** *(blocked on Wave 15 completion)*
+- [ ] 17-26-PLAN.md — UI-SPEC, User Guide, CLAUDE.md and README for plans 17-21 to 17-25 and the scratch switch
+
+**Wave 17** *(blocked on Wave 16 completion)*
+- [ ] 17-18-PLAN.md — Curated list after 17-17 and D-33: Würth and SparkFun stay, 4ms and Alternate-KiCad-Library come from KiCad's list, Espressif recorded in REJECTED
+
+**Wave 18** *(owner checkpoint)*
+- [ ] 17-19-PLAN.md — Owner check of KiCad's add-on list with 4ms (D-37), then the Würth conversion rehearsal on a `--no-local` copy, all with `--scratch-root`
+
+**Wave 19** *(owner checkpoint, live run)*
+- [ ] 17-20-PLAN.md — Live Würth conversion from the main checkout (real settings; the scratch switch stays off)
 **UI hint**: yes
 
 ### Phase 18: Project-Local Table Model
@@ -335,7 +352,7 @@ Phases execute in numeric order: 14 → 15 → 16 → 17 → 18 → 19 → 20 �
 | 14. Test Suite Speed-Up | v3.0 | 6/6 | Complete    | 2026-11-23 |
 | 15. Choose Library Folder and New Collection | v3.0 | 16/16 | Complete    | 2026-11-23 |
 | 16. Repo Split | v3.0 | 18/18 | Complete    | 2026-11-26 |
-| 17. Library Catalog | v3.0 | 17/20 | In Progress | - |
+| 17. Library Catalog | v3.0 | 17/27 | In Progress | - |
 | 18. Project-Local Table Model | v3.0 | 0/TBD | Not started | - |
 | 19. Menu Regroup | v3.0 | 0/TBD | Not started | - |
 | 20. Python 3.14 Minimum | v3.0 | 0/TBD | Not started | - |

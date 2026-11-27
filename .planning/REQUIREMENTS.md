@@ -53,7 +53,7 @@ Research: `.planning/research/SUMMARY.md` (and STACK, FEATURES, ARCHITECTURE, PI
 - [ ] **CAT-06**: Path variables a library needs (e.g. `WE_3DMODEL_DIR`) are set through the old -> new confirmation, so its 3D models resolve
 - [ ] **CAT-07**: At startup the app checks installed libraries against GitHub in the background (remote commit vs local commit, no download) and flags "Update available"; it never blocks, and offline the status is unknown with no error
 - [x] **CAT-08**: Adding a library warns about nickname collisions with KiCad stock, other catalog or `Atomic_` libraries, and never renames automatically
-- [ ] **CAT-09**: Würth and SparkFun are verified end to end; Espressif, 4ms and Alternate-KiCad-Library are verified and added to the curated list if they work
+- [ ] **CAT-09**: Würth and SparkFun are verified end to end and form the app's curated list; KiCad's reviewed libraries (4ms, Alternate-KiCad-Library and the others of KiCad's official add-on list) come from that add-on list, whose review counts as their verification; Espressif, which is not in KiCad's add-on list, is rejected from the curated list with its reason and stays installable by URL (reworded for D-33, D-37)
 - [x] **CAT-10**: KiCad's PCM is left alone: `PCM_` entries, the `3rdparty` folder and `installed_packages.json` are never touched
 - [ ] **CAT-11**: Network git is safe: a separate runner (https only, no hooks or credential prompts, no submodule recursion, long paths on, autocrlf off), and the commit path cannot reach the network
 - [ ] **CAT-12**: WurthElektronik becomes a catalog entry in the owner's collection, with no missing library or 3D model afterwards
