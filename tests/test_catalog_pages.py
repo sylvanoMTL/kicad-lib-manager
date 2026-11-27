@@ -5,12 +5,13 @@ downloads and read back through their public methods. Nothing is shown on the de
 """
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QLabel, QPlainTextEdit, QPushButton
+from PySide6.QtWidgets import QCheckBox, QLabel, QPlainTextEdit, QPushButton
 
-from kicad_lib_manager.catalog import licences, ops, validate
+from kicad_lib_manager.catalog import curated, licences, manifest, ops, validate
 from kicad_lib_manager.catalog.licences import LicenceClass
 from kicad_lib_manager.models import Issue, Severity
 from kicad_lib_manager.widgets import catalog_pages as cp
@@ -23,8 +24,9 @@ SETTLED = (LicenceClass.OPEN, LicenceClass.SHARE_ALIKE, LicenceClass.PROPRIETARY
 
 
 def source(spdx="MIT", *, proprietary=False, known=True, id="Acme", name="Acme", url="https://github.com/acme/parts.git",
-           vars=None):
-    return ops.AddSource(id, name, url, "main", vars or {}, spdx, proprietary=proprietary, licence_known=known)
+           vars=None, licence_url=""):
+    extra = {"licence_url": licence_url} if licence_url else {}
+    return ops.AddSource(id, name, url, "main", vars or {}, spdx, proprietary=proprietary, licence_known=known, **extra)
 
 
 def plan_of(src=None, *, size=68, refusals=(), kicad_open=(), gitignore="", reinstall=False, ack_on="", acknowledged=False):
@@ -135,7 +137,7 @@ def test_licence_page_rows_and_notes(qtbot, spdx, proprietary, known, note, tick
     where = [label for label in page.findChildren(ElidedLabel) if label.full_text().endswith("ThirdParty/Acme")]
     assert len(where) == 1 and where[0].toolTip() == where[0].full_text() and where[0].font().family() == theme.MONO_FAMILY
     assert "about 68 MB" in texts(page)
-    assert page.primary_button().text() == "Download and Check"
+    assert page.primary_button().text() == "Download and Check (about 68 MB)"
     if tick:
         box = page.tick()
         assert box is not None and box.text() == "I have read the licence terms" and not box.isChecked()
@@ -176,7 +178,7 @@ def test_licence_page_reinstall_variant(qtbot):
     assert "You confirmed the licence terms on 2026-11-20." in texts(page)
     assert page.tick() is None and page.primary_button().isEnabled()
     assert "main" in texts(page) and "Branch" in texts(page)
-    assert page.primary_button().text() == "Download and Check"
+    assert page.primary_button().text() == "Download and Check (about 68 MB)"
 
 
 def test_licence_page_refusals_leave_only_back(qtbot):
@@ -191,6 +193,210 @@ def test_licence_page_refusals_leave_only_back(qtbot):
             in texts(page))
     page.show_plan(plan_of())
     assert not page.is_refused() and not page.primary_button().isHidden()
+
+
+# -- The licence page: opening line, licence link, size on the button (owner-approved 2026-11-27, 17-17 check) --
+
+STEP_ADD = (
+    "Step 1 of 2. Download and Check copies the library to a temporary folder and checks it. "
+    "Nothing is added yet: on the next page you choose Add Library or Discard Download."
+)
+STEP_REINSTALL = STEP_ADD.replace("Add Library", "Reinstall Library")
+WURTH_LICENCE_URL = "https://github.com/WurthElektronik/KiCad-Library/blob/master/License_Terms_WE_KiCad_library.pdf"
+SPARKFUN_LICENCE_URL = "https://github.com/sparkfun/SparkFun-KiCad-Libraries#license"
+LINK_TEXT = "Read the licence"
+LINK_FALLBACK_TEXT = "Read the licence on the repository page"
+OLD_OPENING_LINE = "Read the licence before you download. Nothing is added to your collection yet."
+
+
+def curated_plan(tmp_path, id):
+    """The real plan of a curated library, as the window builds it (no network, plenty of free space)."""
+    return ops.plan_add(
+        tmp_path, curated.curated_by_id(id), manifest.Manifest(()),
+        free_space=lambda path: SimpleNamespace(free=10**13), running=lambda: [],
+    )
+
+
+def licence_link(page):
+    return page.findChild(cp.LinkLabel, "licenceLink")
+
+
+def body_kinds(page):
+    """The kinds of the page's body widgets in layout order (only the ones the order tests name)."""
+    kinds = []
+    for index in range(page._body.count()):
+        widget = page._body.itemAt(index).widget()
+        row_texts = [label.text() for label in widget.findChildren(QLabel)]
+        if isinstance(widget, QCheckBox):
+            kinds.append("tick")
+        elif widget.findChild(cp.LinkLabel, "licenceLink") is not None:
+            kinds.append("link")
+        elif isinstance(widget, QLabel) and widget.text().startswith("⚠"):
+            kinds.append("note")
+        elif isinstance(widget, QLabel) and widget.text().startswith("You confirmed"):
+            kinds.append("confirmed")
+        elif cp.LICENCE_LABEL in row_texts:
+            kinds.append("licence")
+        elif cp.SIZE_LABEL in row_texts:
+            kinds.append("size")
+        elif cp.INSTALLED_IN_LABEL in row_texts:
+            kinds.append("installed")
+    return kinds
+
+
+def test_licence_page_opening_line_for_add(qtbot):
+    page = build(qtbot, cp.LicencePage())
+    page.show_plan(plan_of())
+    assert cp.LICENCE_BODY == STEP_ADD
+    assert STEP_ADD in texts(page) and OLD_OPENING_LINE not in texts(page)
+    opening = [label for label in page.findChildren(QLabel) if label.text() == STEP_ADD]
+    assert len(opening) == 1 and opening[0].wordWrap() and opening[0].styleSheet() == f"color: {theme.MUTED};"
+    assert texts(page)[1] == STEP_ADD  # the first line under the heading
+
+
+def test_licence_page_opening_line_for_reinstall_names_the_reinstall_buttons(qtbot):
+    page = build(qtbot, cp.LicencePage())
+    plan = plan_of(source(None, proprietary=True), reinstall=True, ack_on="2026-11-20", acknowledged=True)
+    page.show_plan(plan, reinstall=True, acknowledged_on="2026-11-20")
+    assert STEP_REINSTALL in texts(page) and STEP_ADD not in texts(page) and OLD_OPENING_LINE not in texts(page)
+    # the two names are the ones the reinstall preview really shows
+    preview = build(qtbot, cp.AddPreviewPage())
+    preview.show_staged(staged_of(plan), plan, root_is_repo=False)
+    assert f"you choose {preview.primary_button().text()} or {preview.back_button().text()}." in STEP_REINSTALL
+    # and an Add goes back to the Add names
+    page.show_plan(plan_of())
+    assert STEP_ADD in texts(page) and STEP_REINSTALL not in texts(page)
+
+
+def test_licence_page_text_has_no_jargon(qtbot):
+    page = build(qtbot, cp.LicencePage())
+    for plan, reinstall in ((plan_of(), False), (plan_of(reinstall=True), True)):
+        page.show_plan(plan, reinstall=reinstall)
+        for text in texts(page) + [page.primary_button().text(), page.back_button().text()]:
+            assert not any(word in text.casefold() for word in ("spdx", "manifest", "clone", "staging")), text
+
+
+def test_licence_link_for_wurth(qtbot, tmp_path):
+    page = build(qtbot, cp.LicencePage())
+    page.show_plan(curated_plan(tmp_path, "WurthElektronik"))
+    link = licence_link(page)
+    assert link is not None and link.link_text() == LINK_TEXT
+    assert link.url() == WURTH_LICENCE_URL and link.toolTip() == WURTH_LICENCE_URL
+    assert f'href="{WURTH_LICENCE_URL}"' in link.text() and LINK_TEXT in link.text()
+    assert link.openExternalLinks() and link.accessibleName() == LINK_TEXT
+    assert link.url() != page.findChild(cp.LinkLabel, "repositoryLink").url()  # a second link, not the repository's
+
+
+def test_licence_link_for_sparkfun(qtbot, tmp_path):
+    page = build(qtbot, cp.LicencePage())
+    page.show_plan(curated_plan(tmp_path, "SparkFun"))
+    link = licence_link(page)
+    assert link.link_text() == LINK_TEXT and link.url() == SPARKFUN_LICENCE_URL and link.toolTip() == SPARKFUN_LICENCE_URL
+    assert f'href="{SPARKFUN_LICENCE_URL}"' in link.text()
+
+
+def test_licence_link_falls_back_to_the_repository_page(qtbot):
+    page = build(qtbot, cp.LicencePage())
+    page.show_plan(plan_of(source("MIT")))  # no licence address: an Add by URL, or Espressif
+    link = licence_link(page)
+    assert link.link_text() == LINK_FALLBACK_TEXT
+    assert link.url() == "https://github.com/acme/parts" and link.toolTip() == link.url()
+    assert 'href="https://github.com/acme/parts"' in link.text()
+    assert link.accessibleName() == LINK_FALLBACK_TEXT
+    # a typed address opens the cleaned address the page shows as the repository
+    long = "https://github.com/acme/" + "x" * 300
+    page.show_plan(plan_of(), name="acme/parts", address=long)
+    assert licence_link(page).url() == long and licence_link(page).link_text() == LINK_FALLBACK_TEXT
+    assert licence_link(page).minimumSizeHint().width() == 0  # it elides, it never widens the page
+
+
+def test_licence_link_text_is_elided_to_its_width_but_keeps_its_address(qtbot, tmp_path):
+    page = build(qtbot, cp.LicencePage())
+    page.show_plan(curated_plan(tmp_path, "WurthElektronik"))
+    page.show()
+    qtbot.wait(20)
+    link = licence_link(page)
+    link.setFixedWidth(50)  # too narrow for the words
+    qtbot.wait(20)
+    assert "…" in link.text() and f'href="{WURTH_LICENCE_URL}"' in link.text()
+    assert link.url() == WURTH_LICENCE_URL and link.link_text() == LINK_TEXT
+    assert link.minimumSizeHint().width() == 0
+
+
+def test_licence_link_replaces_the_old_address_on_a_second_plan(qtbot, tmp_path):
+    page = build(qtbot, cp.LicencePage())
+    page.show_plan(curated_plan(tmp_path, "WurthElektronik"))
+    page.show_plan(plan_of(source("MIT")))
+    links = [label for label in page.findChildren(cp.LinkLabel) if label.objectName() == "licenceLink"]
+    assert len(links) == 1 and links[0].link_text() == LINK_FALLBACK_TEXT
+
+
+ORDER_CASES = [
+    # the licence row, the link, the amber note, then the tick (or the line that replaces it), then Size and the folder
+    (dict(spdx="CC-BY-SA-4.0", licence_url=SPARKFUN_LICENCE_URL), False, ["licence", "link", "note", "tick", "size", "installed"]),
+    (dict(spdx=None, proprietary=True, licence_url=WURTH_LICENCE_URL), False, ["licence", "link", "note", "tick", "size", "installed"]),
+    (dict(spdx=None, proprietary=True, licence_url=WURTH_LICENCE_URL), True, ["licence", "link", "note", "confirmed", "size", "installed"]),
+    (dict(spdx=None, known=True), False, ["licence", "link", "note", "size", "installed"]),
+    (dict(spdx="MIT"), False, ["licence", "link", "size", "installed"]),
+]
+
+
+@pytest.mark.parametrize("kwargs, reinstall, expected", ORDER_CASES)
+def test_licence_page_order_licence_link_note_tick(qtbot, kwargs, reinstall, expected):
+    page = build(qtbot, cp.LicencePage())
+    plan = plan_of(source(**kwargs), reinstall=reinstall, ack_on="2026-11-20", acknowledged=reinstall)
+    page.show_plan(plan, reinstall=reinstall, acknowledged_on="2026-11-20")
+    kinds = body_kinds(page)
+    assert kinds == expected
+    if "tick" in kinds:
+        # the tick sits directly under the link and the note
+        assert kinds.index("tick") == kinds.index("link") + 2 == kinds.index("licence") + 3
+
+
+def test_licence_page_first_focus_stays_on_the_tick(qtbot, tmp_path):
+    page = build(qtbot, cp.LicencePage())
+    page.show_plan(curated_plan(tmp_path, "WurthElektronik"))
+    page.show()
+    qtbot.wait(20)  # a widget added to a shown page is shown by a queued event
+    page.focus_first()
+    assert page.focusWidget() is page.tick() and page.tick() is not None
+    assert licence_link(page).focusPolicy() == Qt.FocusPolicy.NoFocus
+
+
+BUTTON_CASES = [
+    (68, "Download and Check (about 68 MB)", "about 68 MB"),
+    (999, "Download and Check (about 999 MB)", "about 999 MB"),
+    (2674, "Download and Check (about 2.7 GB)", "about 2.7 GB"),
+    (None, "Download and Check", "Unknown"),
+]
+
+
+@pytest.mark.parametrize("size, button, size_row", BUTTON_CASES)
+def test_download_button_shows_the_size_when_it_is_known(qtbot, size, button, size_row):
+    page = build(qtbot, cp.LicencePage())
+    page.show_plan(plan_of(size=size))
+    assert cp.DOWNLOAD_TEXT == "Download and Check"
+    assert page.primary_button().text() == button
+    assert size_row in texts(page)  # the Size row and the button say the same size
+    if size is not None:
+        assert button == f"{cp.DOWNLOAD_TEXT} ({size_row})"
+
+
+def test_download_button_text_follows_the_plan_and_survives_busy_and_blocked(qtbot):
+    page = build(qtbot, cp.LicencePage())
+    assert page.primary_button().text() == "Download and Check"  # nothing shown yet
+    page.show_plan(plan_of(size=68))
+    page.set_blocked("Close the import window first.")
+    assert page.primary_button().text() == "Download and Check (about 68 MB)" and not page.primary_button().isEnabled()
+    assert page.primary_button().toolTip() == "Close the import window first."
+    page.set_blocked(None)
+    page.set_busy(True)
+    assert page.primary_button().text() == "Download and Check (about 68 MB)" and not page.primary_button().isEnabled()
+    page.set_busy(False)
+    page.show_plan(plan_of(size=None))  # the next plan has no known size
+    assert page.primary_button().text() == "Download and Check"
+    page.show_plan(plan_of(size=2674, reinstall=True), reinstall=True)
+    assert page.primary_button().text() == "Download and Check (about 2.7 GB)"
 
 
 # -- The Add preview ----------------------------------------------------------------------------

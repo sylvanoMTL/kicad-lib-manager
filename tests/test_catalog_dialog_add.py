@@ -387,6 +387,112 @@ def checked_repo(url="https://github.com/acme/parts", *, spdx=None, size_kb=2048
     return ops.CheckedRepo(ref, info, "main")
 
 
+# -- The licence page explains the two steps and links to the licence (owner-approved 2026-11-27, 17-17 check) --
+
+STEP_ADD = (
+    "Step 1 of 2. Download and Check copies the library to a temporary folder and checks it. "
+    "Nothing is added yet: on the next page you choose Add Library or Discard Download."
+)
+STEP_REINSTALL = STEP_ADD.replace("Add Library", "Reinstall Library")
+LINK_TEXT = "Read the licence"
+LINK_FALLBACK_TEXT = "Read the licence on the repository page"
+WURTH_LICENCE_URL = "https://github.com/WurthElektronik/KiCad-Library/blob/master/License_Terms_WE_KiCad_library.pdf"
+SPARKFUN_LICENCE_URL = "https://github.com/sparkfun/SparkFun-KiCad-Libraries#license"
+
+
+def licence_link(dialog):
+    return dialog._licence_page.findChild(cd.catalog_pages.LinkLabel, "licenceLink")
+
+
+def body_widgets(page):
+    return [page._body.itemAt(i).widget() for i in range(page._body.count())]
+
+
+def test_curated_licence_page_opening_line_link_and_size_on_the_button(qtbot, tmp_path, fakes):
+    fakes.stage_release.clear()
+    dialog = build(qtbot, tmp_path, fakes)
+    open_licence(qtbot, dialog, "SparkFun")
+    page = dialog._licence_page
+    assert STEP_ADD in texts(page)
+    link = licence_link(dialog)
+    assert link.link_text() == LINK_TEXT and link.url() == SPARKFUN_LICENCE_URL
+    assert page.primary_button().text() == "Download and Check (about 69 MB)"
+    assert "about 69 MB" in texts(page)
+    page.primary_button().click()  # the download runs: the buttons are busy, the text stays
+    qtbot.waitUntil(lambda: bool(fakes.stage_started.is_set()), timeout=10000)
+    assert not page.primary_button().isEnabled() and page.primary_button().text() == "Download and Check (about 69 MB)"
+    fakes.stage_release.set()
+    qtbot.waitUntil(lambda: bool(dialog._page_kind == "preview"), timeout=10000)
+    # the two names in the opening line are the buttons of the next page
+    preview = dialog._preview_page
+    assert f"you choose {preview.primary_button().text()} or {preview.back_button().text()}." in STEP_ADD
+
+
+def test_proprietary_licence_page_puts_the_tick_under_the_licence_link(qtbot, tmp_path, fakes):
+    dialog = build(qtbot, tmp_path, fakes)
+    open_licence(qtbot, dialog, WURTH.name)
+    page = dialog._licence_page
+    link = licence_link(dialog)
+    assert link.link_text() == LINK_TEXT and link.url() == WURTH_LICENCE_URL
+    assert page.primary_button().text() == "Download and Check (about 2.7 GB)"
+    widgets = body_widgets(page)
+    link_row = next(i for i, w in enumerate(widgets) if w.findChild(cd.catalog_pages.LinkLabel, "licenceLink") is not None)
+    licence_row = next(i for i, w in enumerate(widgets) if cd.catalog_pages.LICENCE_LABEL in [x.text() for x in w.findChildren(QLabel)])
+    assert link_row == licence_row + 1
+    assert widgets[link_row + 1].text().startswith("⚠ Proprietary licence")
+    assert widgets[link_row + 2] is page.tick()
+    page.show()
+    qtbot.wait(20)
+    page.focus_first()
+    assert page.focusWidget() is page.tick()
+
+
+def test_reinstall_licence_page_names_the_reinstall_buttons(qtbot, tmp_path, fakes):
+    dialog = build(qtbot, tmp_path, fakes, entries=(entry("SparkFun"),))  # recorded, folder missing
+    open_licence(qtbot, dialog, "SparkFun")
+    page = dialog._licence_page
+    assert page.heading_text() == "Reinstall SparkFun"
+    assert STEP_REINSTALL in texts(page) and STEP_ADD not in texts(page)
+    link = licence_link(dialog)
+    assert link.link_text() == LINK_TEXT and link.url() == SPARKFUN_LICENCE_URL  # a curated library keeps its address
+    assert page.primary_button().text() == "Download and Check (about 69 MB)"
+    page.primary_button().click()
+    qtbot.waitUntil(lambda: bool(dialog._page_kind == "preview"), timeout=10000)
+    preview = dialog._preview_page
+    assert f"you choose {preview.primary_button().text()} or {preview.back_button().text()}." in STEP_REINSTALL
+
+
+def open_url_licence(qtbot, dialog, address):
+    dialog._add_url_btn.click()
+    qtbot.waitUntil(lambda: bool(dialog._page_kind == "url"), timeout=5000)
+    dialog._url_page.field().setText(address)
+    dialog._url_page.primary_button().click()
+    qtbot.waitUntil(lambda: bool(dialog._page_kind == "licence"), timeout=10000)
+    return dialog._licence_page
+
+
+def test_add_by_url_licence_page_links_to_the_repository_page(qtbot, tmp_path, fakes):
+    fakes.checks["https://github.com/acme/parts"] = checked_repo(spdx="MIT", size_kb=2048)
+    dialog = build(qtbot, tmp_path, fakes)
+    page = open_url_licence(qtbot, dialog, "https://github.com/acme/parts")
+    assert STEP_ADD in texts(page)
+    link = licence_link(dialog)
+    assert link.link_text() == LINK_FALLBACK_TEXT and link.url() == "https://github.com/acme/parts"
+    assert page.primary_button().text() == "Download and Check (about 2 MB)"
+
+
+def test_add_by_url_licence_page_without_a_known_size_has_a_plain_button(qtbot, tmp_path, fakes):
+    ref = RepoRef("acme", "parts", "https://github.com/acme/parts", "acme-parts")
+    fakes.checks["https://github.com/acme/parts"] = ops.CheckedRepo(
+        ref, None, "main", Issue(Severity.ERROR, "api.unknown", "GitHub did not answer."),
+    )
+    dialog = build(qtbot, tmp_path, fakes)
+    page = open_url_licence(qtbot, dialog, "https://github.com/acme/parts")
+    assert "Unknown" in texts(page)
+    assert page.primary_button().text() == "Download and Check"
+    assert licence_link(dialog).link_text() == LINK_FALLBACK_TEXT
+
+
 def test_unknown_licence_tick_on_preview(qtbot, tmp_path, fakes):
     fakes.licence_text = "Some licence text."
     fakes.checks["https://github.com/acme/parts"] = checked_repo(spdx=None)

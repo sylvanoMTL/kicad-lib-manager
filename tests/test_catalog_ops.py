@@ -538,6 +538,43 @@ def test_reinstall_keeps_the_acknowledgement(tmp_path):
     assert updated.vars == {"WE_3DMODEL_DIR": "3dmodels"}
 
 
+# -- the licence address (owner-approved 2026-11-27, 17-17 check) --------------------------------
+
+WURTH_LICENCE_URL = "https://github.com/WurthElektronik/KiCad-Library/blob/master/License_Terms_WE_KiCad_library.pdf"
+SPARKFUN_LICENCE_URL = "https://github.com/sparkfun/SparkFun-KiCad-Libraries#license"
+
+
+def test_a_plain_source_has_no_licence_address():
+    source = ops.AddSource("Demo", "Demo", "https://github.com/a/demo.git", "main", {}, "MIT")
+    assert source.licence_url == ""
+
+
+def test_a_curated_add_carries_the_licence_address_of_its_entry(tmp_path):
+    root = make_collection(tmp_path / "col")
+    wurth = ops.plan_add(root, WURTH, manifest.load(root), free_space=_free(100000), running=_running())
+    sparkfun = ops.plan_add(root, SPARKFUN, manifest.load(root), free_space=_free(5000), running=_running())
+    assert wurth.source.licence_url == WURTH.licence_url == WURTH_LICENCE_URL
+    assert sparkfun.source.licence_url == SPARKFUN.licence_url == SPARKFUN_LICENCE_URL
+
+
+def test_a_reinstall_of_a_curated_library_carries_the_licence_address(tmp_path):
+    root = make_collection(tmp_path / "col")
+    entry = CatalogEntry("SparkFun", SPARKFUN.url, "main", commit="c" * 40, licence_spdx="CC-BY-4.0")
+    mf = manifest.Manifest((entry,))
+    plan = ops.plan_reinstall(root, entry, mf, free_space=_free(5000), running=_running())
+    assert plan.reinstall is True and plan.source.licence_url == SPARKFUN_LICENCE_URL
+
+
+def test_a_library_added_by_address_has_no_licence_address(tmp_path):
+    root = make_collection(tmp_path / "col")
+    info = RepoInfo("a/b", 70000, "main", "MIT", False, False)
+    plan = ops.plan_add(root, _checked(info=info), manifest.load(root), free_space=_free(5000), running=_running())
+    assert plan.source.licence_url == ""
+    other = CatalogEntry("Mine", "https://github.com/Some/Thing.git", "main", commit="c" * 40)
+    again = ops.plan_reinstall(root, other, manifest.Manifest((other,)), free_space=_free(5000), running=_running())
+    assert again.source.licence_url == ""  # not a curated library: the page falls back to the repository page
+
+
 def test_reinstall_of_a_folder_that_exists_is_refused(tmp_path):
     root = make_collection(tmp_path / "col")
     _install(root, SPARKFUN)

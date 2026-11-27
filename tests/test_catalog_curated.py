@@ -71,6 +71,39 @@ def test_sparkfun_facts():
     assert entry.install_mb >= 302
 
 
+LICENCE_URLS = {
+    "WurthElektronik": "https://github.com/WurthElektronik/KiCad-Library/blob/master/License_Terms_WE_KiCad_library.pdf",
+    "SparkFun": "https://github.com/sparkfun/SparkFun-KiCad-Libraries#license",
+    "4ms": "https://github.com/4ms/4ms-kicad-lib/blob/master/UNLICENSE",
+    "Alternate-KiCad-Library": "https://github.com/DawidCislo/Alternate-KiCad-Library#readme",
+    "Espressif": "",
+}
+
+
+def test_the_licence_addresses_were_checked_by_the_owner_on_2026_11_27():
+    known = {e.id: e for e in (*CURATED, *CANDIDATES)}  # a candidate promoted by plan 17-18 keeps its address
+    assert {"WurthElektronik", "SparkFun"} <= set(known)
+    for id, url in LICENCE_URLS.items():
+        if id in known:
+            assert known[id].licence_url == url, id
+
+
+def test_a_library_without_a_licence_address_has_an_empty_one():
+    # a missing address is "", never None: the licence page then opens the repository page instead
+    for entry in (*CURATED, *CANDIDATES):
+        assert isinstance(entry.licence_url, str)
+    assert Candidate("x", "X", "https://github.com/x/x.git", "main", None, 1).licence_url == ""
+
+
+@pytest.mark.parametrize("entry", (*CURATED, *CANDIDATES), ids=lambda e: e.id)
+def test_a_licence_address_is_a_secure_page_of_the_librarys_own_repository(entry):
+    if not entry.licence_url:
+        return
+    own = entry.url.removesuffix(".git").casefold()
+    assert entry.licence_url.startswith("https://") and entry.licence_url.casefold().startswith(own)
+    assert " " not in entry.licence_url
+
+
 def test_only_wurth_elektronik_has_a_legacy_prefix():
     assert [e.id for e in CURATED if e.legacy_prefix is not None] == ["WurthElektronik"]
 
