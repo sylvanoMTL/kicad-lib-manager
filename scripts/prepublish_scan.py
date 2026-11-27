@@ -48,6 +48,10 @@ NO_DENY_LIST_NOTE = "prepublish_scan: no owner deny list in use (the owner_email
 
 ALLOWED_EMAILS = frozenset({"noreply@anthropic.com", "noreply@github.com", "git@github.com"})
 ALLOWED_EMAIL_DOMAINS = frozenset({"example.invalid", "example.com", "example.org", "users.noreply.github.com"})
+# Reserved top-level names (RFC 2606): no mailbox can exist there, so test data such as the
+# userinfo trick https://api.github.com@evil.example/x is never an address. ".test" stays flagged:
+# the scan's own tests use it to stand for a real address.
+ALLOWED_EMAIL_TLDS = (".example", ".invalid")
 
 VENDOR_SUFFIXES = (
     ".zip",
@@ -210,7 +214,8 @@ def build_rules(
 
 def is_allowed_email(address: str) -> bool:
     address = address.casefold()
-    return address in ALLOWED_EMAILS or address.rpartition("@")[2] in ALLOWED_EMAIL_DOMAINS
+    domain = address.rpartition("@")[2]
+    return address in ALLOWED_EMAILS or domain in ALLOWED_EMAIL_DOMAINS or domain.endswith(ALLOWED_EMAIL_TLDS)
 
 
 def _marked_rules(line: str) -> set[str]:

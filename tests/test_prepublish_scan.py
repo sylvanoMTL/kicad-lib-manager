@@ -204,6 +204,11 @@ def test_generic_emails():
     ]
     for address in allowed:
         assert blob("a.txt", "x " + address + " y") == [], address
+    # Reserved top-level names (RFC 2606) are never a mailbox, such as a userinfo URL in a test
+    assert blob("a.txt", '"https://api.github.com@evil.example/x"') == []
+    assert blob("a.txt", "x someone@host.invalid y") == []
+    # A look-alike that only contains the reserved name is still an address
+    assert blob("a.txt", "x " + "pe" + "rson" + "@" + "evil.example" + ".test") == [Finding("email", "a.txt:1")]
     # A backslash-n before a decorator is not an address, and neither is a package pin
     assert blob("a.txt", "text\\n@pytest.mark.not_registered") == []
     assert blob("a.txt", "pyside6@6.12.0") == []
