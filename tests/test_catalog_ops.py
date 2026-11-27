@@ -176,7 +176,7 @@ def test_size_rule_for_add_by_url(tmp_path):
     plan = ops.plan_add(root, _checked(info=info), manifest.load(root), free_space=_free(5000), running=_running())
     # 70000 KB is 69 MB rounded up; needed = 6 x 69 + 500; the margin is the larger of 500 MB and a quarter of that
     assert (plan.size_mb, plan.needs_mb, plan.margin_mb) == (69, 914, 500)
-    assert plan.name == "a-b" and plan.folder == root / "ThirdParty" / "a-b"
+    assert plan.name == "a/b" and plan.folder == root / "ThirdParty" / "a-b"  # named owner/repo, the folder is the id
     assert plan.source.url == "https://github.com/a/b.git" and plan.source.branch == "main"
     assert plan.licence is licences.LicenceClass.OPEN and plan.licence_text_known is True
 
@@ -261,7 +261,7 @@ def test_check_repository_refuses_a_repository_already_in_the_catalog(tmp_path):
     mf = manifest.Manifest((CatalogEntry("Mine", "https://github.com/Some/Thing.git", "main"),))
     result = ops.check_repository(root, "https://github.com/some/thing/tree/dev", mf, fake_net()[0], repo_info=_no_lookup)
     assert isinstance(result, Issue) and result.code == "catalog.already_listed"
-    assert result.text == "This library is already in your catalog as Mine. Select it in the list."
+    assert result.text == "This library is already in your catalog as Some/Thing. Select it in the list."
 
 
 def test_check_repository_not_found_or_private(tmp_path):
@@ -331,8 +331,8 @@ def test_duplicate_path_variable_is_refused(tmp_path):
     (refusal,) = plan.refusals
     assert refusal.code == "catalog.var_in_use"
     assert refusal.text == (
-        "This library needs the path variable WE_3DMODEL_DIR, which Other already uses for its own folder. "
-        "Remove Other first, then add this library."
+        "This library needs the path variable WE_3DMODEL_DIR, which x/other already uses for its own folder. "
+        "Remove x/other first, then add this library."
     )
     # the library that owns the variable is not in conflict with itself
     own = manifest.Manifest((CatalogEntry("WurthElektronik", WURTH.url, "master", vars={"WE_3DMODEL_DIR": "3dmodels"}),))
@@ -356,7 +356,7 @@ def test_a_detected_variable_that_another_library_uses_refuses_the_download(tmp_
     assert plan.refusals == ()
     result = ops.stage_add(root, plan, fake_net(MODEL_FILES)[0], free_space=_free(5000))
     assert isinstance(result, Issue) and result.code == "catalog.var_in_use"
-    assert "MY_MODELS" in result.text and "Other" in result.text
+    assert "MY_MODELS" in result.text and "x/other" in result.text
     assert _staging_is_empty(root)
 
 

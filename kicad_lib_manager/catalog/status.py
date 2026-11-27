@@ -17,7 +17,7 @@ from pathlib import Path
 from ..collection import STAGING_DIR, THIRD_PARTY_DIR
 from ..models import Issue
 from . import curated as curated_list
-from . import gitnet, licences, manifest, urls
+from . import gitnet, licences, manifest, names
 from .curated import CuratedEntry
 from .licences import LicenceClass
 from .manifest import CatalogEntry, Manifest
@@ -77,14 +77,6 @@ def size_text(mb: int | None) -> str:
     if mb < MB_PER_GB:
         return f"{mb} MB"
     return f"{mb / MB_PER_GB:.1f} GB"
-
-
-def _repo_name(entry: CatalogEntry) -> str:
-    """owner/repo of a library added by address, else its id."""
-    ref = urls.parse_github_url(entry.url, allow_file=True)
-    if isinstance(ref, Issue) or not ref.owner:
-        return entry.id
-    return f"{ref.owner}/{ref.repo}"
 
 
 def _is_update(entry: CatalogEntry, update: UpdateState | None) -> bool:
@@ -175,7 +167,7 @@ def row_statuses(
         add(known.id, known.name, next((e for e in entries if e.id.casefold() == known.id.casefold()), None), known)
     for entry in entries:
         if entry.id.casefold() not in seen:
-            add(entry.id, _repo_name(entry), entry, None)
+            add(entry.id, names.display_name(entry.id, entry, curated=curated), entry, None)
     for key, name in folders.items():
         if key not in seen:
             add(name, name, None, None)

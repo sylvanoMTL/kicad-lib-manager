@@ -34,6 +34,7 @@ from .githubapi import RepoInfo
 from .gitnet import NetGit
 from .licences import LicenceClass
 from .manifest import CatalogEntry, Manifest
+from .names import display_name
 from .urls import RepoRef
 
 NO_LIBRARIES_TEXT = validate.NO_LIBRARIES_TEXT
@@ -145,12 +146,6 @@ def library_folder(root: Path, id: str) -> Path:
     return Path(root) / THIRD_PARTY_DIR / id
 
 
-def _display_name(id: str) -> str:
-    """The curated name of a library id, else the id itself."""
-    entry = curated.curated_by_id(id)
-    return entry.name if entry is not None else id
-
-
 # ── Space ────────────────────────────────────────────────────────────
 
 def _format_mb(mb: int) -> str:
@@ -221,7 +216,7 @@ def _var_conflict(mf: Manifest, id: str, names) -> Issue | None:
     for name in sorted(names):
         for entry in sorted(mf.libraries, key=lambda e: e.id.casefold()):
             if entry.id.casefold() != id.casefold() and name in entry.vars:
-                other = _display_name(entry.id)
+                other = display_name(entry.id, entry)
                 return Issue(
                     Severity.ERROR,
                     "catalog.var_in_use",
@@ -305,7 +300,7 @@ def check_repository(
     key = urls.repo_key(ref.https_url)
     for entry in mf.libraries:
         if urls.repo_key(entry.url) == key:
-            return _already_listed(_display_name(entry.id))
+            return _already_listed(display_name(entry.id, entry))
     for known in curated.CURATED:
         if urls.repo_key(known.url) == key:
             return _already_listed(known.name)
@@ -344,10 +339,11 @@ def _curated_source(entry: CuratedEntry) -> AddSource:
 
 
 def _checked_source(checked: CheckedRepo) -> AddSource:
+    """The source of a checked address: the folder name is the id, the name is owner/repo (the id for a file:// address)."""
     info = checked.info
     return AddSource(
         checked.ref.default_id,
-        checked.ref.default_id,
+        display_name(checked.ref.default_id, url=checked.ref.https_url),
         checked.ref.https_url,
         checked.branch,
         {},
@@ -377,7 +373,7 @@ def _plan(
     existing = _existing_folder(root, source.id)
     refusals: list[Issue] = []
     if not reinstall and mf.find(source.id) is not None:
-        refusals.append(_already_listed(_display_name(source.id)))
+        refusals.append(_already_listed(display_name(source.id, mf.find(source.id))))
     elif not reinstall and existing is not None:
         refusals.append(
             Issue(
@@ -457,7 +453,7 @@ def plan_reinstall(
     known = curated.curated_by_id(entry.id)
     source = AddSource(
         entry.id,
-        known.name if known is not None else entry.id,
+        display_name(entry.id, entry),
         entry.url,
         entry.branch,
         dict(entry.vars),
@@ -891,7 +887,7 @@ def plan_update(
     library names added and removed from the two trees, and refuses when the new version brings Git LFS.
     """
     folder = manifest.entry_folder(root, entry)
-    name = _display_name(entry.id)
+    name = display_name(entry.id, entry)
     problem = _clone_problem(folder, name)
     if problem is not None:
         return problem
@@ -1075,7 +1071,7 @@ def plan_remove(
     found = symbols | footprints
     return RemovePlan(
         id=entry.id if entry is not None else folder.name,
-        name=_display_name(entry.id if entry is not None else folder.name),
+        name=display_name(entry.id if entry is not None else folder.name, entry),
         folder=folder,
         exists=exists,
         size_bytes=size_on_disk(folder) if exists else 0,

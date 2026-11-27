@@ -40,6 +40,7 @@ ALLOWED: dict[str, set[str]] = {
     "catalog.githubapi": {"models"},
     "catalog.manifest": {"models", "fsutil", "collection", "catalog.urls"},
     "catalog.curated": {"models", "catalog.licences"},
+    "catalog.names": {"models", "catalog.curated", "catalog.manifest", "catalog.urls"},  # the one name rule of a library
     "catalog.validate": {"models", "fsutil", "kicad_files", "collection", "library_scanner"},
     "catalog.ops": {
         "models",
@@ -55,6 +56,7 @@ ALLOWED: dict[str, set[str]] = {
         "catalog.gitnet",
         "catalog.githubapi",
         "catalog.licences",
+        "catalog.names",  # an address-added library is named owner/repo in every line
     },
     "catalog.status": {
         "models",
@@ -64,6 +66,7 @@ ALLOWED: dict[str, set[str]] = {
         "catalog.gitnet",
         "catalog.licences",
         "catalog.urls",  # a library added by address is named owner/repo
+        "catalog.names",  # the row names come from the one name rule
     },
     "catalog.selection": {"models", "collection"},
 }

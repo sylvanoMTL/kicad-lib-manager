@@ -29,6 +29,7 @@ OLD = "a" * 40
 NEW = "b" * 40
 NEWER = "c" * 40
 URL = "https://github.com/a/demo.git"
+NAME = "a/demo"  # a library added by web address is named owner/repo, its folder and id stay Demo
 
 DIRTY_TEXT = (
     "{name} cannot be updated: files in {folder} were changed after it was added. Catalog libraries are managed "
@@ -118,7 +119,7 @@ def test_update_preview(tmp_path):
     plan = ops.plan_update(root, entry, net, running=_running("pcbnew.exe"))
 
     assert isinstance(plan, ops.UpdatePlan), plan
-    assert (plan.name, plan.folder, plan.entry) == ("Demo", folder, entry)
+    assert (plan.name, plan.folder, plan.entry) == (NAME, folder, entry)
     assert (plan.old, plan.new) == (OLD, NEW)
     assert (plan.files_changed, plan.added, plan.removed) == (3, ("C",), ("B",))
     assert (plan.current, plan.dirty, plan.refusal) == (False, (), None)
@@ -147,7 +148,7 @@ def test_dirty_tree_refuses_with_files(tmp_path):
     assert plan.dirty == ("a.kicad_mod", "new.txt")
     folder = (root / "ThirdParty" / "Demo").as_posix()
     assert plan.refusal.severity is Severity.ERROR and plan.refusal.code == "catalog.dirty"
-    assert plan.refusal.text == DIRTY_TEXT.format(name="Demo", folder=folder)
+    assert plan.refusal.text == DIRTY_TEXT.format(name=NAME, folder=folder)
     assert "fetch" not in _subcommands(calls)  # nothing was downloaded
 
 
@@ -236,9 +237,9 @@ def test_apply_update_resets_to_the_planned_sha(tmp_path):
     assert reset[-1] == NEW and NEWER not in reset and "FETCH_HEAD" not in reset
     assert [i.code for i in issues][:2] == ["catalog.updated", "catalog.update_removed"]
     assert issues[0].severity is Severity.SUCCESS
-    assert issues[0].text == f"Updated Demo to {NEW[:7]}: 1 libraries added, 1 removed."
+    assert issues[0].text == f"Updated {NAME} to {NEW[:7]}: 1 libraries added, 1 removed."
     assert issues[1].severity is Severity.WARNING
-    assert issues[1].text == "Update of Demo removed 1 libraries: B. Projects that use them lose those parts."
+    assert issues[1].text == f"Update of {NAME} removed 1 libraries: B. Projects that use them lose those parts."
 
 
 def test_apply_update_writes_the_new_commit_and_baseline(tmp_path):
@@ -365,7 +366,7 @@ def test_remove_plan_names_folder_size_libraries_vars(tmp_path):
     plan = ops.plan_remove(root, "Demo", manifest.load(root), running=_running("kicad.exe"))
 
     assert isinstance(plan, ops.RemovePlan)
-    assert (plan.id, plan.name, plan.folder, plan.exists, plan.listed) == ("Demo", "Demo", folder, True, True)
+    assert (plan.id, plan.name, plan.folder, plan.exists, plan.listed) == ("Demo", NAME, folder, True, True)
     assert plan.size_bytes >= expected and plan.size_bytes == ops.size_on_disk(folder)
     assert plan.nicknames == ("Fp", "Sym") and plan.vars == ("DEMO_MODELS",)
     assert plan.kicad_open == ("kicad.exe",)
@@ -395,7 +396,7 @@ def test_remove_happy_path(tmp_path):
     assert manifest.load(root).find("Demo") is None
     assert issues[0].code == "catalog.removed" and issues[0].severity is Severity.SUCCESS
     assert issues[0].text == (
-        "Removed Demo from the catalog. Generate Tables drops its libraries from your KiCad library tables."
+        f"Removed {NAME} from the catalog. Generate Tables drops its libraries from your KiCad library tables."
     )
 
 
@@ -417,7 +418,7 @@ def test_remove_rename_failure_keeps_everything(tmp_path, monkeypatch):
     issues = ops.apply_remove(root, plan)
 
     assert [i.code for i in issues] == ["catalog.remove_failed"] and issues[0].severity is Severity.ERROR
-    assert issues[0].text == KEPT_TEXT.format(name="Demo", reason="Access is denied", folder=folder.as_posix())
+    assert issues[0].text == KEPT_TEXT.format(name=NAME, reason="Access is denied", folder=folder.as_posix())
     assert _hashes(folder) == before and (root / "catalog.json").read_bytes() == record
     assert _staging_is_empty(root)
 

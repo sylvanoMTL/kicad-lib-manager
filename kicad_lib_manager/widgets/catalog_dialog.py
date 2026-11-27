@@ -1887,7 +1887,7 @@ class CatalogDialog(QDialog):
             return
         checked, plan = value
         ref = checked.ref
-        display = f"{ref.owner}/{ref.repo}" if ref.owner else plan.name
+        display = plan.name  # owner/repo: the plan names the library the way the list does
         self._flow = _Flow("add", plan.source.id, display, plan, url=True)
         self._licence_page.show_plan(plan, reinstall=False, acknowledged_on="", name=display, address=ref.https_url)
         self._enter_page("licence")
