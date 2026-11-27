@@ -6,15 +6,15 @@ current_phase: 17
 current_phase_name: Library Catalog
 status: executing
 stopped_at: Completed 17-16-PLAN.md
-last_updated: "2026-11-27T12:27:20.883Z"
+last_updated: "2026-11-27T15:13:00.542Z"
 last_activity: 2026-11-27
 last_activity_desc: Phase 17 execution started
-state_head: 4b030c9a305e3e3c2aab4fb16fd7ff648f10b6ab
+state_head: f4135396311722a525f1cb58dfa9d1748f2a16fc
 progress:
   total_phases: 8
   completed_phases: 3
   total_plans: 60
-  completed_plans: 56
+  completed_plans: 57
   percent: 38
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-26)
 ## Current Position
 
 Phase: 17 (Library Catalog) — EXECUTING
-Plan: 17 of 20
+Plan: 18 of 20
 Status: Ready to execute
 Last activity: 2026-11-27 — Phase 17 execution started
 
@@ -149,6 +149,7 @@ The full decision log is in the PROJECT.md Key Decisions table. The v1.0 per-pha
 - [Phase 17]: 17-15: Update ends in a look job and an apply job; apply_update is called only from the preview's Update Library, apply_remove only from the Remove page's Remove Library (Keep Library is default, Esc and first focus; Ctrl+Return skipped)
 - [Phase 17]: 17-15: a Remove that makes the row leave the list shows its result strip on the empty pane; a failed Remove keeps the entry and the row and offers Back to List
 - [Phase 17]: 17-16: the catalog guide page describes the built window (Würth carry-over, Keep Library default with Esc, silent start check, manual check logs offline) and uses no deny-list word
+- [Phase 17]: D-33: catalog lists KiCad's official add-on index libraries by their git links, PCM_ nicknames; fix plan before 17-18 (17-17 findings)
 
 ### Pending Todos
 
