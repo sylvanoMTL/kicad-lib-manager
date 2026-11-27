@@ -468,6 +468,8 @@ def plan_reinstall(
         entry.licence_spdx,
         proprietary=known.proprietary if known is not None else False,
         licence_url=known.licence_url if known is not None else "",
+        nickname_prefix=entry.nickname_prefix,  # fixed: the download's links are not asked again (D-34)
+        addon_id=entry.addon_id,
     )
     return _plan(
         root, mf, source,
@@ -789,6 +791,11 @@ def _typed_names(paths) -> set[tuple[str, str]]:
     return found
 
 
+def _with_prefix(names, prefix: str) -> tuple[str, ...]:
+    """The library names with the entry's name rule in front, in the order of names."""
+    return tuple(prefix + name for name in names)
+
+
 def _library_names(paths) -> set[str]:
     """The library names in a list of file paths (a symbol library and a footprint library of one name count once)."""
     return {name for _kind, name in _typed_names(paths)}
@@ -933,10 +940,11 @@ def plan_update(
     # compared as (kind, name): a footprint library that leaves is reported even when a symbol library keeps its name
     typed_before, typed_after = _typed_names(before), _typed_names(after)
     refusal = _lfs_issue(name) if _uses_lfs(net, folder, new, after) else None
+    # named the way the scan and the tables name them: with the library's name rule in front (D-34)
     return UpdatePlan(
         entry, name, folder, old, new, len(changed),
-        tuple(sorted({n for _k, n in typed_after - typed_before}, key=str.casefold)),
-        tuple(sorted({n for _k, n in typed_before - typed_after}, key=str.casefold)),
+        _with_prefix(sorted({n for _k, n in typed_after - typed_before}, key=str.casefold), entry.nickname_prefix),
+        _with_prefix(sorted({n for _k, n in typed_before - typed_after}, key=str.casefold), entry.nickname_prefix),
         (), False, open_programs, refusal,
     )  # fmt: skip
 
@@ -1080,8 +1088,9 @@ def plan_remove(
         symbols, footprints = inside(scan.symbol_libs), inside(scan.footprint_libs)
     else:
         typed = _typed_names(_disk_paths(folder)) if exists else set()
-        symbols = {name for kind, name in typed if kind == "sym"}
-        footprints = {name for kind, name in typed if kind == "fp"}
+        rule = entry.nickname_prefix if entry is not None else ""
+        symbols = {rule + name for kind, name in typed if kind == "sym"}
+        footprints = {rule + name for kind, name in typed if kind == "fp"}
     found = symbols | footprints
     return RemovePlan(
         id=entry.id if entry is not None else folder.name,

@@ -21,12 +21,16 @@ def display_name(
     url: str | None = None,
     curated: Collection[CuratedEntry] = CURATED,
 ) -> str:
-    """The name to show for a library id: the curated name (letter case of the id ignored), else owner/repo, else the id.
+    """The name to show for a library id: the name recorded when it was added, else the curated name (letter case of
+    the id ignored), else owner/repo, else the id.
 
+    The recorded name keeps one name for the library in the window, the trees and the log, also offline (D-33).
     owner/repo comes from the web address of the catalog entry, or from url when a repository is only checked and
     has no entry yet. An address that is not a GitHub repository (a file:// address of a test) and an id with
     nothing known about it give the id.
     """
+    if entry is not None and entry.name:
+        return entry.name
     key = id.casefold()
     for known in curated:
         if known.id.casefold() == key:

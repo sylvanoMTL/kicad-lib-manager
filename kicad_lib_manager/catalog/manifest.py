@@ -25,6 +25,8 @@ MAX_MANIFEST_BYTES = 1024 * 1024
 
 _SHA_RE = re.compile(r"[0-9a-f]{40}")
 _DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+_ADDON_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+MAX_NAME_LENGTH = 100
 _VAR_RE = re.compile(r"[A-Z][A-Z0-9_]{2,63}")
 # names the catalog must never set: KiCad's own variables, the Plugin and Content Manager ones (KICAD<n>_3RD_PARTY and
 # the per-version stock folders) and the two this app writes itself (CAT-10)
@@ -186,7 +188,11 @@ def _entry_from(raw, allow_file: bool) -> CatalogEntry:
     if nickname_prefix not in ("", PCM_PREFIX):
         _refuse(f"{name} has a library-name rule this app does not know.")
     shown_name = raw.get("name", "")
+    if not isinstance(shown_name, str) or len(shown_name) > MAX_NAME_LENGTH or not (shown_name == "" or shown_name.isprintable()):
+        _refuse(f"The name of {name} is not text this app can show.")
     addon_id = raw.get("addon_id", "")
+    if not isinstance(addon_id, str) or not (addon_id == "" or _ADDON_ID_RE.fullmatch(addon_id)):
+        _refuse(f"The KiCad add-on id of {name} is not in a form this app understands.")
     commit = raw.get("commit", "")
     if not isinstance(commit, str) or (commit and _SHA_RE.fullmatch(commit) is None):
         _refuse(f"The version of {name} is not a 40-character version code.")
@@ -227,9 +233,9 @@ def _entry_from(raw, allow_file: bool) -> CatalogEntry:
         acknowledged_on=acknowledged_on,
         added_on=added_on,
         known_dirty=tuple(dirty),
-        name=shown_name if isinstance(shown_name, str) else "",
+        name=shown_name,
         nickname_prefix=nickname_prefix,
-        addon_id=addon_id if isinstance(addon_id, str) else "",
+        addon_id=addon_id,
     )
 
 
