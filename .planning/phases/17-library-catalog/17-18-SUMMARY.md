@@ -165,3 +165,7 @@ None - no external service configuration required.
 ---
 *Phase: 17-library-catalog*
 *Completed: 2026-11-27*
+
+## Self-Check: PASSED
+
+- Added by the orchestrator: commits f16866d, 0a84663, 817c282 present; the wave 17 gate (`pytest --full`) passed with 5621 passed, 4 skipped; CAT-09 left pending for 17-19 and 17-20.
