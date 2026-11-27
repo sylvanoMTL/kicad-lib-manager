@@ -8,11 +8,16 @@ git repository named in the package's links instead.
 """
 
 import hashlib
+import http.client
 import json
+import os
 import re
+import socket
+import urllib.error
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import SplitResult, urlsplit
 
@@ -21,6 +26,7 @@ from ..models import Issue, Severity
 from . import urls
 
 REPOSITORY_URL = "https://repository.kicad.org/repository.json"
+ALLOWED_HOSTS = ("repository.kicad.org", "gitlab.com")  # the only hosts a request or a redirect may reach
 MAX_REPOSITORY_BYTES = 64 * 1024
 MAX_PACKAGES_BYTES = 8 * 1024 * 1024
 MAX_LISTINGS = 500
@@ -32,6 +38,7 @@ MAX_LINK = 300
 TIMEOUT = 10.0
 _USER_AGENT = "kicad-lib-manager"
 _ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+_SHA_RE = re.compile(r"[0-9A-Fa-f]{64}")
 # the order the links of a package are tried in (letter case ignored); a Website link is never taken
 LINK_KEYS = ("git", "github", "gitlab", "repository", "homepage", "source")
 # The library is a subfolder of a program's repository, so that repository is not a library repository.
@@ -48,7 +55,11 @@ PACKED_TEXT = (
     f"so the catalog cannot add it yet. {_INSTEAD}"
 )
 NO_LINK_TEXT = f"KiCad's add-on list names no repository for this library, so the catalog cannot add it. {_INSTEAD}"
-ODD_TEXT = "KiCad's add-on list could not be read: the answer was not in a form this app understands."
+_UNREADABLE = "KiCad's add-on list could not be read: "
+OFFLINE_TEXT = _UNREADABLE + "the server could not be reached."
+SLOW_TEXT = _UNREADABLE + "the server took too long to answer."
+ODD_TEXT = _UNREADABLE + "the answer was not in a form this app understands."
+CHANGED_TEXT = _UNREADABLE + "the downloaded list does not match the check value KiCad publishes for it."
 
 
 @dataclass(frozen=True)
@@ -209,18 +220,140 @@ def parse_packages(data: bytes) -> tuple[Listing, ...] | Issue:
     return tuple(sorted(found.values(), key=lambda x: (x.name.casefold(), x.identifier)))
 
 
+class _Refused(Exception):
+    """A read that cannot give a list; text is the plain reason (never leaves this module)."""
+
+    def __init__(self, text: str):
+        super().__init__(text)
+        self.text = text
+
+
+def _on_allowed_host(url, *, strict: bool) -> bool:
+    """True for an https address on ALLOWED_HOSTS with no user name or port; strict also bans a query and fragment."""
+    if not isinstance(url, str) or any(ord(ch) <= 32 or ord(ch) == 127 or ch == "\\" for ch in url):
+        return False
+    try:
+        parts = urlsplit(url)
+        port = parts.port
+    except ValueError:
+        return False
+    if parts.scheme != "https" or parts.hostname not in ALLOWED_HOSTS or "@" in parts.netloc or port is not None:
+        return False
+    return not strict or not (parts.query or parts.fragment or "?" in url or "#" in url)
+
+
+class _SameHostRedirect(urllib.request.HTTPRedirectHandler):
+    """Follow a redirect only to https on ALLOWED_HOSTS (a moved file); any other host or scheme is refused."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not _on_allowed_host(newurl, strict=False):
+            return None
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _build_opener() -> urllib.request.OpenerDirector:
+    """An opener with no cookie, proxy-auth or credential handler of its own and the redirect rule above."""
+    return urllib.request.build_opener(_SameHostRedirect())
+
+
 def _default_opener(request: urllib.request.Request, timeout: float, limit: int) -> tuple[int, bytes]:
-    """(status, body of at most limit bytes) of one request."""
-    with urllib.request.build_opener().open(request, timeout=timeout) as response:
-        return response.status, response.read(limit)
+    """(status, body of at most limit bytes) of one request; an HTTP error status is an answer, not a raise."""
+    try:
+        with _build_opener().open(request, timeout=timeout) as response:
+            return response.status, response.read(limit)
+    except urllib.error.HTTPError as e:
+        return e.code, b""
 
 
 def _get(opener, url: str, timeout: float, cap: int) -> bytes:
+    """The body of one GET, at most cap bytes; _Refused with the plain reason on any failure."""
     request = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT}, method="GET")
-    status, body = (opener or _default_opener)(request, timeout, cap + 1)
-    if status != 200 or len(body) > cap:
-        raise ValueError(url)
+    try:
+        status, body = (opener or _default_opener)(request, timeout, cap + 1)
+    except (TimeoutError, socket.timeout):
+        raise _Refused(SLOW_TEXT) from None
+    except urllib.error.URLError as e:
+        raise _Refused(SLOW_TEXT if isinstance(e.reason, (TimeoutError, socket.timeout)) else OFFLINE_TEXT) from None
+    except (OSError, http.client.HTTPException):
+        raise _Refused(OFFLINE_TEXT) from None
+    except ValueError:
+        raise _Refused(ODD_TEXT) from None
+    if status != 200 or not isinstance(body, bytes) or len(body) > cap:
+        raise _Refused(ODD_TEXT)
     return body
+
+
+def _published(body: bytes) -> tuple[str, str | None]:
+    """(address of the packages file, its published SHA-256 or None) from repository.json, checked."""
+    try:
+        data = json.loads(body.decode("utf-8"))
+    except (ValueError, RecursionError):
+        raise _Refused(ODD_TEXT) from None
+    packages = data.get("packages") if isinstance(data, dict) else None
+    if not isinstance(packages, dict):
+        raise _Refused(ODD_TEXT)
+    url, sha = packages.get("url"), packages.get("sha256")
+    if not _on_allowed_host(url, strict=True):
+        raise _Refused(ODD_TEXT)
+    if "sha256" in packages and (not isinstance(sha, str) or _SHA_RE.fullmatch(sha) is None):
+        raise _Refused(ODD_TEXT)
+    return url, sha.lower() if isinstance(sha, str) else None
+
+
+def _read_kept(cache_file: Path | None) -> bytes | None:
+    """The bytes of the kept copy, or None when there is none, it is a folder or it is over the cap."""
+    if cache_file is None:
+        return None
+    try:
+        if not cache_file.is_file() or cache_file.stat().st_size > MAX_PACKAGES_BYTES:
+            return None
+        return cache_file.read_bytes()
+    except OSError:
+        return None
+
+
+def _copy_date(cache_file: Path) -> str:
+    try:
+        return datetime.fromtimestamp(cache_file.stat().st_mtime).strftime("%Y-%m-%d")
+    except OSError:
+        return ""
+
+
+def _keep(cache_file: Path | None, body: bytes) -> None:
+    """Write the copy; a failed write is not an error (the next start reads the list again)."""
+    if cache_file is None:
+        return
+    try:
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
+        fsutil.atomic_write_bytes(cache_file, body)
+    except OSError:
+        pass
+
+
+def _confirm(cache_file: Path) -> None:
+    """Set the copy's date to now: it is the last day KiCad's list was confirmed."""
+    try:
+        os.utime(cache_file, None)
+    except OSError:
+        pass
+
+
+def _read(cache_file: Path | None, opener, timeout: float) -> IndexRead:
+    url, published = _published(_get(opener, REPOSITORY_URL, timeout, MAX_REPOSITORY_BYTES))
+    kept = _read_kept(cache_file)
+    if kept is not None and published is not None and hashlib.sha256(kept).hexdigest() == published:
+        listings = parse_packages(kept)
+        if not isinstance(listings, Issue):
+            _confirm(cache_file)
+            return IndexRead(listings, None, True, "")
+    body = _get(opener, url, timeout, MAX_PACKAGES_BYTES)
+    if published is not None and hashlib.sha256(body).hexdigest() != published:
+        raise _Refused(CHANGED_TEXT)
+    listings = parse_packages(body)
+    if isinstance(listings, Issue):
+        raise _Refused(listings.text)
+    _keep(cache_file, body)
+    return IndexRead(listings, None, False, "")
 
 
 def read_index(
@@ -232,21 +365,17 @@ def read_index(
     """KiCad's library listings: the kept copy when it is the published one, else a fresh read (never raises).
 
     opener(request, timeout, limit) returns (status, body of at most limit bytes) or raises; the default one
-    uses urllib. cache_file is the copy kept beside settings.ini (None keeps nothing).
+    uses urllib. cache_file is the copy kept beside settings.ini (None keeps nothing). When the read fails
+    (offline, slow, refused or odd answer) the Issue says why and the listings are those of the kept copy
+    with the date it was last read (D-36), or none when no usable copy was kept.
     """
-    repository = json.loads(_get(opener, REPOSITORY_URL, timeout, MAX_REPOSITORY_BYTES))["packages"]
-    published = repository["sha256"]
-    if cache_file is not None and cache_file.is_file():
-        kept = cache_file.read_bytes()
-        if hashlib.sha256(kept).hexdigest() == published:
-            listings = parse_packages(kept)
-            if not isinstance(listings, Issue):
-                return IndexRead(listings, None, True, "")
-    body = _get(opener, repository["url"], timeout, MAX_PACKAGES_BYTES)
-    listings = parse_packages(body)
-    if isinstance(listings, Issue):
-        return IndexRead((), listings, False, "")
-    if cache_file is not None:
-        cache_file.parent.mkdir(parents=True, exist_ok=True)
-        fsutil.atomic_write_bytes(cache_file, body)
-    return IndexRead(listings, None, False, "")
+    try:
+        return _read(cache_file, opener, timeout)
+    except _Refused as refused:
+        issue = _unreadable(refused.text)
+    kept = _read_kept(cache_file)
+    if kept is not None:
+        listings = parse_packages(kept)
+        if not isinstance(listings, Issue):
+            return IndexRead(listings, issue, True, _copy_date(cache_file))
+    return IndexRead((), issue, False, "")
