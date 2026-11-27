@@ -220,6 +220,23 @@ def test_audit_finds_widened_path_spellings():
     assert repo_data_lines("\n".join(clean)) == []
 
 
+def test_audit_finds_third_party_paths():
+    """A path from the repository root to the collection's ThirdParty folder is found; the corpus helper's path is not."""
+    flagged = [
+        _planted("REPO_ROOT", " / ", '"', "ThirdParty", '"'),
+        _planted("ROOT", " / ", '"', "ThirdParty/WurthElektronik", '"'),
+        _planted("os.path.join(", "REPO_ROOT, ", '"', "ThirdParty", '"', ")"),
+    ]
+    reader = _planted("corpus_", "path")
+    clean = [_planted("tmp_path", " / ", '"', "ThirdParty", '"'), f"{reader}('ThirdParty', 'SparkFun')"]
+    assert repo_data_lines("\n".join(flagged)) == [1, 2, 3]
+    assert repo_data_lines("\n".join(clean)) == []
+    # inside a corpus-marked test the helper's path is the allowed way in; unmarked, it is still found
+    marked = f"import pytest\n@pytest.mark.corpus\ndef test_a():\n    {reader}('ThirdParty')\n"
+    assert unmarked_corpus_tests(marked) == []
+    assert unmarked_corpus_tests(marked.replace("@pytest.mark.corpus\n", "")) == ["test_a"]
+
+
 def test_audit_finds_a_skip_reason_held_in_a_constant():
     text = _planted('_SKIP = "sample ', "not ", "present", ' here"\n', "@pytest.mark.skipif(not LIVE, reason=_SKIP)\n")
     assert corpus_skip_lines(text) == [2]

@@ -238,8 +238,28 @@ def test_local_kicad_tables_with_opt_in(monkeypatch, tmp_path):
 _WURTH_PARSE_BUDGET_PER_FILE = 0.05
 
 
+def _wurth_root_in(collection: Path) -> Path:
+    """The Wurth library of a collection: its ThirdParty clone when that folder exists, else the legacy submodule folder."""
+    return collection / "WurthElektronik"
+
+
+def _wurth_root() -> Path:
+    return _wurth_root_in(corpus_path())
+
+
+def test_wurth_root_follows_third_party(tmp_path):
+    legacy = tmp_path / "WurthElektronik"
+    legacy.mkdir()
+    assert _wurth_root_in(tmp_path) == legacy
+    clone = tmp_path.joinpath("ThirdParty", "WurthElektronik")
+    clone.mkdir(parents=True)
+    assert _wurth_root_in(tmp_path) == clone
+    # neither folder: the legacy path, so the corpus test fails naming it instead of skipping
+    assert _wurth_root_in(tmp_path / "empty") == tmp_path / "empty" / "WurthElektronik"
+
+
 def _wurth_files() -> list[Path]:
-    wurth = corpus_path("WurthElektronik")
+    wurth = _wurth_root()
     files = []
     for pattern in ("*.kicad_sym", "*.kicad_mod", "*sym-lib-table", "*fp-lib-table"):
         files.extend(p for p in wurth.rglob(pattern) if p.is_file())
@@ -247,7 +267,7 @@ def _wurth_files() -> list[Path]:
 
 
 def _wurth_params() -> list:
-    wurth = corpus_path("WurthElektronik")
+    wurth = _wurth_root()
     files = _wurth_files()
     if not files:
         # No corpus: deselected with the count. Corpus without Wurth files: the test fails, never skips
