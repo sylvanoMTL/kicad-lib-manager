@@ -68,13 +68,15 @@ To point the app at a scratch or another collection, use `--library-root PATH` o
 .\env\Scripts\python.exe kicad_lib_manager.py --library-root <folder>
 ```
 
+To keep the app's settings, saved scans, backups and KiCad's settings out of your real ones for a trial, add `--scratch-root PATH` (or set `KICAD_LIBMGR_SCRATCH_ROOT`; the command line wins). The folder must exist and be writable, a bad value stops the start with exit code 2, and the first log line names the folder.
+
 Enable the repository hooks once per clone with `git config core.hooksPath .githooks`. See `CLAUDE.md` for the developer guide and `tests/README.md` for markers, timeouts and the isolation rules.
 
 ## Libraries and licences
 
 This tool ships no libraries. The libraries you add to a collection keep their own licences: KiCad's official libraries are CC-BY-SA, and Würth Elektronik's library has its own terms. The test fixtures in this repository are synthetic, built by the tests themselves, not copied from any vendor.
 
-Third-party libraries, such as those of Würth Elektronik or SparkFun, are added with **File > Library Catalog...** (`Ctrl+Shift+L`). The catalog downloads a public GitHub repository into `ThirdParty/` of your collection and records it in `catalog.json` there. Each library keeps its own licence: the catalog shows it before you add the library and never changes it. The app does not commit `catalog.json` for you, and KiCad's own Plugin and Content Manager is left alone. Downloading needs Git 2.32 or newer.
+Third-party libraries, such as those of Würth Elektronik or SparkFun, are added with **File > Library Catalog...** (`Ctrl+Shift+L`). The catalog downloads a public GitHub repository into `ThirdParty/` of your collection and records it in `catalog.json` there. The catalog also lists the libraries of KiCad's add-on list, reviewed by the KiCad team: it reads that list live, keeps the last copy for offline use (marked with its date), and falls back to its own list when it has none. A library of that list gets the names KiCad gives add-on libraries (`PCM_` in front) unless its own links use its own names; a library that cannot be added yet says why. Each library keeps its own licence: the catalog shows it before you add the library and never changes it. The app does not commit `catalog.json` for you, and KiCad's own Plugin and Content Manager is left alone. Downloading needs Git 2.32 or newer.
 
 ## Licence
 
