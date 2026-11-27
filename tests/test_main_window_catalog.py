@@ -92,7 +92,7 @@ def harness(qtbot, monkeypatch, tmp_path):
     fp_dir = tmp_path / "kicad_fp"
     fp_dir.mkdir()
 
-    def fake_scan(root, progress=None, kicad_fp_dir=None, *, skip=None, checking=None, model_vars=None):
+    def fake_scan(root, progress=None, kicad_fp_dir=None, *, skip=None, checking=None, model_vars=None, prefixes=None):
         h.scan_calls.append({"root": Path(root), "model_vars": model_vars})
         if h.scan_gate is not None:
             h.scan_gate.wait(10)
@@ -788,7 +788,7 @@ def test_library_rescan_worker_passes_model_vars(harness, monkeypatch):
     window._scan_result = ScanResult(symbol_libs=[SymbolLibrary("A", "Custom/Symbols/A.kicad_sym", "Custom")])
     seen = []
 
-    def fake_rescan(root, previous, kind, rel_path, kicad_fp_dir=None, *, model_vars=None):
+    def fake_rescan(root, previous, kind, rel_path, kicad_fp_dir=None, *, model_vars=None, prefixes=None):
         seen.append(model_vars)
         return library_scanner.LibraryRescan(previous, [], [])
 

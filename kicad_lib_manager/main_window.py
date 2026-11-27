@@ -200,6 +200,20 @@ def catalog_model_vars(root: Path) -> dict[str, dict[str, str]]:
     return {entry.id: dict(entry.vars) for entry in record.libraries}
 
 
+def catalog_prefixes(root: Path) -> dict[str, str]:
+    """Catalog id -> the prefix the names of its libraries get (the name rule of catalog.json, D-33, D-34).
+
+    Read on a worker thread. A catalog.json that is missing or cannot be read means no prefix: {} and no exception.
+    """
+    try:
+        record = catalog_manifest.load(root)
+    except Exception:
+        return {}
+    if isinstance(record, Issue):
+        return {}
+    return catalog_manifest.nickname_prefixes(record)
+
+
 def catalog_source_names(root: Path) -> dict[str, str]:
     """Library source (folder under ThirdParty) -> the name the catalog gives it, for the trees and the log (CAT-01).
 
@@ -338,7 +352,8 @@ class ScanWorker(QThread):
             result = scan_all(self._repo_root, progress=on_progress,
                               kicad_fp_dir=self._kicad_fp_dir,
                               skip=self._skip_requested, checking=self.checking.emit,
-                              model_vars=catalog_model_vars(self._repo_root))
+                              model_vars=catalog_model_vars(self._repo_root),
+                              prefixes=catalog_prefixes(self._repo_root))
 
             if self._cache_file is not None:
                 # Before finished: the GUI has not yet touched the selected flags
@@ -385,7 +400,7 @@ class LibraryRescanWorker(QThread):
                     entries = None
             outcome = rescan_library(
                 self._repo_root, self._previous, self._kind, self._rel_path, self._kicad_fp_dir,
-                model_vars=catalog_model_vars(self._repo_root),
+                model_vars=catalog_model_vars(self._repo_root), prefixes=catalog_prefixes(self._repo_root),
             )
             if isinstance(outcome, Issue):
                 self.note.emit(outcome)
@@ -449,6 +464,7 @@ class CatalogRescanWorker(QThread):
                 merged = scan_source(
                     self._repo_root, self._previous, self._folder, self._kicad_fp_dir,
                     model_vars=catalog_model_vars(self._repo_root), progress=self._report,
+                    prefixes=catalog_prefixes(self._repo_root),
                 )
             if isinstance(merged, Issue):
                 self.result.emit(merged)

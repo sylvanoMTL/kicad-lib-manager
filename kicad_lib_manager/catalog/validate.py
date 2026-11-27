@@ -34,6 +34,16 @@ LFS_TEXT = (
 )
 KICAD_VARS_TEXT = "{n} 3D models use KiCad's own path variables; they show only in a matching KiCad version."
 KICAD_VARS_ONE_TEXT = "1 3D model uses KiCad's own path variables; it shows only in a matching KiCad version."
+# the add-on folder of KiCad's Plugin and Content Manager (KICAD<n>_3RD_PARTY): the catalog never sets that variable,
+# reads that folder or lists what is in it (CAT-10), so these models show only when that manager installed the library
+ADDON_FOLDER_MODELS_TEXT = (
+    "{n} 3D models point into the add-on folder of KiCad's Plugin and Content Manager; "
+    "they show only when that manager has installed this library too."
+)
+ADDON_FOLDER_MODEL_ONE_TEXT = (
+    "1 3D model points into the add-on folder of KiCad's Plugin and Content Manager; "
+    "it shows only when that manager has installed this library too."
+)
 SUBMODULES_TEXT = "This repository uses Git submodules; submodules are not downloaded, so what they hold is missing."
 
 MAX_LICENCE_BYTES = 64 * 1024
@@ -103,10 +113,11 @@ class StagingReport:
     footprint_libs: tuple[str, ...]
     collisions: tuple[Collision, ...]
     vars: dict[str, str]  # non-KiCad path variable -> clone folder the models are under ('' = the clone itself)
-    kicad_var_models: int  # models that use KiCad's own variables, never mapped
+    kicad_var_models: int  # models that use KiCad's own variables (not the add-on folder one), never mapped
     licence_text: str | None
     warnings: tuple[Issue, ...]
     nickname_prefix: str = ""  # the name rule: "" (the library's own names) or PCM_PREFIX (KiCad's add-on names)
+    addon_folder_models: int = 0  # models that point into KiCad's add-on folder (a *_3RD_PARTY variable), never mapped
 
 
 @dataclass
@@ -348,19 +359,22 @@ def detect_vars(
     footprint_files: list[Path],
     *,
     progress: Callable[[int, int], None] | None = None,
-) -> tuple[dict[str, str], int]:
+) -> tuple[dict[str, str], int, int]:
     """The path variables the footprint models need, and how many models use KiCad's own variables (CAT-10).
+
+    Returns (variables, models on KiCad's other own variables, models on the add-on folder variables).
 
     For each non-KiCad ${VAR}/rest model path, looks for `rest` in the clone and takes the folder that holds
     at least MIN_SHARE_PERCENT % of up to SAMPLE_LIMIT sampled paths of that variable (the shorter folder when two
     tie). The result maps VAR to that clone-relative folder ('' is the clone itself). Variables of KiCad and of
-    the Plugin and Content Manager are counted, never mapped. A variable with no such folder is left out.
+    the Plugin and Content Manager are counted, never mapped: the add-on folder ones (a name ending in _3RD_PARTY)
+    apart from KiCad's other own ones. A variable with no such folder is left out.
 
     progress(done, total) is called once after each footprint file is read (the slow step of the check: a large
     library has over ten thousand), so the caller can show how far the check is.
     """
     wanted: dict[str, set[str]] = {}
-    kicad_models = 0
+    kicad_models = addon_models = 0
     total = len(footprint_files)
     for done, mod_file in enumerate(footprint_files, 1):
         for model_path in _model_paths(mod_file):
@@ -368,14 +382,16 @@ def detect_vars(
             if match is None:
                 continue
             var, rest = match.groups()
-            if _is_kicad_own(var):
+            if var.endswith("_3RD_PARTY") and _is_kicad_own(var):
+                addon_models += 1
+            elif _is_kicad_own(var):
                 kicad_models += 1
             elif _mappable(var):
                 wanted.setdefault(var, set()).add(rest)
         if progress is not None:
             progress(done, total)
     if not wanted:
-        return {}, kicad_models
+        return {}, kicad_models, addon_models
     index = _index(_clone_files(Path(folder)))
     mapping: dict[str, str] = {}
     for var, rests in sorted(wanted.items()):
@@ -388,7 +404,7 @@ def detect_vars(
         ranked = sorted(votes.items(), key=lambda item: (-item[1], len(item[0]), item[0]))
         if ranked and ranked[0][1] * 100 >= MIN_SHARE_PERCENT * len(sample):
             mapping[var] = ranked[0][0]
-    return mapping, kicad_models
+    return mapping, kicad_models, addon_models
 
 
 def unresolved_models(folder: Path, vars: Mapping[str, str]) -> list[str]:
@@ -493,11 +509,17 @@ def validate_staging(
     warnings: list[Issue] = []
     if tree.gitmodules:
         warnings.append(Issue(Severity.WARNING, "catalog.submodules", SUBMODULES_TEXT))
-    needed_vars, kicad_var_models = detect_vars(folder, tree.mod_files, progress=progress)
+    needed_vars, kicad_var_models, addon_folder_models = detect_vars(folder, tree.mod_files, progress=progress)
     if kicad_var_models == 1:
         warnings.append(Issue(Severity.WARNING, "catalog.kicad_vars", KICAD_VARS_ONE_TEXT))
     elif kicad_var_models:
         warnings.append(Issue(Severity.WARNING, "catalog.kicad_vars", KICAD_VARS_TEXT.format(n=kicad_var_models)))
+    if addon_folder_models == 1:
+        warnings.append(Issue(Severity.WARNING, "catalog.addon_folder_models", ADDON_FOLDER_MODEL_ONE_TEXT))
+    elif addon_folder_models:
+        warnings.append(
+            Issue(Severity.WARNING, "catalog.addon_folder_models", ADDON_FOLDER_MODELS_TEXT.format(n=addon_folder_models))
+        )
     if prefix is None:
         prefix = decide_prefix(tree.sym_files, tree.footprint_libs, default_prefix)
     symbol_libs = [prefix + name for name in tree.symbol_libs]
@@ -516,6 +538,7 @@ def validate_staging(
         ),
         vars=needed_vars,
         kicad_var_models=kicad_var_models,
+        addon_folder_models=addon_folder_models,
         licence_text=licence_text(folder),
         warnings=tuple(warnings),
     )

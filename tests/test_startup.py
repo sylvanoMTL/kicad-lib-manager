@@ -36,7 +36,7 @@ def seams(monkeypatch, tmp_path):
     fp_dir.mkdir()
     rec = SimpleNamespace(scans=[], caches=[], mismatches=[])
 
-    def fake_scan(root, progress=None, kicad_fp_dir=None, *, skip=None, checking=None, model_vars=None):
+    def fake_scan(root, progress=None, kicad_fp_dir=None, *, skip=None, checking=None, model_vars=None, prefixes=None):
         rec.scans.append(Path(root))
         return ScanResult()
 

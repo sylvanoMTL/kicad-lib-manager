@@ -78,7 +78,7 @@ def make_window(qtbot, monkeypatch, tmp_path):
                 config_base=path_var_cfg, backup_root=tmp_path / "backups",
             )
 
-        def fake_scan(root, progress=None, kicad_fp_dir=None, *, skip=None, checking=None, model_vars=None):
+        def fake_scan(root, progress=None, kicad_fp_dir=None, *, skip=None, checking=None, model_vars=None, prefixes=None):
             return scan if scan is not None else ScanResult()
 
         monkeypatch.setattr(main_window, "CHECKOUT_CONFIG_BASE", checkout_cfg)

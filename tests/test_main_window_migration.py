@@ -128,7 +128,7 @@ def make_window(qtbot, monkeypatch, tmp_path):
 
         queue = list(results)
 
-        def fake_scan(root, progress=None, kicad_fp_dir=None, *, skip=None, checking=None, model_vars=None):
+        def fake_scan(root, progress=None, kicad_fp_dir=None, *, skip=None, checking=None, model_vars=None, prefixes=None):
             item = queue.pop(0) if len(queue) > 1 else queue[0]
             return item() if callable(item) else item
 

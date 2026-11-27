@@ -69,7 +69,7 @@ def make_window(qtbot, monkeypatch, tmp_path):
         queue = list(results)
         calls = []
 
-        def fake_scan(root, progress=None, kicad_fp_dir=None, *, skip=None, checking=None, model_vars=None):
+        def fake_scan(root, progress=None, kicad_fp_dir=None, *, skip=None, checking=None, model_vars=None, prefixes=None):
             calls.append((root, kicad_fp_dir))
             # A gated item reads the hooks to play the part of the real scan
             make.hooks = (skip, checking)

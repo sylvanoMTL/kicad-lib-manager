@@ -92,7 +92,7 @@ def make_window(qtbot, monkeypatch, tmp_path):
         make.backup_root = tmp_path / "backups"
         make.repo = repo
 
-        def fake_scan(root, progress=None, kicad_fp_dir=None, *, skip=None, checking=None, model_vars=None):
+        def fake_scan(root, progress=None, kicad_fp_dir=None, *, skip=None, checking=None, model_vars=None, prefixes=None):
             return ScanResult()
 
         def fake_chooser(repo_root, dest_tables, **kwargs):
