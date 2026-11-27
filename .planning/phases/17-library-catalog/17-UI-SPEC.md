@@ -257,7 +257,22 @@ At most these, in this order; each is hidden when it does not apply:
 
 One row per library. Columns, left to right: **Name** (stretch), **Status** (fixed 200 px), **Licence** (fixed 120 px), **Size** (fixed 80 px, right-aligned). Rows are sorted by Name, case-insensitive, and never reorder when a status changes **(default)**. Single selection, full-row selection, keyboard navigable (Up / Down, Home / End). Accessible name `Libraries`. Header clicks do nothing.
 
-Which rows exist: every curated library (installed or not), every library in the catalog record that is not curated (added by URL), and every folder in `ThirdParty/` that the record does not list (except `.staging`, which is never shown).
+Which rows exist: every curated library (installed or not), every library in the catalog record that is not curated (added by URL), and every folder in `ThirdParty/` that the record does not list (except `.staging`, which is never shown). Also, when it can be read, every library of KiCad's add-on list (D-33; plan 17-25), see "Rows from KiCad's add-on list" below.
+
+**The reading line (D-33, D-36)** (owner-approved 2026-11-27, 17-17 check): one muted, unframed Body line directly under the notice strips and above the toolbar. It is never logged, and no popup or strip is shown for it. It reads, by state:
+
+| State | Text | Tooltip |
+|-------|------|---------|
+| Reading (off the GUI thread, beside the Git check) | `Reading KiCad's add-on list...` | none |
+| Read live | no line (the live list is kept for the window's life) | none |
+| Not read, a dated copy kept earlier exists (D-36) | `Showing KiCad's add-on list from {date}. The current list could not be read right now.` ({date} is `YYYY-MM-DD`, the last day the list was confirmed) | the plain reason |
+| Not read, no copy | `KiCad's add-on list could not be read right now, so only this app's own list is shown.` | the plain reason |
+
+A list that was not read live (copy or none) is read again at the next show of the window and when the collection changes. The line is hidden while a review page (licence, preview, update, remove) is open, so the buttons of those pages stay in view at 760 x 520.
+
+**Rows from KiCad's add-on list (D-33)** (owner-approved 2026-11-27, 17-17 check): each library of the list is one row with KiCad's name in Name, KiCad's licence label in Licence (its review counts as the licence check of D-22) and KiCad's install size in Size (GitHub's size when KiCad gives none). Merge rules: a library that is in the app's own list is listed once and keeps the app's own name, licence, size and description; a library that is installed and also in KiCad's list is one row that takes KiCad's description and name; a library that is not installed and not in the app's own list is a `Not installed` row. Search also matches the description and the page of a listing.
+
+**The trees' names (D-33)** (owner-approved 2026-11-27, 17-17 check, finding 6): the main window's two trees (group header and Source column) and the catalog's log lines name a catalog library by its catalog name (for example `4ms/4ms-kicad-lib`, never the folder name `4ms-4ms-kicad-lib`); Custom and other sources keep their folder name. The name is the one recorded in `catalog.json`, else the app's own name, else `{owner}/{repo}`.
 
 Status cell, exactly one of:
 
@@ -270,6 +285,7 @@ Status cell, exactly one of:
 | Problem: folder missing (D-05) | `✖ Problem: folder missing` | `ERROR` | Strip (below). Buttons: `Reinstall This Library` (primary), `Remove This Library` |
 | Problem: not in the catalog (D-06) | `⚠ Problem: not in the catalog` | `AMBER` | Strip (below). Buttons: `Remove This Library` only |
 | Working | `Adding...`, `Updating...`, `Removing...`, `Reinstalling...` (with ` 42%` when known) | default text | All buttons disabled |
+| Cannot be added yet (D-33) | `Cannot be added yet` | `MUTED`, tooltip = the reason | No `Add This Library`; the page's link is the Repository link. Three reasons (owner-approved 2026-11-27, 17-17 check): the library is part of the repository of a program (`This library is part of the repository of a program, not a library repository of its own, so the catalog cannot add it yet. Install it with KiCad's Plugin and Content Manager instead.`); it is kept on another site than GitHub (`This library is kept on {host}, and the catalog only downloads from GitHub so far. Install it with KiCad's Plugin and Content Manager instead.`); it is kept in its repository as a packed file (`This library is kept in its repository as a packed file, not as library files, so the catalog cannot add it yet. Install it with KiCad's Plugin and Content Manager instead.`). A listing with no repository link says `KiCad's add-on list names no repository for this library, so the catalog cannot add it. Install it with KiCad's Plugin and Content Manager instead.` The reason also shows as a muted line under the description on the Details page. |
 
 Problem strips (top of the detail page, `✖` in `ERROR` for the first, `⚠` in `AMBER` for the second):
 
@@ -289,6 +305,7 @@ The pane is a stacked widget. Which page shows depends on the action in progress
 | Row | Value | When |
 |-----|-------|------|
 | Repository | link to the repository page (`LINK`, opens in the browser) | always (not for a folder not in the catalog) |
+| Listed in | where the library is listed (owner-approved 2026-11-27, 17-17 check; D-33, D-36): `KiCad's add-on list (reviewed by the KiCad team)`, with the offline copy `KiCad's add-on list from {date} (reviewed by the KiCad team)` while the dated copy is shown, `This app's own list`, or `Added by its web address`; nothing for a folder the record does not list | right under Repository, always (empty for a stray folder) |
 | Licence | display name, plus the acknowledgement for installed libraries: `Proprietary (you confirmed you read the terms on 2026-11-20)` | always; `Not stated by the repository` / `Could not be read from GitHub` for those cases |
 | Size | `about 68 MB` or `Unknown` | not installed; for installed libraries the folder's size on disk is shown instead (`68 MB on disk`) |
 | Libraries | `30 symbol libraries, 24 footprint libraries` (from the scan when installed, from the curated list when not installed, `Known after it is added` when neither) | always |
@@ -298,6 +315,8 @@ The pane is a stacked widget. Which page shows depends on the action in progress
 | Folder | `ElidedLabel` Mono, full path as tooltip | installed or problem |
 
 Time wording: `today at HH:MM`, `yesterday at HH:MM`, otherwise `YYYY-MM-DD HH:MM`.
+
+A library of KiCad's add-on list that is not installed shows its description (MUTED, from KiCad's list), its page as the Repository link, its install size as `about {n} MB` and `Known after it is added` for Libraries and Path variables (D-33). When it cannot be added yet, the reason of its status shows as a muted line under the description (owner-approved 2026-11-27, 17-17 check). The `Size` row of an installed library reads `{size} on disk` and `Calculating...` (MUTED) until the folder is measured; the list's Size cell and this row share one measurement per folder (owner-approved 2026-11-27, 17-17 check, finding 4).
 
 Buttons sit in one row at the bottom right of the pane, plain except the primary of the status table. `Set Path Variables...` (plain, left of the others) appears only for an installed library with a path variable that is not set or set to a different folder; it runs the existing path variable question for that library's variables **(default)**.
 
@@ -339,6 +358,7 @@ Details (not installed)            Licence page                    Add preview
    - `{collection}/catalog.json` followed by `records this library`.
    - Only when the root is a git repository and `.gitignore` lacks the line: `{collection}/.gitignore` followed by `gets the line /ThirdParty/ so git does not treat the downloaded libraries as part of your collection` (when the file does not exist: `is created with the line /ThirdParty/ ...`).
 2. `Path variables` (only when the library needs some): `This library needs the KiCad path variable {VAR} to point to {folder}. After you press Add Library, the app asks before it changes KiCad's settings.` One line per variable if several.
+2a. `Names in KiCad` (owner-approved 2026-11-27, 17-17 check; D-34; only for a library that gets KiCad's add-on names, or a library of KiCad's add-on list that keeps its own; none for a curated library or one added by its web address with its own names), after `Path variables`: either `These libraries get the names KiCad gives add-on libraries, such as {example}, so links between add-on libraries work.` or `These libraries keep their own names, such as {example}, because their symbols link their footprints by those names.` {example} is the first footprint library of the download, else the first symbol library. The rule is decided once, in the check of the download, from the links in the library's own symbol files, and recorded in `catalog.json` (see "Add from KiCad's list"); nothing renames a library afterwards.
 3. `Libraries with the same name` (D-20, always present):
    - None: `✓ No library has the same name as one you already have.`
    - Some: an amber `⚠ {n} libraries have the same name as a library you already have:` then a 3-column list (Library, Kind: `Symbol` / `Footprint`, `Same name as`: `a KiCad library`, `{catalog library name}`, `your Atomic_ libraries`, `your Custom libraries`), then a MUTED line `They start unticked, so Generate Tables will not list two libraries with one name. Tick one yourself if you want it. Names are never changed.`
@@ -356,6 +376,19 @@ Buttons: `Discard Download` (plain; deletes the downloaded copy, returns to the 
 4. The result strip's `Generate Tables` button stays available; it runs the main window's Generate Tables with the current selection (the user starts it; nothing runs by itself).
 
 While steps 2 and 3 run, every action button in the catalog window is disabled with tooltip `Finishing the last change...`, and a folder switch is refused (see Busy rules).
+
+### Add from KiCad's list (CAT-01, CAT-03, CAT-09, D-33, D-34, D-36)
+
+(owner-approved 2026-11-27, 17-17 check; D-33, D-34, D-36.) A library of KiCad's add-on list that the catalog can add shows `Add This Library` on its Details page like any other library. The press starts the same GitHub check as Add by URL, then the shared steps, so no library of that list skips a step:
+
+1. Job strip `Checking the repository...` (indeterminate, `Cancel Check`; the list is locked to the row; Cancel Check returns to the row).
+2. The licence page, heading `Add {KiCad's name}`: the cleaned repository address, GitHub's licence when GitHub names one, else the licence KiCad's list gives (a library of that list counts as known, so no licence file text is asked for), the size (KiCad's install size, else GitHub's) and the install folder `{collection}/ThirdParty/{owner}-{repo}`. The tick follows the licence class as on any licence page (CC BY-SA and the other share-alike licences need it, so `Alternate Kicad Library` asks for it).
+3. A check that refuses (the library cannot be added yet, not found, no KiCad libraries...) shows its reason as the `✖` row on that same licence page, with `Back to List` only (no `Download and Check`).
+4. Download and Check, the Add preview (with `Names in KiCad`) and `Add Library` are the shared ones.
+
+The name rule (D-34): the app never uses KiCad's own setting for the prefix; it decides per library, once, in the check of the download, from the links in the library's own symbol files. More links that start with `PCM_` give names that start with `PCM_` (shown as `PCM_Espressif`); more plain links give the library's own names; a tie, including no link at all, gives `PCM_` for a library of KiCad's list and no prefix for any other. Curated libraries (Würth, SparkFun) always keep their names. The rule, KiCad's name and the add-on identifier are recorded in `catalog.json` and kept by Reinstall; the trees, the tables and the Update and Remove pages name the libraries with the prefix in front. The catalog never sets `KICAD<n>_3RD_PARTY`, never reads KiCad's add-on folder and never overwrites a row of `fp-lib-table` that KiCad's own Plugin and Content Manager wrote (CAT-10): when a library of that name is also installed with KiCad's manager, Generate Tables keeps KiCad's entry and KiCad's copy is left alone.
+
+Add by URL of a repository that KiCad's list holds adds it as that listing (same name, licence, rule and identifier); of one the catalog cannot add yet it answers with the listing's reason before any GitHub lookup; an installed one is still `already listed`.
 
 ### Add by URL (CAT-03, D-04, D-23)
 
@@ -463,6 +496,18 @@ No dialog, no progress, no blocking. After the first scan ends, one background c
 - At least one update: one `info` log line `2 catalog libraries have updates: SparkFun, Espressif` (singular `1 catalog library has an update: SparkFun`; with more than 4 names, the first 4 then `and {n} more`) and the menu text with the count.
 - No update, offline, or a collection with no installed libraries: **no line** and no change to the menu text. The Details page `Updates` row says `Could not check for updates (GitHub could not be reached)` for an offline result.
 - The manual `Check for Updates` writes one `info` line: the same summary when there are updates, else `Checked {n} catalog libraries: all up to date.`; when offline, `Could not check for updates: GitHub could not be reached.` (`warning`).
+
+### Main window: refreshing after a catalog change (owner-approved 2026-11-27, 17-17 check, finding 2)
+
+After an Add, Reinstall, Update or Remove the main window reads the changed source again (the one-source read of D-18). While that read runs a refreshing state covers the list area, which holds both library trees, so the window never looks frozen:
+
+- **Overlay:** a panel over the whole list area (both trees and the empty page), following its size.
+- **Wheel:** one large spinning wheel, 112 x 112 px: a 12 px `ACCENT` arc of 300 degrees on a `BORDER` ring, turning 12 degrees every 40 ms (a full turn in 1.2 s). It turns only while the overlay is shown.
+- **Text:** `Refreshing the library list after {adding|reinstalling|updating|removing} {name}. Large libraries can take a minute.` Plain text, word-wrapped, at most 520 px wide. {name} is the catalog name.
+- **Bar and count:** a bar 320 px wide that moves without a value until the files are counted, then fills with `done * 100 // total` per cent, and under it, in `MUTED`, `{done} of {total} files` with thousands separators (for example `4,210 of 11,050 files`). The files are the symbol files first and then the footprint files of the library, so the count only goes up; at most one update per whole per cent reaches the window.
+- **Accessible names:** `Refreshing the library list` (the overlay) and `Progress of refreshing the library list` (the bar).
+- **Controls:** both trees, `Select All` and `Deselect All` are disabled while the overlay is shown; `Generate Tables` stays disabled until the catalog's finishing state ends, as in "Busy rules". They come back when the overlay ends.
+- **How it ends:** when the one-source read ends and the trees are filled (also when the read fails), and at once when the read falls back to the full scan, before the Loading Libraries window. Closing the main window ends it too; no timer outlives the window.
 
 ### Keyboard, focus and accessibility
 
@@ -576,6 +621,14 @@ Style (from CLAUDE.md and the owner's plain-language rule): short sentences, the
 | Job failed | error | `Could not {add|update|reinstall|remove} {name}: {plain reason}` |
 | Folder switch refused | warning | the two texts in "Busy rules" (plus the 5000 ms status message) |
 | Path variable question declined | info | the existing line, unchanged |
+| A catalog library's 3D model at a fixed folder (owner-approved 2026-11-27, 17-17 check, finding 3) | warning | one line per library: `{name}: {n} footprints point their 3D model at a fixed folder instead of a path variable, for example {a}, {b}, ... and {m} more.` / `{name}: 1 footprint points its 3D model at a fixed folder instead of a path variable: {a}.` |
+| A catalog library's 3D models not found | warning | `{name}: {n} 3D models were not found (names are case-sensitive), for example ...` / `{name}: 1 3D model was not found (names are case-sensitive): {a}.` |
+| A catalog library's footprint files unreadable | warning | `{name}: {n} footprint files could not be read, for example ...` / `{name}: 1 footprint file could not be read: {a}.` |
+| A catalog library's footprint links to a library that is not there | warning | `{name}: {n} footprint links point to footprint libraries that are not in your collection or in KiCad's own libraries: {libs}.` / `{name}: 1 footprint link points to a footprint library that is not in your collection or in KiCad's own libraries: {lib}.` |
+| 3D models in KiCad's add-on folder (D-34) | warning (in the check's warnings) | `{n} 3D models point into the add-on folder of KiCad's Plugin and Content Manager; they show only when that manager has installed this library too.` / `1 3D model points into the add-on folder of KiCad's Plugin and Content Manager; it shows only when that manager has installed this library too.` |
+| Scratch switch in use (D-35) | warning, always the first line of the log | `Working in the scratch folder {folder}: the app's settings, saved scans and backups and KiCad's settings are read and written there, and your real ones are not touched.` |
+
+The four summary lines (finding 3) replace the thousands of per-file lines a large catalog library gave: {name} is the catalog name, the counts use thousands separators, the examples are the first 5 distinct items, then `and {m} more` for the distinct ones left out. Only what is written to the log is shortened: the scan result keeps every line, and the warning counts and `No warnings.` follow the full list. Custom and every other source keep their per-file lines.
 
 ---
 
@@ -688,6 +741,24 @@ Applicable state considerations resolved: 85 covered, 12 backstop, 3 unresolved.
 | long-text | C12 notice strips | ✅ covered | Strip text wraps at 1.5 line height; a long `{reason}` in the unreadable-record strip wraps and also appears in full as the tooltip. |
 | overflow | C12 notice strips | 🧪 backstop | `{ statement: "With all strips that can appear together shown at the window minimum height (520 px), the list keeps at least its 120 px minimum and the toolbar stays visible", verification: backstop }` (offscreen geometry test). |
 
+Rows added for plans 17-21 to 17-25 and 17-27 (owner-approved 2026-11-27, 17-17 check; D-33, D-34, D-35, D-36):
+
+| Category | Element | Status | Resolution / Reason |
+|----------|---------|--------|---------------------|
+| loading | C15 refreshing overlay (main window) | ✅ covered | The wheel turns, the text names the change and the library, the bar moves until the files are counted and then fills with `{done} of {total} files`; both trees, `Select All` and `Deselect All` are disabled meanwhile (owner-approved 2026-11-27, 17-17 check). |
+| error | C15 refreshing overlay | ✅ covered | A failed read or the fall back to the full scan ends the overlay at once, before the Loading Libraries window; closing the main window stops the wheel (owner-approved 2026-11-27, 17-17 check). |
+| overflow | C15 refreshing overlay | 🧪 backstop | `{ statement: "On a 11,000-footprint library the overlay receives at most 101 counts and the window stays usable", verification: backstop }` (throttle test). |
+| loading | C16 reading line | ✅ covered | `Reading KiCad's add-on list...` while the list is read off the GUI thread; no line after a live read (D-33). |
+| error | C16 reading line | ✅ covered | Offline: the dated copy line `Showing KiCad's add-on list from {date}. ...` or, with no copy, `KiCad's add-on list could not be read right now, so only this app's own list is shown.`; never logged, never a popup, read again at the next show (D-36). |
+| partial | C16 reading line | ✅ covered | The line is hidden while a review page is open so every page keeps its buttons in view at 760 x 520. |
+| populated | C17 listing rows | ✅ covered | KiCad's add-on libraries are rows beside the app's own, each library once; an installed one is one row with KiCad's description (D-33). |
+| error | C17 `Cannot be added yet` | ✅ covered | The status, its reason as tooltip and as a line on the Details page, and no `Add This Library`; Add by URL of that repository answers with the same reason (D-33). |
+| empty | C17 `Listed in` row | ✅ covered | `KiCad's add-on list (reviewed by the KiCad team)`, the dated form offline, `This app's own list`, `Added by its web address`, and no row text for a stray folder. |
+| partial | C17 size cells | ✅ covered | Installed rows show `{size} on disk` (`Calculating...`, `Unknown` in `MUTED`), measured one folder at a time off the GUI thread (owner-approved 2026-11-27, 17-17 check). |
+| partial | C8 `Names in KiCad` | ✅ covered | Shown only for a library that gets KiCad's add-on names or one of KiCad's list that keeps its own; omitted otherwise (D-34). |
+| partial | C10 Remove counts | ✅ covered | `{s} symbol and {f} footprint libraries` with a Kind column, one kind only reads `{s} symbol libraries` (owner-approved 2026-11-27, 17-17 check). |
+| populated | C4 names in the trees | ✅ covered | The main window's trees and the log name a catalog library by its catalog name (D-33). |
+
 <!-- Status vocabulary (locked by probe-core projectTruths):
      ✅ covered   → a plain truth string lifted into must_haves.truths
      🧪 backstop  → a flat scalar { statement, verification: backstop }
@@ -699,7 +770,9 @@ Applicable state considerations resolved: 85 covered, 12 backstop, 3 unresolved.
 
 ## User Guide and documentation surfaces
 
-- **User Guide** (`widgets/help_dialog.py`): new page key `catalog`, label `Library Catalog`, in `TOC_STRUCTURE` under "How to Use" right after `importing`. Its sections (h3): `What the catalog is` (plain clones recorded in the collection; never touches KiCad's own Plugin and Content Manager), `Adding a library` (licence page, Add preview, name clashes, what is written), `Adding by web address`, `Licences` (what the tick means; nothing is refused for its licence), `Updating` (preview, changed files belong in Custom/), `Removing`, `If a library shows a problem` (folder missing, not in the catalog), `Update checks` (at start, no download, silent offline), `Path variables`. The Keyboard Shortcuts page gains `Ctrl+Shift+L`, `Library Catalog...`. The On Launch / Library Folder text is unchanged.
+- **User Guide** (`widgets/help_dialog.py`): new page key `catalog`, label `Library Catalog`, in `TOC_STRUCTURE` under "How to Use" right after `importing`. Its sections (h3): `What the catalog is` (plain clones recorded in the collection; never touches KiCad's own Plugin and Content Manager), `Adding a library` (licence page, Add preview, name clashes, what is written), `Adding by web address`, `Licences` (what the tick means; nothing is refused for its licence), `Updating` (preview, changed files belong in Custom/), `Removing`, `If a library shows a problem` (folder missing, not in the catalog), `Update checks` (at start, no download, silent offline), `Path variables`. The Keyboard Shortcuts page gains `Ctrl+Shift+L`, `Library Catalog...`. The On Launch / Library Folder text is unchanged apart from the scratch switch (D-35).
+  - Extended after plans 17-21 to 17-25 and 17-27 (owner-approved 2026-11-27, 17-17 check; D-33 to D-36): `What the catalog is` also names KiCad's add-on list (reviewed by the KiCad team, listed beside the app's own list when it can be read; offline only the app's own list and your installed libraries, or the last list kept, shown with its date); `Adding a library` explains adding from KiCad's list, the check that counts the footprint files, the `Names in KiCad` section with the example `PCM_Espressif` and the own-names case, that KiCad's own entry of the same name is kept when a library is also installed with KiCad's Plugin and Content Manager (the catalog never changes what KiCad installed), and the refreshing state in the main window; a new section `If a library cannot be added yet` (part of a program's repository, kept on another site than GitHub, kept as a packed file; install it with KiCad's Plugin and Content Manager); `Removing` gives the counts by kind; the log sums up a catalog library's 3D model and footprint warnings in one line each. The page uses the words `KiCad's add-on list` and `KiCad's Plugin and Content Manager`, never the bare abbreviation, and the abbreviation `PCM_` only inside library names such as `PCM_Espressif` (owner plain-language rule).
+  - The start-up section that lists `--library-root` and `KICAD_LIBMGR_ROOT` gains one plain sentence on `--scratch-root <folder>` (D-35).
 - **CLAUDE.md**: GUI Behavior gets a **Library Catalog** bullet group (menu entry, window, statuses, Add / Update / Remove / Reinstall, busy refusal, update check); Menu Shortcuts gets `Ctrl+Shift+L - Library Catalog...`. Phase 19's menu test enumerates this shortcut.
 - **Tooltips and status tips**: set for the menu action, every list-state tooltip in this file and every disabled button reason.
 
@@ -707,7 +780,7 @@ Applicable state considerations resolved: 85 covered, 12 backstop, 3 unresolved.
 
 ## Settings and Persistence (UI side)
 
-No new `QSettings` key **(default)**. Window size and position are not persisted; the search text is not persisted; the last update-check time and result live in memory for the run (a new start shows `Not checked yet` until the startup check ends). The record the app writes in the collection (`catalog.json`) and the downloaded folders are not UI state and are specified by the planner; the UI only requires that the update check never writes any file in the collection (so a check never makes the owner's repository dirty). The User Guide's saved place is unchanged by the catalog's Help button.
+No new `QSettings` key **(default)**. Window size and position are not persisted; the search text is not persisted; the last update-check time and result live in memory for the run (a new start shows `Not checked yet` until the startup check ends). The record the app writes in the collection (`catalog.json`) and the downloaded folders are not UI state and are specified by the planner; the UI only requires that the update check never writes any file in the collection (so a check never makes the owner's repository dirty). The User Guide's saved place is unchanged by the catalog's Help button. The offline copy of KiCad's add-on list (D-36) is one file beside `settings.ini` (never in the collection); it is reused while the published checksum of the list is unchanged, and its modification time is the date shown in `Showing KiCad's add-on list from {date}...`. The scratch switch (D-35, `--scratch-root <folder>` or `KICAD_LIBMGR_SCRATCH_ROOT`) moves `settings.ini`, the saved scans, this copy, the migration drafts, every backup and the folder the app reads and writes KiCad's settings in under the one folder; a bad value (blank, missing, not a folder, not writable) stops the start with exit code 2 and a reason on stderr (a message box when there is no stderr) before any setting is read, and the first log line is the scratch line of the Log lines table.
 
 ---
 
