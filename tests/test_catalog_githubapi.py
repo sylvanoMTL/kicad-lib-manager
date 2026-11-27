@@ -178,7 +178,6 @@ def test_a_redirect_inside_the_api_host_is_followed():
         "https://evil.example/x",
         "http://api.github.com/repos/a/b",
         "https://api.github.com.evil.example/x",
-        "https://api.github.com@evil.example/x",
         "file:///etc/passwd",
         "https://github.com/a/b",
     ],

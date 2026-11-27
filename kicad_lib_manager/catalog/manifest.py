@@ -15,11 +15,11 @@ from datetime import date
 from pathlib import Path
 
 from .. import fsutil
-from ..collection import THIRD_PARTY_DIR
+from ..collection import CATALOG_FILE, THIRD_PARTY_DIR
 from ..models import Issue, Severity
 from . import urls
 
-MANIFEST_NAME = "catalog.json"
+MANIFEST_NAME = CATALOG_FILE  # one name for the record file, shared with the collection checks
 FORMAT = 1
 MAX_MANIFEST_BYTES = 1024 * 1024
 
