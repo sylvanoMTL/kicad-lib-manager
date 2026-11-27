@@ -4,6 +4,7 @@ The pages are built standalone: no dialog, no service, no worker. They are fille
 downloads and read back through their public methods. Nothing is shown on the desktop (offscreen platform).
 """
 
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -653,3 +654,45 @@ def test_focus_goes_to_the_first_input(qtbot):
     assert licence.focusWidget() is licence.tick()
     licence.tick().setChecked(True)
     assert licence.primary_button().isEnabled()
+
+
+# -- Names in KiCad (plan 17-25; D-33, D-34) ----------------------------------------------------------
+
+NAMES_ADDON = "These libraries get the names KiCad gives add-on libraries, such as {example}, so links between add-on libraries work."
+NAMES_OWN = "These libraries keep their own names, such as {example}, because their symbols link their footprints by those names."
+
+
+def _with_rule(staged, prefix):
+    return replace(staged, report=replace(staged.report, nickname_prefix=prefix))
+
+
+def test_names_section(qtbot):
+    page = build(qtbot, cp.AddPreviewPage())
+    # PCM_ names (KiCad's list or a library whose links say so): the first footprint library is the example
+    plan = plan_of(source(id="Espressif", name="Espressif"))
+    staged = _with_rule(staged_of(plan, symbols=("PCM_Espressif",), footprints=("PCM_Espressif", "PCM_Other")), "PCM_")
+    page.show_staged(staged, plan, root_is_repo=False)
+    assert cp.NAMES_HEADING == "Names in KiCad" and "Names in KiCad" in texts(page)
+    assert NAMES_ADDON.format(example="PCM_Espressif") in texts(page)
+    # a library of KiCad's list that keeps plain names
+    addon = ops.AddSource("4ms", "4ms Kicad Libraries", "https://github.com/4ms/4ms-kicad-lib.git", "master", {}, "Unlicense",
+                          nickname_prefix=None, default_prefix="PCM_", addon_id="com.github.4ms.4ms-kicad-lib")
+    plan = plan_of(addon)
+    staged = _with_rule(staged_of(plan, symbols=("4ms_Resistor",), footprints=("4ms_Resistor",)), "")
+    page.show_staged(staged, plan, root_is_repo=False)
+    assert "Names in KiCad" in texts(page) and NAMES_OWN.format(example="4ms_Resistor") in texts(page)
+    assert NAMES_ADDON.format(example="4ms_Resistor") not in texts(page)
+    # with no footprint library the first symbol library is the example
+    staged = _with_rule(staged_of(plan, symbols=("4ms_Symbols",), footprints=()), "")
+    page.show_staged(staged, plan, root_is_repo=False)
+    assert NAMES_OWN.format(example="4ms_Symbols") in texts(page)
+    # a curated library, or one added by its web address, with its own names has no such section
+    plan = plan_of()
+    page.show_staged(_with_rule(staged_of(plan), ""), plan, root_is_repo=False)
+    assert "Names in KiCad" not in texts(page)
+    assert not any(text.startswith("These libraries") for text in texts(page))
+    # the section comes after the path variables
+    plan = plan_of(source(vars={"ACME_DIR": ""}))
+    page.show_staged(_with_rule(staged_of(plan, vars={"ACME_DIR": ""}, symbols=("PCM_A",), footprints=("PCM_A",)), "PCM_"), plan, root_is_repo=False)
+    order = texts(page)
+    assert order.index(cp.VARS_HEADING) < order.index("Names in KiCad") < order.index(cp.CLASH_HEADING)

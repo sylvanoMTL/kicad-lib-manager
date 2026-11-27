@@ -1224,3 +1224,34 @@ def test_refused_check_from_the_list(qtbot, tmp_path, fakes):
     assert fakes.stage_calls == []
     licence.back_button().click()
     assert dialog._page_kind is None and dialog._tree.isEnabled() and dialog.selected_id() == "4ms-4ms-kicad-lib"
+
+
+def test_add_alternate_from_the_list(qtbot, tmp_path, fakes):
+    ref = RepoRef("DawidCislo", "Alternate-KiCad-Library", ALTERNATE.url, "DawidCislo-Alternate-KiCad-Library")
+    fakes.checks[ALTERNATE.url] = ops.CheckedRepo(ref, None, "master", None, listing=ALTERNATE)
+    dialog = build_listed(qtbot, tmp_path, fakes, read=lambda: index_read(ALTERNATE))
+    logs, outcomes, _ = record(dialog)
+    item = by_name(dialog)["Alternate Kicad Library"]
+    assert item.text(2) == "CC BY-SA"
+    select(dialog, "Alternate Kicad Library")
+    dialog._add_btn.click()
+    qtbot.waitUntil(lambda: bool(dialog._page_kind == "licence"), timeout=10000)
+    licence = dialog._licence_page
+    assert licence.heading_text() == "Add Alternate Kicad Library"
+    assert "CC BY-SA" in texts(licence) and any("Share-alike licence" in text for text in texts(licence))
+    assert licence.tick() is not None and not licence.tick().isChecked()
+    assert not licence.primary_button().isEnabled()
+    licence.tick().setChecked(True)
+    assert licence.primary_button().isEnabled()
+    licence.primary_button().click()
+    qtbot.waitUntil(lambda: bool(dialog._page_kind == "preview"), timeout=10000)
+    dialog._preview_page.primary_button().click()
+    qtbot.waitUntil(lambda: bool(dialog._page_kind is None and idle(dialog) and fakes.register_calls), timeout=10000)
+    source = fakes.register_calls[0].staged.source
+    assert source.addon_id == "com.github.dawidcislo.alternate-kicad-library" and source.name == "Alternate Kicad Library"
+    assert source.default_prefix == "PCM_" and source.nickname_prefix is None
+    assert fakes.register_calls[0].acknowledged is True
+    assert outcomes[-1].ok and outcomes[-1].name == "Alternate Kicad Library"
+    result = [label.text() for label in dialog._result_strip.findChildren(QLabel) if label.objectName() == "resultLine"]
+    assert result == ["✓ Added Alternate Kicad Library: 2 symbol libraries and 1 footprint libraries are in your scan."]
+    assert by_name(dialog)["Alternate Kicad Library"].text(1) == "✓ Installed"

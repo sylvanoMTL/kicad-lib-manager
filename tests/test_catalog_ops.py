@@ -16,7 +16,7 @@ from catalogfixtures import LIB_FILES, fake_net
 from collectionfixtures import make_collection
 
 from kicad_lib_manager import fsutil
-from kicad_lib_manager.catalog import curated, licences, manifest, ops, urls
+from kicad_lib_manager.catalog import addons, curated, licences, manifest, ops, urls
 from kicad_lib_manager.catalog.githubapi import RepoInfo
 from kicad_lib_manager.catalog.gitnet import NetGit
 from kicad_lib_manager.catalog.manifest import CatalogEntry
@@ -735,3 +735,104 @@ def test_stage_add_forwards_the_check_count(tmp_path):
     assert isinstance(staged, ops.Staged), staged
     n = sum(1 for name in LIB_FILES if name.endswith(".kicad_mod"))
     assert counts and counts[-1] == (n, n)
+
+
+# -- a library of KiCad's add-on list (plan 17-25; D-33) ----------------------------------------------
+
+ADDON_FIXTURE = Path(__file__).parent / "fixtures" / "addons" / "packages.json"
+LISTINGS = addons.parse_packages(ADDON_FIXTURE.read_bytes())
+BY_ID = {item.identifier: item for item in LISTINGS}
+FOUR_MS = BY_ID["com.github.4ms.4ms-kicad-lib"]
+ALTERNATE = BY_ID["com.github.dawidcislo.alternate-kicad-library"]
+KIKIT = BY_ID["com.github.yaqwsx.kikit-library"]
+NO_SIZE = BY_ID["com.github.circuitbreakersrobotics.CB-KiCAD-Libraries"]
+
+
+def _listed(listing, *, spdx=None, size_kb=None):
+    """A CheckedRepo of a listing's address; size_kb None means GitHub could not be read."""
+    ref = urls.parse_github_url(listing.url)
+    info = None if size_kb is None else RepoInfo(f"{ref.owner}/{ref.repo}", size_kb, "master", spdx, False, False)
+    return ops.CheckedRepo(ref, info, "master", None, listing=listing)
+
+
+@pytest.mark.parametrize("github", [None, "NOASSERTION", "other"])
+def test_listing_licence_fallback(tmp_path, github):
+    root = make_collection(tmp_path / "col")
+    checked = _listed(ALTERNATE, spdx=github, size_kb=2048)
+    source = ops._checked_source(checked)
+    assert source.licence_spdx == "CC-BY-SA" and source.licence_known is True
+    plan = ops.plan_add(root, checked, manifest.load(root), free_space=_free(100000), running=_running())
+    assert plan.licence is licences.LicenceClass.SHARE_ALIKE and plan.licence_text_known is True
+    # no answer from GitHub at all: KiCad's licence still stands
+    unread = ops._checked_source(_listed(ALTERNATE))
+    assert unread.licence_spdx == "CC-BY-SA" and unread.licence_known is True
+
+
+def test_listing_licence_from_github_wins(tmp_path):
+    source = ops._checked_source(_listed(ALTERNATE, spdx="MIT", size_kb=2048))
+    assert source.licence_spdx == "MIT" and source.licence_known is True
+
+
+def test_listing_sizes(tmp_path):
+    root = make_collection(tmp_path / "col")
+    mf = manifest.load(root)
+
+    def plan(checked):
+        return ops.plan_add(root, checked, mf, free_space=_free(100000), running=_running())
+
+    # GitHub answered: 6 x its size + 500 MB of margin; the size shown is KiCad's
+    with_github = plan(_listed(ALTERNATE, spdx="MIT", size_kb=50 * 1024))
+    assert with_github.size_mb == 141 and with_github.needs_mb == ops.SPACE_FACTOR * 50 + ops.SPACE_FLOOR_MB == 800
+    # GitHub not answering: KiCad's install size, doubled, plus the margin
+    without = plan(_listed(ALTERNATE))
+    assert ops.LISTING_SPACE_FACTOR == 2
+    assert without.size_mb == 141 and without.needs_mb == 2 * 141 + ops.SPACE_FLOOR_MB == 782
+    # a listing with no size and no GitHub answer: unknown, so no space check
+    unknown = ops.plan_add(root, _listed(NO_SIZE), mf, free_space=_free(1), running=_running())
+    assert unknown.size_mb is None and unknown.needs_mb is None and unknown.margin_mb is None and unknown.refusals == ()
+    # not enough room for the doubled size
+    small = ops.plan_add(root, _listed(ALTERNATE), mf, free_space=_free(300), running=_running())
+    assert any(issue.code == "catalog.no_space" for issue in small.refusals)
+
+
+def test_listing_source_rule(tmp_path):
+    source = ops._checked_source(_listed(FOUR_MS, size_kb=1024))
+    assert source.nickname_prefix is None and source.default_prefix == manifest.PCM_PREFIX == "PCM_"
+    assert source.addon_id == "com.github.4ms.4ms-kicad-lib"
+    assert source.name == "4ms Kicad Libraries" and source.id == "4ms-4ms-kicad-lib"
+    assert source.url == "https://github.com/4ms/4ms-kicad-lib.git" and source.detect_vars is True
+    # an address that is not in the list keeps the rule it had
+    plain = ops._checked_source(ops.CheckedRepo(urls.parse_github_url("https://github.com/acme/parts"), None, "main"))
+    assert plain.nickname_prefix is None and plain.default_prefix == "" and plain.addon_id == ""
+
+
+def test_url_of_a_listed_repository(tmp_path):
+    root = make_collection(tmp_path / "col")
+    info = RepoInfo("4ms/4ms-kicad-lib", 100, "master", "Unlicense", False, False)
+    result = ops.check_repository(
+        root, "https://github.com/4ms/4ms-kicad-lib/tree/master", manifest.load(root), fake_net()[0],
+        repo_info=lambda o, r: info, listings=LISTINGS,
+    )
+    assert isinstance(result, ops.CheckedRepo) and result.listing == FOUR_MS
+    plain = ops.check_repository(
+        root, "https://github.com/4ms/4ms-kicad-lib", manifest.load(root), fake_net()[0], repo_info=lambda o, r: info,
+    )
+    assert isinstance(plain, ops.CheckedRepo) and plain.listing is None
+
+
+def test_url_of_a_not_addable_listing_is_refused(tmp_path):
+    root = make_collection(tmp_path / "col")
+    result = ops.check_repository(
+        root, "https://github.com/yaqwsx/KiKit", manifest.load(root), fake_net()[0], repo_info=_no_lookup, listings=LISTINGS
+    )
+    assert isinstance(result, Issue) and result.code == "catalog.not_addable" and result.text == KIKIT.reason
+    assert result.severity is Severity.ERROR
+
+
+def test_an_installed_listing_is_already_listed(tmp_path):
+    root = make_collection(tmp_path / "col")
+    mf = manifest.Manifest((CatalogEntry("4ms-4ms-kicad-lib", FOUR_MS.url, "master"),))
+    result = ops.check_repository(
+        root, "https://github.com/4ms/4ms-kicad-lib", mf, fake_net()[0], repo_info=_no_lookup, listings=LISTINGS
+    )
+    assert isinstance(result, Issue) and result.code == "catalog.already_listed"
