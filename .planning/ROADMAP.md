@@ -207,7 +207,7 @@ Plans:
   5. Würth and SparkFun work end to end and form the curated list; KiCad's reviewed libraries (such as 4ms and Alternate-KiCad-Library) are listed from KiCad's official add-on list, whose review counts as their verification, and Espressif is rejected from the curated list with its reason (D-33, D-37); in the owner's collection WurthElektronik is a catalog entry with no missing library or 3D model afterwards.
 **Research flags**: Decide at plan time: D2 (clone location and Würth path: `ThirdParty/<id>/` with a one-time rewrite of about 89 `WurthElektronik/...` URIs, or `<Vendor>/<Repo>` with Würth kept in place; `source_of` handles both), D6 (minimum git: 2.49.1+ for CVE-2025-48384 with a warning below; this machine has 2.49.0), D7 (update by `fetch --depth 1 origin <ref>` + `reset --hard FETCH_HEAD` on a clean tree, recommended, or `merge --ff-only`), D11 (curated list and licence gate: refuse libraries with no licence, or warn and ask for acknowledgement; research leans to the latter). Research: Git LFS pointer detection during staging (`version https://git-lfs`) and the GitHub 304 / ETag cost of the startup check (60 requests per hour unauthenticated). Unverified: Git Credential Manager versus `GIT_TERMINAL_PROMPT=0` (test with a private URL, also set `GCM_INTERACTIVE=Never`); the 3D model paths of Espressif, 4ms and Alternate-KiCad-Library.
 **Notes**: Build order from research: (a) `catalog/gitnet.py` plus a `gitops.launch()` extraction, a layering test that commit-path modules cannot import gitnet, and a threat-model note; (b) manifest, curated list, `scan_source`, `sync_kicad_path_vars(extra_vars=...)`; (c) add / update / remove as plan, preview, apply, tested against local bare repos through `file://` (no network in tests); (d) catalog dialog with progress, Cancel and licence display; (e) the Würth conversion. Catalog Add and Remove change only the collection and its manifest; tables are written by Generate Tables (project-local from Phase 18). The update check runs automatically at startup (owner, 2026-11-22). The Würth conversion is a previewed transaction from the main checkout with a rollback tag: clone, verify the library set, define `WE_3DMODEL_DIR` (7,612 footprint model paths use it), Generate, rescan with zero missing, then remove the submodule (`deinit -f`, `git rm`, delete `.git/modules/...`). PITFALLS.md 6, 15-22.
-**Plans**: 23/27 plans executed in 19 waves (23 code plans, 3 owner checkpoints, 1 curated-list update); executors run sequentially on main this run. Plans 17-21 to 17-27 were inserted after the 17-17 owner check (its findings 1-6 and 8, decisions D-33 to D-37) and run before 17-18
+**Plans**: 24/27 plans executed in 19 waves (23 code plans, 3 owner checkpoints, 1 curated-list update); executors run sequentially on main this run. Plans 17-21 to 17-27 were inserted after the 17-17 owner check (its findings 1-6 and 8, decisions D-33 to D-37) and run before 17-18
 
 Plans:
 **Wave 1**
@@ -264,7 +264,7 @@ Plans:
 - [x] 17-27-PLAN.md — D-35 scratch switch for owner checks: `--scratch-root` / `KICAD_LIBMGR_SCRATCH_ROOT` move the app's settings, saved scans, backups and KiCad's settings folder under one folder
 
 **Wave 16** *(blocked on Wave 15 completion)*
-- [ ] 17-26-PLAN.md — UI-SPEC, User Guide, CLAUDE.md and README for plans 17-21 to 17-25 and the scratch switch
+- [x] 17-26-PLAN.md — UI-SPEC, User Guide, CLAUDE.md and README for plans 17-21 to 17-25 and the scratch switch
 
 **Wave 17** *(blocked on Wave 16 completion)*
 - [ ] 17-18-PLAN.md — Curated list after 17-17 and D-33: Würth and SparkFun stay, 4ms and Alternate-KiCad-Library come from KiCad's list, Espressif recorded in REJECTED
@@ -352,7 +352,7 @@ Phases execute in numeric order: 14 → 15 → 16 → 17 → 18 → 19 → 20 �
 | 14. Test Suite Speed-Up | v3.0 | 6/6 | Complete    | 2026-11-23 |
 | 15. Choose Library Folder and New Collection | v3.0 | 16/16 | Complete    | 2026-11-23 |
 | 16. Repo Split | v3.0 | 18/18 | Complete    | 2026-11-26 |
-| 17. Library Catalog | v3.0 | 23/27 | In Progress | - |
+| 17. Library Catalog | v3.0 | 24/27 | In Progress | - |
 | 18. Project-Local Table Model | v3.0 | 0/TBD | Not started | - |
 | 19. Menu Regroup | v3.0 | 0/TBD | Not started | - |
 | 20. Python 3.14 Minimum | v3.0 | 0/TBD | Not started | - |
