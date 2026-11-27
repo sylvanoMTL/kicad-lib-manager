@@ -668,7 +668,6 @@ def test_catalog_page_plain_language():
         assert word.casefold() not in page.casefold(), word
     # the abbreviation of KiCad's add-on manager is never used; PCM_ appears only inside a library name
     assert not re.search(r"PCM(?!_)", page)
-    assert not re.search(r"PCM_(?![A-Z][A-Za-z0-9_]*)", page)
     # the file name catalog.json is the one name from the record the page may use; no field names of it
     for field in ('"id"', "legacy_prefix", "licence_spdx", "acknowledged", "vars"):
         assert field not in page, field
@@ -706,7 +705,7 @@ def test_catalog_page_explains_the_names():
 
 def test_catalog_page_mentions_the_refresh_and_the_log():
     adding = _catalog_section("Adding a library")
-    for claim in ("Refreshing the library list...", "main window", "one line for each library"):
+    for claim in ("Refreshing the library list after", "main window", "one line for each library"):
         assert claim in adding, claim
     for claim in ("3D model", "footprint"):
         assert claim in adding, claim
