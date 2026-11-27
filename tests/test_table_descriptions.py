@@ -37,6 +37,21 @@ def test_other_library_uses_source_and_spaced_nickname():
     ) == "WurthElektronik: WE LED"
 
 
+def test_catalog_library_uses_its_catalog_id():
+    assert tg.library_description(
+        "Antenna_SMD", "ThirdParty/SparkFun/symbols/Antenna_SMD.kicad_sym", {},
+    ) == "SparkFun: Antenna SMD"
+    assert tg.library_description(
+        "Antenna_SMD", "ThirdParty/SparkFun/footprints/Antenna_SMD.pretty", {},
+    ) == "SparkFun: Antenna SMD"
+
+
+def test_moved_wurth_library_keeps_its_description():
+    old = tg.library_description("WE_LED", "WurthElektronik/KiCad-Library/Symbols/WE_LED.kicad_sym", {})
+    new = tg.library_description("WE_LED", "ThirdParty/WurthElektronik/Symbols/WE_LED.kicad_sym", {})
+    assert old == new == "WurthElektronik: WE LED"
+
+
 def test_stock_descriptions_reads_template_table(tmp_path):
     table = tmp_path / "sym-lib-table"
     table.write_text(
