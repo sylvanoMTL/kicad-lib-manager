@@ -233,7 +233,7 @@ def _fp_table(entries: dict[str, str]) -> str:
 class WurthCollection:
     """A parent repo with Custom and WurthElektronik/KiCad-Library submodules plus the state after the catalog Add."""
 
-    def __init__(self, root: Path, monkeypatch):
+    def __init__(self, root: Path, monkeypatch, *, real_templates: bool = False):
         self.root = root
         self.repos = make_superproject(root / "sp")
         self.parent = self.repos.parent
@@ -305,7 +305,8 @@ class WurthCollection:
         self.templates.mkdir()
         (self.templates / "README.md").write_text("# Collection\n\nThirdParty and catalog.json.\n", encoding="utf-8")
         (self.templates / "CLAUDE.md").write_text("# CLAUDE\n\ncatalog.json lists ThirdParty.\n", encoding="utf-8")
-        monkeypatch.setattr(wurth, "TEMPLATES", self.templates)
+        if not real_templates:
+            monkeypatch.setattr(wurth, "TEMPLATES", self.templates)
 
     def args(self, *extra: str, apply: bool = False, backup: Path | None = None) -> list[str]:
         argv = ["--repo", str(self.parent), "--before", str(self.before), "--after", str(self.after),
@@ -603,3 +604,87 @@ def test_apply_then_way_back_restores_the_submodule(tmp_path, monkeypatch, capsy
     assert (coll.parent / ".gitignore").read_text("utf-8") == "old\n"
     assert (coll.parent / "CLAUDE.md").read_text("utf-8") == "old claude\n"
     assert _tree_modes(coll)["Custom"] == old_tree["Custom"]
+
+
+# -- the collection doc templates (Task 2) ----------------------------------------------------------------
+
+TEMPLATES = ROOT / "scripts" / "catalog" / "collection"
+PHASE_16_TEMPLATES = ROOT / "scripts" / "split" / "collection"
+
+
+def _template(name: str) -> str:
+    return (TEMPLATES / name).read_text(encoding="utf-8")
+
+
+def test_templates_describe_the_catalog_layout():
+    for name in ("README.md", "CLAUDE.md"):
+        text = _template(name)
+        assert "ThirdParty" in text, name
+        assert "catalog.json" in text, name
+        # the Phase 16 templates carry both of these; the layout after the conversion has neither
+        assert "submodule add" not in text, name
+        assert "--recurse-submodules" not in text, name
+        assert "submodule update --remote" not in text, name
+        assert "Custom" in text and "KICAD_LIB_GITHUB" in text and "CUSTOM_3DMODEL_DIR" in text and "WE_3DMODEL_DIR" in text, name
+    # the Phase 16 ones really do, so the checks above can fail
+    old = (PHASE_16_TEMPLATES / "README.md").read_text(encoding="utf-8") + (PHASE_16_TEMPLATES / "CLAUDE.md").read_text(encoding="utf-8")
+    assert "submodule add" in old and "--recurse-submodules" in old
+    claude = _template("CLAUDE.md")
+    for token in ("Atomic_<", "Atomic_Footprints.pretty", "atomic rule", "MPN", "Manufacturer", "Datasheet", "Description",
+                  "Ctrl+Shift+L", "Problem: folder missing", "Reinstall", "kicad-lib-manager"):
+        assert token in claude, token
+    assert "## Adding a Third-Party Library" in claude
+    assert "## Adding a New Library Submodule" not in claude
+    readme = _template("README.md")
+    assert "Custom` is the only submodule" in readme
+    assert "KiCad-Library" not in readme  # the old nested submodule folder is gone from the layout
+    assert "Problem: folder missing" in readme
+
+
+def test_templates_hold_no_workstation_path():
+    import re
+
+    # assembled from pieces so this file does not trip the pre-publish scan itself
+    drive = "[A-Za-z]:"
+    folders = "(?:" + "Us" + "ers|Git_" + "Repo_Clones)"
+    pattern = re.compile(drive + "[" + chr(92) + "/]+" + folders + "[" + chr(92) + "/]", re.IGNORECASE)
+    for name in ("README.md", "CLAUDE.md"):
+        assert not pattern.search(_template(name)), name
+
+
+def test_doc_diff_shows_changes_only():
+    nl, cr = chr(10), chr(13)
+    same = 'a' + nl + 'b' + nl
+    assert wurth.doc_diff(same, same, 'README.md') == []
+    assert wurth.doc_diff('a' + cr + nl + 'b' + cr + nl, same, 'README.md') == []  # line endings alone are not a change
+    diff = wurth.doc_diff('a' + nl + 'old' + nl, 'a' + nl + 'new' + nl, 'README.md')
+    assert diff[0] == '--- a/README.md' and diff[1] == '+++ b/README.md (template)'
+    assert '-old' in diff and '+new' in diff
+
+
+@pytest.mark.slow
+@requires_git
+def test_dry_run_shows_a_diff_for_each_doc_that_differs(tmp_path, monkeypatch, capsys):
+    coll = WurthCollection(tmp_path, monkeypatch, real_templates=True)
+    (coll.parent / "README.md").write_text(_template("README.md"), encoding="utf-8")
+    coll.git("add", "--", "README.md")
+    coll.git("commit", "-q", "-m", "README already matches")
+    before = coll.state()
+    assert wurth.main(coll.args(backup=coll.backup)) == 0
+    out = capsys.readouterr().out
+    assert "--- a/CLAUDE.md" in out and "+++ b/CLAUDE.md (template)" in out  # the fixture's old CLAUDE.md differs
+    assert "-old claude" in out and "+## Adding a Third-Party Library" in out
+    assert "--- a/README.md" not in out
+    assert "README.md already matches the template" in out
+    assert coll.state() == before
+
+
+@pytest.mark.slow
+@requires_git
+def test_apply_writes_the_real_templates(tmp_path, monkeypatch, capsys):
+    coll = WurthCollection(tmp_path, monkeypatch, real_templates=True)
+    assert wurth.main(coll.args(apply=True)) == 0
+    capsys.readouterr()
+    assert (coll.parent / "README.md").read_bytes() == (TEMPLATES / "README.md").read_bytes()
+    assert (coll.parent / "CLAUDE.md").read_bytes() == (TEMPLATES / "CLAUDE.md").read_bytes()
+    assert "ThirdParty" in coll.git("show", "HEAD:CLAUDE.md")
