@@ -13,7 +13,7 @@ import pytest
 from catalogfixtures import make_third_party
 from collectionfixtures import make_collection
 
-from kicad_lib_manager.catalog import curated, licences, manifest, status
+from kicad_lib_manager.catalog import addons, curated, licences, manifest, status
 from kicad_lib_manager.catalog.gitnet import NetGit
 from kicad_lib_manager.catalog.manifest import CatalogEntry, Manifest
 from kicad_lib_manager.library_scanner import scan_all
@@ -360,3 +360,73 @@ def test_update_count(tmp_path):
 )
 def test_updates_line_forms(names, line):
     assert status.updates_line(names) == line
+
+
+# -- the libraries of KiCad's add-on list (plan 17-25, D-33) -------------------------------------------
+
+ADDON_FIXTURE = Path(__file__).parent / "fixtures" / "addons" / "packages.json"
+LISTINGS = addons.parse_packages(ADDON_FIXTURE.read_bytes())
+FOUR_MS_ID = "com.github.4ms.4ms-kicad-lib"
+FOUR_MS_URL = "https://github.com/4ms/4ms-kicad-lib.git"
+
+
+def test_listing_rows(tmp_path):
+    root = _collection(tmp_path)
+    rows = status.row_statuses(root, Manifest(()), curated=(SPARKFUN, WURTH), listings=LISTINGS)
+    by_id = _by_id(rows)
+    # SparkFun is listed once, as the curated row
+    assert [row.name for row in rows].count("SparkFun KiCad Libraries") == 0
+    assert by_id["SparkFun"].origin == "curated" and by_id["SparkFun"].listing is None
+    assert by_id["SparkFun"].description == SPARKFUN.description
+    four = by_id["4ms-4ms-kicad-lib"]
+    assert four.name == "4ms Kicad Libraries" and four.origin == "addon" and four.state is status.State.NOT_INSTALLED
+    assert four.licence_label == "Unlicense" and four.size_mb == 222 and four.size_text == "222 MB"
+    assert four.listing is not None and four.addable and four.reason == "" and four.entry is None and four.curated is None
+    alternate = by_id["DawidCislo-Alternate-KiCad-Library"]
+    assert alternate.name == "Alternate Kicad Library" and alternate.licence_label == "CC BY-SA"
+    assert alternate.licence_class is licences.LicenceClass.SHARE_ALIKE
+    kikit = by_id["com.github.yaqwsx.kikit-library"]
+    assert kikit.addable is False and kikit.reason and kikit.origin == "addon" and kikit.state is status.State.NOT_INSTALLED
+    assert kikit.listing is not None and kikit.folder == root / "ThirdParty" / "com.github.yaqwsx.kikit-library"
+    # a listing with no size has an unknown one
+    assert by_id["circuitbreakersrobotics-CB_KiCAD_Libraries"].size_text == "Unknown"
+    # every addable listing and every not addable one has a row, the plugin and the theme have none
+    assert len(rows) == 2 + sum(1 for item in LISTINGS if item.identifier != "com.github.sparkfun.SparkFun-KiCad-Libraries")
+    assert [row.name.casefold() for row in rows] == sorted(row.name.casefold() for row in rows)
+
+
+def test_a_recorded_library_takes_its_listing(tmp_path):
+    root = _collection(tmp_path, "4ms-4ms-kicad-lib", "fork")
+    by_url = _entry("4ms-4ms-kicad-lib", url=FOUR_MS_URL)
+    by_id = replace(_entry("fork", url="https://github.com/someone/fork.git"), addon_id=FOUR_MS_ID)
+    rows = status.row_statuses(root, Manifest((by_url,)), curated=(SPARKFUN,), listings=LISTINGS)
+    row = _by_id(rows)["4ms-4ms-kicad-lib"]
+    four = next(item for item in LISTINGS if item.identifier == FOUR_MS_ID)
+    assert row.state is status.State.INSTALLED and row.entry == by_url and row.origin == "addon"
+    assert row.listing == four and row.description == four.description and row.name == "4ms Kicad Libraries"
+    assert [r.id for r in rows].count("4ms-4ms-kicad-lib") == 1  # the listing is not a second row
+    # matched by the add-on id when the address differs
+    rows = status.row_statuses(root, Manifest((by_id,)), curated=(SPARKFUN,), listings=LISTINGS)
+    row = _by_id(rows)["fork"]
+    assert row.listing == four and row.origin == "addon" and row.state is status.State.INSTALLED
+    assert "4ms-4ms-kicad-lib" in _by_id(rows)  # its own folder still gives the listing's row, which is not in the catalog
+    # the recorded name wins over KiCad's
+    named = replace(by_url, name="My 4ms")
+    row = _by_id(status.row_statuses(root, Manifest((named,)), curated=(SPARKFUN,), listings=LISTINGS))["4ms-4ms-kicad-lib"]
+    assert row.name == "My 4ms"
+
+
+def test_listing_folder_without_an_entry_is_not_in_the_catalog(tmp_path):
+    root = _collection(tmp_path, "4ms-4ms-kicad-lib", "Stray")
+    rows = _by_id(status.row_statuses(root, Manifest(()), curated=(SPARKFUN,), listings=LISTINGS))
+    row = rows["4ms-4ms-kicad-lib"]
+    assert row.state is status.State.NOT_IN_CATALOG and row.name == "4ms Kicad Libraries" and row.listing is not None
+    assert rows["Stray"].origin == "folder" and rows["Stray"].listing is None
+    assert _by_id(status.row_statuses(root, Manifest(()), curated=(), listings=()))["Stray"].origin == "folder"
+
+
+def test_origins_without_listings(tmp_path):
+    root = _collection(tmp_path, "demo")
+    rows = _by_id(status.row_statuses(root, Manifest((_entry("demo", url="https://github.com/acme/demo-lib.git"),)), curated=(SPARKFUN,)))
+    assert rows["demo"].origin == "url" and rows["SparkFun"].origin == "curated"
+    assert rows["demo"].description == "" and rows["demo"].addable

@@ -17,7 +17,7 @@ from PySide6.QtCore import QPoint, QSize, Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QLabel
 
-from kicad_lib_manager.catalog import curated, gitnet, manifest, status
+from kicad_lib_manager.catalog import addons, curated, gitnet, manifest, status
 from kicad_lib_manager.catalog.manifest import CatalogEntry, Manifest
 from kicad_lib_manager.catalog.ops import NetStatus
 from kicad_lib_manager.models import Issue, Severity
@@ -1061,3 +1061,149 @@ def test_hidden_window_stays_alive_and_reusable(qtbot, tmp_path):
     assert dialog.isHidden()
     dialog.show()
     assert dialog.isVisible()
+
+
+# -- KiCad's add-on list in the window (plan 17-25; D-33, D-36) ---------------------------------------
+
+ADDON_FIXTURE = Path(__file__).parent / "fixtures" / "addons" / "packages.json"
+ADDON_LISTINGS = {item.identifier: item for item in addons.parse_packages(ADDON_FIXTURE.read_bytes())}
+FOUR_MS = ADDON_LISTINGS["com.github.4ms.4ms-kicad-lib"]
+KIKIT = ADDON_LISTINGS["com.github.yaqwsx.kikit-library"]
+OFFLINE = Issue(Severity.ERROR, "addons.unreadable", addons.OFFLINE_TEXT)
+READING = "Reading KiCad's add-on list..."
+UNREAD = "KiCad's add-on list could not be read right now, so only this app's own list is shown."
+
+
+def index(*listings, issue=None, from_cache=False, copy_date=""):
+    return addons.IndexRead(tuple(listings), issue, from_cache, copy_date)
+
+
+def build_listed(qtbot, tmp_path, read, **kw):
+    dialog = build(qtbot, tmp_path, read_index=read, **kw)
+    qtbot.waitUntil(lambda: bool(dialog._index_state != "reading"), timeout=10000)
+    return dialog
+
+
+def reopen(qtbot, dialog):
+    dialog.close()
+    dialog.show()
+    settle(qtbot, dialog)
+
+
+def test_reading_line_states(qtbot, tmp_path):
+    gate = threading.Event()
+    calls = []
+
+    def read():
+        calls.append(1)
+        gate.wait(10)
+        return index(FOUR_MS)
+
+    dialog = build(qtbot, tmp_path, read_index=read)
+    logs = []
+    dialog.log_line.connect(lambda text, level: logs.append((level, text)))
+    assert not dialog._index_line.isHidden() and dialog._index_line.text() == READING
+    assert dialog._index_line.styleSheet() == f"color: {theme.MUTED};"
+    assert sorted(by_name(dialog)) == sorted([SPARKFUN.name, WURTH.name, THIRD.name])  # the curated rows at once
+    gate.set()
+    qtbot.waitUntil(lambda: bool(dialog._index_state == "ok"), timeout=10000)
+    assert dialog._index_line.isHidden() and "4ms Kicad Libraries" in by_name(dialog)
+    # a successful read is kept: a close and a show, and a change of folder, read nothing again
+    dialog.show()
+    reopen(qtbot, dialog)
+    dialog.set_root(tmp_path / "col")
+    settle(qtbot, dialog)
+    assert calls == [1] and dialog._index_line.isHidden() and "4ms Kicad Libraries" in by_name(dialog)
+    assert logs == []
+
+
+def test_unread_list_line_and_retry(qtbot, tmp_path):
+    answers = [index(issue=OFFLINE), index(FOUR_MS)]
+    calls = []
+
+    def read():
+        calls.append(1)
+        return answers[len(calls) - 1]
+
+    dialog = build_listed(qtbot, tmp_path, read)
+    logs = []
+    dialog.log_line.connect(lambda text, level: logs.append((level, text)))
+    assert not dialog._index_line.isHidden() and dialog._index_line.text() == UNREAD
+    assert dialog._index_line.toolTip() == OFFLINE.text
+    assert sorted(by_name(dialog)) == sorted([SPARKFUN.name, WURTH.name, THIRD.name])
+    dialog.show()
+    reopen(qtbot, dialog)  # a later show tries again
+    qtbot.waitUntil(lambda: bool(dialog._index_state == "ok"), timeout=10000)
+    assert len(calls) == 2 and dialog._index_line.isHidden() and "4ms Kicad Libraries" in by_name(dialog)
+    assert logs == []
+
+
+def test_offline_copy_is_shown_with_its_date(qtbot, tmp_path):
+    copy = index(FOUR_MS, issue=OFFLINE, from_cache=True, copy_date="2026-11-20")
+    calls = []
+
+    def read():
+        calls.append(1)
+        return copy
+
+    dialog = build_listed(qtbot, tmp_path, read)
+    logs = []
+    dialog.log_line.connect(lambda text, level: logs.append((level, text)))
+    assert "4ms Kicad Libraries" in by_name(dialog) and SPARKFUN.name in by_name(dialog)
+    assert dialog._index_line.text() == "Showing KiCad's add-on list from 2026-11-20. The current list could not be read right now."
+    assert dialog._index_line.toolTip() == OFFLINE.text and not dialog._index_line.isHidden()
+    select(dialog, "4ms Kicad Libraries")
+    assert value(dialog, "listed") == "KiCad's add-on list from 2026-11-20 (reviewed by the KiCad team)"
+    dialog.show()
+    reopen(qtbot, dialog)  # D-36: the next show reads again
+    qtbot.waitUntil(lambda: bool(len(calls) == 2 and dialog._index_state == "copy"), timeout=10000)
+    assert logs == []
+
+
+def test_not_addable_rows(qtbot, tmp_path):
+    dialog = build_listed(qtbot, tmp_path, lambda: index(KIKIT, FOUR_MS))
+    item = by_name(dialog)["KiKit Library"]
+    assert item.text(1) == "Cannot be added yet" and item.toolTip(1) == KIKIT.reason
+    assert colour(item, 1) == hex_of(theme.MUTED)
+    select(dialog, "KiKit Library")
+    assert dialog._detail_reason.text() == KIKIT.reason and not dialog._detail_reason.isHidden()
+    assert dialog._detail_reason.textFormat() == Qt.TextFormat.PlainText
+    assert dialog._add_btn.isHidden() and dialog._reinstall_btn.isHidden()
+    assert dialog._field_rows["repository"][1].url() == KIKIT.page
+    select(dialog, "4ms Kicad Libraries")
+    assert dialog._detail_reason.isHidden() and not dialog._add_btn.isHidden()
+
+
+def test_listed_in_row(qtbot, tmp_path):
+    dialog = build_listed(
+        qtbot, tmp_path, lambda: index(FOUR_MS),
+        entries=(entry("demo", url="https://github.com/acme/demo-lib.git"),), folders=("demo", "Stray"),
+    )
+    select(dialog, SPARKFUN.name)
+    assert shown(dialog, "listed") and value(dialog, "listed") == "This app's own list"
+    select(dialog, "4ms Kicad Libraries")
+    assert value(dialog, "listed") == "KiCad's add-on list (reviewed by the KiCad team)"
+    select(dialog, "acme/demo-lib")
+    assert value(dialog, "listed") == "Added by its web address"
+    select(dialog, "Stray")
+    assert not shown(dialog, "listed")
+
+
+def test_listing_details(qtbot, tmp_path):
+    dialog = build_listed(qtbot, tmp_path, lambda: index(FOUR_MS))
+    select(dialog, "4ms Kicad Libraries")
+    assert dialog._detail_heading.text() == "4ms Kicad Libraries"
+    assert dialog._detail_description.text() == FOUR_MS.description and not dialog._detail_description.isHidden()
+    assert dialog._detail_reason.isHidden()
+    assert dialog._field_rows["repository"][1].url() == "https://github.com/4ms/4ms-kicad-lib"
+    assert value(dialog, "licence") == "Unlicense" and value(dialog, "size") == "about 222 MB"
+    assert value(dialog, "libraries") == "Known after it is added" and value(dialog, "vars") == "Known after it is added"
+    assert not shown(dialog, "version") and not shown(dialog, "updates") and not shown(dialog, "folder")
+
+
+def test_search_finds_listing_descriptions(qtbot, tmp_path):
+    dialog = build_listed(qtbot, tmp_path, lambda: index(FOUR_MS, KIKIT))
+    dialog._search.setText("analog")
+    assert shown_names(dialog) == ["4ms Kicad Libraries"]
+    dialog._search.setText("github.com/yaqwsx")  # a listing's page
+    assert shown_names(dialog) == ["KiKit Library"]
