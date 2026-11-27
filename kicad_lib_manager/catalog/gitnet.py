@@ -177,3 +177,63 @@ def head_commit(net: NetGit, clone: Path) -> str | Issue:
     if run.returncode != 0 or not _SHA_RE.fullmatch(sha):
         return Issue(Severity.ERROR, "git.no_commit", "The download holds no commit.")
     return sha
+
+
+# -- stubs for the RED commit of plan 17-03; the next commit replaces every one of them ------------------------
+MIN_NET_GIT = (2, 32)
+MIN_NET_GIT_WARN = (2, 49, 1)
+LS_REMOTE_TIMEOUT = 20.0
+FETCH_TIMEOUT = 3600.0
+
+
+@dataclass(frozen=True)
+class RemoteHead:
+    sha: str
+
+
+def version_issues(version):
+    return (None, None)
+
+
+def ls_remote(net, url, branch, *, cancel=None):
+    return None
+
+
+def default_branch(net, url, *, cancel=None):
+    return None
+
+
+def fetch_shallow(net, clone, url, branch, *, progress=None, cancel=None):
+    return None
+
+
+def reset_hard(net, clone, sha):
+    return None
+
+
+def status_entries(net, clone):
+    return None
+
+
+def changed_paths(net, clone, sha):
+    return None
+
+
+def tree_paths(net, clone, rev):
+    return None
+
+
+def read_blob(net, clone, rev, path):
+    return b""
+
+
+def config_problems(clone):
+    return None
+
+
+def percent(line):
+    return None
+
+
+def parse_name_status(raw):
+    return None
