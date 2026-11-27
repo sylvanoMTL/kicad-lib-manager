@@ -63,6 +63,7 @@ ALLOWED: dict[str, set[str]] = {
         "catalog.curated",
         "catalog.gitnet",
         "catalog.licences",
+        "catalog.urls",  # a library added by address is named owner/repo
     },
     "catalog.selection": {"models", "collection"},
 }

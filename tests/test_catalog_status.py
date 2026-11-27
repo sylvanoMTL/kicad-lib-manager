@@ -181,7 +181,7 @@ def test_model_warnings_do_not_change_state(tmp_path):
             "fp.pretty/A.kicad_mod": '(footprint "A"\n  (model "${LIBVAR}/missing.step")\n)\n',
         },
     )
-    scan = scan_all(root, kicad_fp_dir=tmp_path / "nokicad" / "footprints", model_vars={"Lib": {"LIBVAR": str(root / "ThirdParty" / "Lib")}})
+    scan = scan_all(root, kicad_fp_dir=tmp_path / "nokicad" / "footprints", model_vars={"Lib": {"LIBVAR": ""}})
     assert any(issue.code == "scan.model_missing" for issue in scan.issues)
 
     rows = status.row_statuses(root, Manifest((_entry("Lib", vars={"LIBVAR": ""}),)), curated=())
