@@ -52,6 +52,13 @@ def scan_cache_file(repo_root: Path) -> Path:
     return Path(get_settings().fileName()).parent / "scan_cache" / f"{key}.json"
 
 
+# ── Add-on list ──────────────────────────────────────────────────────
+
+def addon_index_file() -> Path:
+    """The last copy of KiCad's add-on list: addon_index/packages-v1.json beside settings.ini, never in a collection."""
+    return Path(get_settings().fileName()).parent / "addon_index" / "packages-v1.json"
+
+
 # ── Migration draft ──────────────────────────────────────────────────
 
 def migration_draft_file(repo_root: Path) -> Path:
