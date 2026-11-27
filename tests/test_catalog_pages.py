@@ -31,7 +31,7 @@ def plan_of(src=None, *, size=68, refusals=(), kicad_open=(), gitignore="", rein
     src = src or source()
     cls = licences.licence_class(src.licence_spdx, proprietary=src.proprietary, known=src.licence_known)
     return ops.AddPlan(
-        src, src.name, ROOT / "ThirdParty" / src.id, cls, cls in SETTLED, size, 6 * size, 500, 100000,
+        src, src.name, ROOT / "ThirdParty" / src.id, cls, cls in SETTLED, size, None if size is None else 6 * size, 500, 100000,
         refusals=tuple(refusals), kicad_open=tuple(kicad_open), gitignore=gitignore, reinstall=reinstall,
         acknowledged_on=ack_on, acknowledged=acknowledged,
     )
@@ -442,6 +442,7 @@ def test_focus_goes_to_the_first_input(qtbot):
     assert url.focusWidget() is url.field()
     plan = plan_of(source("CC-BY-SA-4.0"))
     licence.show_plan(plan)
+    qtbot.wait(20)  # a widget added to a shown page is shown by a queued event
     licence.focus_first()
     assert licence.focusWidget() is licence.tick()
     licence.tick().setChecked(True)
