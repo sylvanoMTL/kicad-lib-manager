@@ -669,7 +669,7 @@ def test_catalog_page_plain_language():
     # the file name catalog.json is the one name from the record the page may use; no field names of it
     for field in ('"id"', "legacy_prefix", "licence_spdx", "acknowledged", "vars"):
         assert field not in page, field
-    assert not re.search(r"[A-Za-z]:[\\/]", page)  # no folder of anybody's computer
+    assert not re.search(r"(?<![A-Za-z])[A-Za-z]:[\\/]", page)  # no folder of anybody's computer
 
 
 def test_help_library_tree_names_catalog_sources():
@@ -748,7 +748,9 @@ def test_help_outline_numbers_follow_the_menu_order():
     assert [entry.text for entry in importing] == [f"4.4.{i} {name}" for i, name in enumerate(IMPORTING_SECTIONS, 1)]
     assert numbers["importing#conflicts"] == "4.4.7"
     assert [entry.text for entry in outline if entry.parent == "filter"] == ["5.1 How it works", "5.2 Per-source scoping"]
-    assert sum(1 for entry in outline if entry.anchor is not None) == 25 + len(help_dialog.page_sections("library_folder"))
+    assert sum(1 for entry in outline if entry.anchor is not None) == (
+        25 + len(CATALOG_SECTIONS) + len(help_dialog.page_sections("library_folder"))
+    )
     first = outline[0]
     assert (first.key, first.text, first.parent, first.page, first.anchor) == ("overview", "1 Overview", None, "overview", None)
     group = next(entry for entry in outline if entry.key == "_how_to_use")
