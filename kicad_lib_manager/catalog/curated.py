@@ -1,11 +1,23 @@
-"""The libraries the app itself offers in the catalog (Phase 17; CAT-09, CAT-10, D-22, D-28).
+"""The libraries the app itself offers in the catalog (Phase 17; CAT-09, CAT-10, D-22, D-28, D-33).
 
-D-22 sets the rule. WurthElektronik and SparkFun are required by CAT-09 and are CURATED. 4ms,
-Alternate-KiCad-Library and Espressif are only CANDIDATES: a candidate is never shown in the catalog list,
-never found by curated_by_id and never counted as curated. It becomes curated only after the owner-run
-verification of plan 17-17 passed, and plan 17-18 applies the result: a pass moves the candidate to CURATED,
-a failure moves it to REJECTED with its reason (REJECTED starts empty). A rejected library stays installable
-by its web address.
+D-22 sets the rule: a library is CURATED only after the owner-run verification passed, and a failure is
+recorded in REJECTED with its reason (a rejected library stays installable by its web address). WurthElektronik
+and SparkFun are required by CAT-09 and are CURATED. Plans 17-17 and 17-18 applied the results of the owner-run
+verification of 2026-11-27 and D-33 (KiCad's add-on list is in the catalog; KiCad's review counts as the D-22
+check for what it lists), so the list is now:
+
+- SparkFun passed (30 symbol and 21 footprint libraries, 6 3D models not found, as expected) and stays CURATED.
+- 4ms passed by web address (25 / 29 libraries, no 3D model missing, 266 on KiCad's own path variables, 325 MB
+  on disk, links PCM_Espressif, upstream). KiCad's add-on list holds it, so it is not curated: it comes from
+  that list.
+- Alternate-KiCad-Library worked (39 / 63 libraries; about 6,900 footprints with 3D models on a fixed KiCad 5.99
+  folder). KiCad's add-on list holds it with its licence CC-BY-SA, so it is not curated: it comes from that
+  list.
+- Espressif failed and is REJECTED: its 3D models point into the add-on folder of KiCad's Plugin and Content
+  Manager, which the catalog never sets, and it is not in KiCad's add-on list.
+
+CANDIDATES is empty; the Candidate type stays for the tests and for a later verification round. A candidate is
+never shown in the catalog list, never found by curated_by_id and never counted as curated.
 
 Values were measured on 2026-11-27 (plan 17 research): the size is GitHub's packed size of the repository,
 the install size is the disk the finished clone uses (the working tree plus history, rounded up with a margin:
@@ -15,7 +27,7 @@ one its README states ("released under the Creative Commons Attribution 4.0 Inte
 reports none. Wurth's terms are proprietary and are not in GitHub's licence field. legacy_prefix is the
 folder the Wurth library used to sit in, so a later conversion can find the old table entries (D-28).
 licence_url is the page that holds the licence terms (checked on GitHub on 2026-11-27, 17-17 check); it is empty
-when there is none (Espressif), and the licence page then links to the repository page instead.
+when there is none, and the licence page then links to the repository page instead.
 
 A curated variable never names a KiCad or Plugin and Content Manager variable (CAT-10); the manifest rules
 refuse those. Imports models and licences only. Qt-free.
@@ -95,47 +107,19 @@ CURATED: tuple[CuratedEntry, ...] = (
     ),
 )
 
-CANDIDATES: tuple[Candidate, ...] = (
-    Candidate(
-        id="4ms",
-        name="4ms",
-        url="https://github.com/4ms/4ms-kicad-lib.git",
-        branch="master",
-        licence_spdx="Unlicense",
-        size_mb=58,
-        vars={"KICAD_4MS_LIBS": ""},
-        research="Passed the research clone: 25 symbol and 29 footprint libraries, no 3D model missing.",
-        licence_url="https://github.com/4ms/4ms-kicad-lib/blob/master/UNLICENSE",
-    ),
-    Candidate(
-        id="Alternate-KiCad-Library",
-        name="Alternate KiCad Library",
-        url="https://github.com/DawidCislo/Alternate-KiCad-Library.git",
-        branch="main",
-        licence_spdx=None,
-        size_mb=181,
-        research=(
-            "Not downloaded yet: it is larger than the research limit. It has no 3D models of its own and "
-            "about 11,000 footprints, so the first scan is long. GitHub states no licence for it."
-        ),
-        licence_url="https://github.com/DawidCislo/Alternate-KiCad-Library#readme",
-    ),
-    Candidate(
-        id="Espressif",
-        name="Espressif",
-        url="https://github.com/espressif/kicad-libraries.git",
-        branch="main",
-        licence_spdx=None,
-        size_mb=72,
-        research=(
-            "Its 3D models use KiCad Plugin and Content Manager path variables (KICAD8_3RD_PARTY), which the "
-            "catalog never sets; expected to fail the verification."
-        ),
+# Empty since plan 17-18: 4ms and Alternate-KiCad-Library come from KiCad's add-on list (D-33), Espressif is REJECTED
+CANDIDATES: tuple[Candidate, ...] = ()
+
+# (web address, plain reason): a library that failed the owner-run verification; it stays installable by its address
+REJECTED: tuple[tuple[str, str], ...] = (
+    (
+        "https://github.com/espressif/kicad-libraries.git",
+        "Its 3D models point into the add-on folder of KiCad's Plugin and Content Manager "
+        "(KICAD8_3RD_PARTY and KICAD9_3RD_PARTY), which the catalog never sets, so its models show only when "
+        "KiCad's manager has installed it too, and it is not in KiCad's add-on list. You can still add it by "
+        "its web address.",
     ),
 )
-
-# (web address, plain reason): filled by plan 17-18 from the owner-run verification
-REJECTED: tuple[tuple[str, str], ...] = ()
 
 
 def curated_by_id(id: str) -> CuratedEntry | None:
