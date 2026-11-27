@@ -123,3 +123,80 @@ def make_third_party(root: Path, id: str, files: dict[str, str]) -> Path:
         path.write_text(text, encoding="utf-8", newline="\n")
     (folder / ".git").mkdir(parents=True, exist_ok=True)
     return folder
+
+
+def fake_net(
+    files=LIB_FILES,
+    *,
+    sha: str = "a" * 40,
+    status: str = "",
+    clone_error: str | None = None,
+    symref: tuple[str, str] = ("main", "b" * 40),
+    fetch_sha: str | None = None,
+    tree: list[str] | None = None,
+    blobs: dict[str, bytes] | None = None,
+    ls_remote: str | None = None,
+):
+    """A NetGit whose starter starts no process; return (net, calls) where calls lists every argv.
+
+    The starter reads the subcommand from argv (after the -c pairs and -C) and answers from the keywords:
+    clone writes files (path -> text) and an empty .git folder into the destination and prints two progress
+    lines (and ends as cancelled when stop() is true after a line, leaving the partial folder, like a killed
+    git; clone_error makes it fail with that stderr line and writes nothing), rev-parse gives sha (fetch_sha
+    for FETCH_HEAD), status gives the porcelain entries of status (one path per line, with the two status
+    letters), ls-remote gives symref (branch, commit) for --symref and ls_remote (default sha) for a branch,
+    fetch succeeds, ls-tree lists tree (default: the keys of files), diff-tree is empty and cat-file gives
+    blobs[path] or fails.
+    """
+    from kicad_lib_manager.catalog.gitnet import NetGit
+    from kicad_lib_manager.procs import StreamOutcome
+
+    calls: list[list[str]] = []
+    listed = list(files) if tree is None else list(tree)
+
+    def ok(stdout: bytes = b"") -> StreamOutcome:
+        return StreamOutcome(0, stdout, (), False, False)
+
+    def starter(argv, *, env=None, stop=None, timeout=None, on_line=None, capture_stdout=False):
+        calls.append(list(argv))
+        at = 2
+        while at < len(argv) and argv[at] in ("-c", "-C"):
+            at += 2
+        sub, args = argv[at], list(argv[at + 1 :])
+        if sub == "clone":
+            if clone_error is not None:
+                return StreamOutcome(128, b"", (clone_error,), False, False)
+            dest = Path(args[-1])
+            (dest / ".git").mkdir(parents=True)
+            lines = ["Receiving objects:  50% (1/2)", "Receiving objects: 100% (2/2)"]
+            for line in lines:
+                if on_line is not None:
+                    on_line(line)
+                if stop is not None and stop():
+                    return StreamOutcome(None, b"", tuple(lines), True, False)
+            for rel, text in files.items():
+                target = dest / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(text, encoding="utf-8", newline="\n")
+            return StreamOutcome(0, b"", tuple(lines), False, False)
+        if sub == "rev-parse":
+            wanted = fetch_sha or sha if any(a.startswith("FETCH_HEAD") for a in args) else sha
+            return ok(f"{wanted}\n".encode())
+        if sub == "status":
+            entries = [line for line in status.splitlines() if line]
+            return ok(("\0".join(entries) + "\0").encode() if entries else b"")
+        if sub == "ls-remote":
+            if "--symref" in args:
+                return ok(f"ref: refs/heads/{symref[0]}\tHEAD\n{symref[1]}\tHEAD\n".encode())
+            ref = args[-1]
+            return ok(f"{ls_remote or sha}\t{ref}\n".encode())
+        if sub == "ls-tree":
+            return ok(("\0".join(listed) + "\0").encode() if listed else b"")
+        if sub == "cat-file":
+            key = args[-1].partition(":")[2]
+            if blobs is not None and key in blobs:
+                return ok(blobs[key])
+            return StreamOutcome(128, b"", ("fatal: path does not exist",), False, False)
+        return ok()  # fetch, diff-tree, reset
+
+    return NetGit(exe=Path("git-under-test"), starter=starter), calls
