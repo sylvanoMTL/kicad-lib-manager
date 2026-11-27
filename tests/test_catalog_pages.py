@@ -17,7 +17,7 @@ from kicad_lib_manager.widgets import catalog_pages as cp
 from kicad_lib_manager.widgets import theme
 from kicad_lib_manager.widgets.import_result import ElidedLabel
 
-ROOT = Path("/collection")
+FAKE_COLLECTION = Path("/collection")
 SHA = "a" * 40
 SETTLED = (LicenceClass.OPEN, LicenceClass.SHARE_ALIKE, LicenceClass.PROPRIETARY)
 
@@ -31,7 +31,7 @@ def plan_of(src=None, *, size=68, refusals=(), kicad_open=(), gitignore="", rein
     src = src or source()
     cls = licences.licence_class(src.licence_spdx, proprietary=src.proprietary, known=src.licence_known)
     return ops.AddPlan(
-        src, src.name, ROOT / "ThirdParty" / src.id, cls, cls in SETTLED, size, None if size is None else 6 * size, 500, 100000,
+        src, src.name, FAKE_COLLECTION / "ThirdParty" / src.id, cls, cls in SETTLED, size, None if size is None else 6 * size, 500, 100000,
         refusals=tuple(refusals), kicad_open=tuple(kicad_open), gitignore=gitignore, reinstall=reinstall,
         acknowledged_on=ack_on, acknowledged=acknowledged,
     )
