@@ -679,3 +679,59 @@ def test_writes_stay_inside_the_collection(tmp_path):
     assert _hashes(config) == before
     assert _hashes(root / "Custom") == own_before
     assert {p.name for p in root.iterdir()} - top_before <= {"ThirdParty", "catalog.json", ".gitignore"}
+
+
+# -- the check's file count (17-21: finding 1 of the owner check) ----------------------------
+
+
+_MOD_TEXT = '(footprint "F" (layer "F.Cu"))\n'
+_SYM_TEXT = '(kicad_symbol_lib (symbol "S" (property "Reference" "U")))\n'
+
+
+def _write_tree(folder: Path, files: dict[str, str]) -> Path:
+    for rel, text in files.items():
+        target = folder / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8", newline="")
+    return folder
+
+
+def _validate(folder: Path, **kwargs):
+    from kicad_lib_manager.catalog import validate
+
+    return validate.validate_staging(folder, stock_fp=set(), stock_sym=set(), own={}, other_catalog={}, **kwargs)
+
+
+def test_check_reports_footprint_progress(tmp_path):
+    folder = _write_tree(
+        tmp_path / "d", {"L.pretty/a.kicad_mod": _MOD_TEXT, "L.pretty/b.kicad_mod": _MOD_TEXT, "M.pretty/c.kicad_mod": _MOD_TEXT}
+    )
+    counts: list[tuple[int, int]] = []
+    report = _validate(folder, progress=lambda done, total: counts.append((done, total)))
+    assert not isinstance(report, Issue), report
+    assert counts == [(1, 3), (2, 3), (3, 3)]
+
+
+def test_check_without_footprints_reports_nothing(tmp_path):
+    counts: list[tuple[int, int]] = []
+
+    def record(done, total):
+        counts.append((done, total))
+
+    symbols_only = _write_tree(tmp_path / "s", {"only.kicad_sym": _SYM_TEXT})
+    assert not isinstance(_validate(symbols_only, progress=record), Issue)
+    empty = _write_tree(tmp_path / "e", {"readme.txt": "nothing\n"})
+    assert isinstance(_validate(empty, progress=record), Issue)
+    assert counts == []
+
+
+def test_stage_add_forwards_the_check_count(tmp_path):
+    root = make_collection(tmp_path / "col")
+    plan = ops.plan_add(root, SPARKFUN, manifest.load(root), free_space=_free(5000), running=_running())
+    counts: list[tuple[int, int]] = []
+    staged = ops.stage_add(
+        root, plan, fake_net()[0], free_space=_free(5000), check_progress=lambda done, total: counts.append((done, total))
+    )
+    assert isinstance(staged, ops.Staged), staged
+    n = sum(1 for name in LIB_FILES if name.endswith(".kicad_mod"))
+    assert counts and counts[-1] == (n, n)

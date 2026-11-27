@@ -51,6 +51,8 @@ class Fakes:
         self.check_calls: list[str] = []
         self.plan_calls = 0
         self.progress = [("Receiving objects", 10), ("Receiving objects", 42)]
+        self.check_counts: list[tuple[int, int]] = []  # (files read, files in all) the check reports after the download
+        self.late_progress: list[tuple[str, int | None]] = []  # git lines that arrive after the check counts
         self.stage_started = threading.Event()
         self.stage_release = threading.Event()
         self.stage_release.set()
@@ -98,9 +100,13 @@ class Fakes:
         return self.checks.get(text, Issue(Severity.ERROR, "catalog.bad_url", "Only web addresses that start with https://github.com/ can be added."))
 
     def stage_add(self, root, plan, net, *, progress=None, cancel=None, stock_fp=frozenset(), stock_sym=frozenset(),
-                  own=None, other_catalog=None, free_space=None):
+                  own=None, other_catalog=None, free_space=None, check_progress=None):
         self.stage_calls.append(SimpleNamespace(plan=plan, stock_fp=stock_fp, stock_sym=stock_sym, own=own, other=other_catalog))
         for text, percent in self.progress:
+            progress(text, percent)
+        for done, total in self.check_counts:
+            check_progress(done, total)
+        for text, percent in self.late_progress:
             progress(text, percent)
         self.stage_started.set()
         while not self.stage_release.is_set():
@@ -325,6 +331,49 @@ def test_job_strip_steps(qtbot, tmp_path, fakes):
     qtbot.waitUntil(lambda: fakes.stage_started.is_set(), timeout=10000)
     qtbot.waitUntil(lambda: dialog._job_label.full_text() == "Checking SparkFun...", timeout=10000)
     assert dialog._job_bar.maximum() == 0
+    fakes.stage_release.set()
+    qtbot.waitUntil(lambda: dialog._page_kind == "preview", timeout=10000)
+
+
+def test_check_shows_file_count(qtbot, tmp_path, fakes):
+    fakes.stage_release.clear()
+    fakes.progress = [("Receiving objects", 100)]
+    fakes.check_counts = [(4210, 11050)]
+    fakes.late_progress = [("Receiving objects", 100)]  # a git line after a count never overwrites it
+    dialog = build(qtbot, tmp_path, fakes)
+    logs, _, _ = record(dialog)
+    open_licence(qtbot, dialog)
+    dialog._licence_page.primary_button().click()
+    qtbot.waitUntil(lambda: fakes.stage_started.is_set(), timeout=10000)
+    qtbot.wait(100)
+    assert dialog._job_label.full_text() == "Checking SparkFun... 38% (4,210 of 11,050 files)"
+    assert (dialog._job_bar.minimum(), dialog._job_bar.maximum(), dialog._job_bar.value()) == (0, 100, 38)
+    dialog._job_cancel.click()  # Cancel during the check still stops the job and deletes the download
+    assert dialog._job_label.full_text() == "Stopping..."
+    qtbot.waitUntil(lambda: bool(idle(dialog) and dialog._page_kind is None), timeout=10000)
+    assert len(fakes.discard_calls) == 1
+    assert ("info", "Stopped adding SparkFun. Nothing was added.") in logs
+
+
+def test_check_count_is_throttled(qtbot, tmp_path, fakes, monkeypatch):
+    fakes.stage_release.clear()
+    fakes.progress = [("Receiving objects", 100)]
+    fakes.check_counts = [(done, 11050) for done in range(1, 11051)]
+    dialog = build(qtbot, tmp_path, fakes)
+    received: list[tuple] = []
+    original = dialog._on_job_progress
+
+    def count(*args):
+        received.append(args)
+        return original(*args)
+
+    monkeypatch.setattr(dialog, "_on_job_progress", count)
+    open_licence(qtbot, dialog)
+    dialog._licence_page.primary_button().click()
+    qtbot.waitUntil(lambda: fakes.stage_started.is_set(), timeout=10000)
+    qtbot.wait(200)
+    assert dialog._job_label.full_text() == "Checking SparkFun... 100% (11,050 of 11,050 files)"
+    assert len(received) <= 102
     fakes.stage_release.set()
     qtbot.waitUntil(lambda: dialog._page_kind == "preview", timeout=10000)
 
