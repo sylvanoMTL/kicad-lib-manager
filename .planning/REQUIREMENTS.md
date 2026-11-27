@@ -49,10 +49,10 @@ Research: `.planning/research/SUMMARY.md` (and STACK, FEATURES, ARCHITECTURE, PI
 - [ ] **CAT-02**: User can add a curated library in one click: shallow clone with progress and Cancel, validated before it is registered, licence shown before cloning
 - [ ] **CAT-03**: User can add a library by GitHub URL; non-KiCad, KiCad 5-only, PCM-only and private repos are refused with a message saying why
 - [ ] **CAT-04**: User can update an installed library, and remove one (clone and manifest entry) after a confirmation naming what goes
-- [ ] **CAT-05**: Installed libraries are plain clones recorded in a manifest in the collection (URL, branch, commit, path variables), not git submodules; they appear in the scan and in Generate Tables
+- [x] **CAT-05**: Installed libraries are plain clones recorded in a manifest in the collection (URL, branch, commit, path variables), not git submodules; they appear in the scan and in Generate Tables
 - [ ] **CAT-06**: Path variables a library needs (e.g. `WE_3DMODEL_DIR`) are set through the old -> new confirmation, so its 3D models resolve
 - [ ] **CAT-07**: At startup the app checks installed libraries against GitHub in the background (remote commit vs local commit, no download) and flags "Update available"; it never blocks, and offline the status is unknown with no error
-- [ ] **CAT-08**: Adding a library warns about nickname collisions with KiCad stock, other catalog or `Atomic_` libraries, and never renames automatically
+- [x] **CAT-08**: Adding a library warns about nickname collisions with KiCad stock, other catalog or `Atomic_` libraries, and never renames automatically
 - [ ] **CAT-09**: Würth and SparkFun are verified end to end; Espressif, 4ms and Alternate-KiCad-Library are verified and added to the curated list if they work
 - [ ] **CAT-10**: KiCad's PCM is left alone: `PCM_` entries, the `3rdparty` folder and `installed_packages.json` are never touched
 - [ ] **CAT-11**: Network git is safe: a separate runner (https only, no hooks or credential prompts, no submodule recursion, long paths on, autocrlf off), and the commit path cannot reach the network
@@ -147,10 +147,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CAT-02 | Phase 17 | Pending |
 | CAT-03 | Phase 17 | Pending |
 | CAT-04 | Phase 17 | Pending |
-| CAT-05 | Phase 17 | Pending |
+| CAT-05 | Phase 17 | Complete |
 | CAT-06 | Phase 17 | Pending |
 | CAT-07 | Phase 17 | Pending |
-| CAT-08 | Phase 17 | Pending |
+| CAT-08 | Phase 17 | Complete |
 | CAT-09 | Phase 17 | Pending |
 | CAT-10 | Phase 17 | Pending |
 | CAT-11 | Phase 17 | Pending |

@@ -5,16 +5,16 @@ milestone_name: Public Library Manager
 current_phase: 17
 current_phase_name: Library Catalog
 status: executing
-stopped_at: Completed 17-13-PLAN.md
-last_updated: "2026-11-27T11:38:26.429Z"
+stopped_at: Completed 17-14-PLAN.md
+last_updated: "2026-11-27T12:00:16.504Z"
 last_activity: 2026-11-27
 last_activity_desc: Phase 17 execution started
-state_head: d82700c08f6dc6e2642c27b81fd3f0fd1ebd1c06
+state_head: d47147bed74cd316edf2f874cac11f91f611a57d
 progress:
   total_phases: 8
   completed_phases: 3
   total_plans: 60
-  completed_plans: 53
+  completed_plans: 54
   percent: 38
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-26)
 ## Current Position
 
 Phase: 17 (Library Catalog) — EXECUTING
-Plan: 14 of 20
+Plan: 15 of 20
 Status: Ready to execute
 Last activity: 2026-11-27 — Phase 17 execution started
 
@@ -94,6 +94,7 @@ Progress: [████░░░░░░] 38%
 | Phase 17 P11 | 18 min | 3 tasks | 3 files |
 | Phase 17 P12 | 17 min | 2 tasks | 9 files |
 | Phase 17 P13 | 22 min | 2 tasks | 5 files |
+| Phase 17 P14 | 12 min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -142,6 +143,7 @@ The full decision log is in the PROJECT.md Key Decisions table. The v1.0 per-pha
 - [Phase 17]: The planning step and the repository check run off the GUI thread as jobs; the final Add (record write) cannot be stopped, so a close during it is ignored with a strip line instead of the Stop the current job? question
 - [Phase 17]: A waiting download is deleted on the GUI thread when the window closes; job_finished carries CatalogOutcome for the add and reinstall flows only (success, stop, refusal, failure, discard)
 - [Phase 17]: Git percentage 100 switches the job strip to Checking {name}...; the Repository link on the licence page is Mono so an Add by URL address elides with its full text as tooltip
+- [Phase 17]: 17-14: the catalog source rescan runs on CatalogRescanWorker(QThread), not TaskWorker (the exit guard allows two TaskWorker calls in main_window.py); an Update ticks only libraries not in the previous scan; _select_linked_footprints is not called after a catalog job
 
 ### Pending Todos
 
@@ -187,8 +189,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-27T11:38:25.466Z
-Stopped at: Completed 17-13-PLAN.md
+Last session: 2026-11-27T12:00:15.655Z
+Stopped at: Completed 17-14-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
