@@ -5,16 +5,16 @@ milestone_name: Public Library Manager
 current_phase: 17
 current_phase_name: Library Catalog
 status: executing
-stopped_at: Completed 17-09-PLAN.md
-last_updated: "2026-11-27T10:15:34.834Z"
+stopped_at: Completed 17-10-PLAN.md
+last_updated: "2026-11-27T10:31:25.768Z"
 last_activity: 2026-11-27
 last_activity_desc: Phase 17 execution started
-state_head: df95723b92cc690d97f255a552093e98e9cc9b0c
+state_head: 08fbcb6d92b80c57c75a2c01a14a8c1b6a8df298
 progress:
   total_phases: 8
   completed_phases: 3
   total_plans: 60
-  completed_plans: 49
+  completed_plans: 50
   percent: 38
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-26)
 ## Current Position
 
 Phase: 17 (Library Catalog) — EXECUTING
-Plan: 10 of 20
+Plan: 11 of 20
 Status: Ready to execute
 Last activity: 2026-11-27 — Phase 17 execution started
 
@@ -90,6 +90,7 @@ Progress: [████░░░░░░] 38%
 | Phase 17 P07 | 14 min | 2 tasks | 8 files |
 | Phase 17 P08 | 7 min | 2 tasks | 6 files |
 | Phase 17 P09 | 20 min | 2 tasks | 4 files |
+| Phase 17 P10 | 12 min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -127,6 +128,9 @@ The full decision log is in the PROJECT.md Key Decisions table. The v1.0 per-pha
 - [Phase 17]: 17-08: importer name search covers ThirdParty/<id> clones (label '<id>:', recursive, sorted without case, staging and dot folders skipped) plus the legacy WurthElektronik folder while it exists
 - [Phase 17]: 17-08: the Wurth corpus root is ThirdParty/WurthElektronik when it exists, else the legacy folder; vendor folder name allowed only in catalog/curated.py, importer/verify.py, widgets/help_dialog.py (guard test)
 - [Phase 17]: 17-09: the Wurth conversion script rewrites the before snapshot in both root spellings, moves .git/modules/WurthElektronik (first segment of the submodule name) to the backup folder, and stages catalog.json and .gitignore in the one conversion commit made only with --apply and --message
+- [Phase 17]: 17-10: a failed Remove keeps the catalog entry (rename into .staging first, entry second, delete last)
+- [Phase 17]: 17-10: apply_update resets only to the previewed commit and recomputes the known_dirty baseline after the reset
+- [Phase 17]: 17-10: library changes of an update are compared as (kind, name) so a leaving footprint library is never hidden by a same-named symbol library
 
 ### Pending Todos
 
@@ -172,8 +176,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-27T10:15:33.942Z
-Stopped at: Completed 17-09-PLAN.md
+Last session: 2026-11-27T10:31:24.856Z
+Stopped at: Completed 17-10-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
