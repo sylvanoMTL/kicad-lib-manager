@@ -48,7 +48,7 @@ Research: `.planning/research/SUMMARY.md` (and STACK, FEATURES, ARCHITECTURE, PI
 - [ ] **CAT-01**: User can open the Library Catalog and see curated libraries with status (not installed / installed / update available / problem), licence and size
 - [ ] **CAT-02**: User can add a curated library in one click: shallow clone with progress and Cancel, validated before it is registered, licence shown before cloning
 - [ ] **CAT-03**: User can add a library by GitHub URL; non-KiCad, KiCad 5-only, PCM-only and private repos are refused with a message saying why
-- [ ] **CAT-04**: User can update an installed library, and remove one (clone and manifest entry) after a confirmation naming what goes
+- [x] **CAT-04**: User can update an installed library, and remove one (clone and manifest entry) after a confirmation naming what goes
 - [x] **CAT-05**: Installed libraries are plain clones recorded in a manifest in the collection (URL, branch, commit, path variables), not git submodules; they appear in the scan and in Generate Tables
 - [ ] **CAT-06**: Path variables a library needs (e.g. `WE_3DMODEL_DIR`) are set through the old -> new confirmation, so its 3D models resolve
 - [ ] **CAT-07**: At startup the app checks installed libraries against GitHub in the background (remote commit vs local commit, no download) and flags "Update available"; it never blocks, and offline the status is unknown with no error
@@ -146,7 +146,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CAT-01 | Phase 17 | Pending |
 | CAT-02 | Phase 17 | Pending |
 | CAT-03 | Phase 17 | Pending |
-| CAT-04 | Phase 17 | Pending |
+| CAT-04 | Phase 17 | Complete |
 | CAT-05 | Phase 17 | Complete |
 | CAT-06 | Phase 17 | Pending |
 | CAT-07 | Phase 17 | Pending |
