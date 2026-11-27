@@ -69,7 +69,7 @@ def make_window(qtbot, monkeypatch, tmp_path):
         queue = list(results)
         calls = []
 
-        def fake_scan(root, progress=None, kicad_fp_dir=None, *, skip=None, checking=None):
+        def fake_scan(root, progress=None, kicad_fp_dir=None, *, skip=None, checking=None, model_vars=None):
             calls.append((root, kicad_fp_dir))
             # A gated item reads the hooks to play the part of the real scan
             make.hooks = (skip, checking)
@@ -230,12 +230,14 @@ def test_import_action_first_in_file_menu(make_window):
     # The library folder items (Phase 15) now come first, then a separator, then Import Part...
     actions = file_menu.actions()
     start = next(i for i, action in enumerate(actions) if action.isSeparator()) + 1
-    first, second = actions[start:start + 2]
+    first, second, third = actions[start:start + 3]
     assert first.text() == "&Import Part..."
     assert first.shortcut() == QKeySequence("Ctrl+I")
     assert first.statusTip() == "Import a vendor package (.zip or folder) into Custom/"
     assert first is w._act_import
-    assert second.isSeparator()
+    # Library Catalog... (Phase 17, D-17) sits directly under Import Part..., above the separator
+    assert second is w._act_catalog
+    assert third.isSeparator()
 
 
 def test_import_action_disabled_during_scan(qtbot, make_window):

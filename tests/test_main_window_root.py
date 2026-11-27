@@ -37,7 +37,7 @@ def make_root_window(qtbot, monkeypatch, tmp_path):
     calls = []
     checks = []  # (folder, thread id) of every folder check
 
-    def fake_scan(root, progress=None, kicad_fp_dir=None, *, skip=None, checking=None):
+    def fake_scan(root, progress=None, kicad_fp_dir=None, *, skip=None, checking=None, model_vars=None):
         calls.append(Path(root))
         if make.gate is not None:
             make.gate.wait(10)

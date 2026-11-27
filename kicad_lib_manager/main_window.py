@@ -152,6 +152,20 @@ _BUSY_ATOMIC = (
     "The library folder cannot change while Check Atomic Parts is open. "
     "Close that window first."
 )
+_BUSY_CATALOG = (
+    "The library folder cannot change while the library catalog is working. "
+    "Wait for it to finish, or stop it with the cancel button in the catalog window."
+)
+_BUSY_CATALOG_DOWNLOAD = (
+    "The library folder cannot change while a downloaded library waits for your answer in the catalog window. "
+    "Press Add Library or Discard Download there first."
+)
+# The status tip of the main window's controls while the catalog works, and why the catalog window's actions wait
+_WAIT_FOR_CATALOG = "Wait for the library catalog to finish."
+_CATALOG_WAIT_SCAN = "Wait for the scan in the main window to end."
+_CATALOG_WAIT_IMPORT = "Close the import window first."
+_CATALOG_WAIT_MIGRATION = "Close the migration window first."
+_NOT_SENT = object()  # no reason has been given to the catalog window yet
 _MISMATCH_TAG = "⚠ KiCad reads a different folder"
 _CHANGE_FOLDER_TIP = "Open another library collection"
 # The KiCad path-variable question (owner test 2026-11-23): it is not part of Install Part or Generate Tables
@@ -164,6 +178,20 @@ _PATH_VAR_WOULD_CHANGE = "These KiCad path variables in KiCad's settings file wo
 _KICAD_MAY_UNDO = "KiCad may undo them when it exits. Close KiCad, then press Retry."
 _EMPTY_HEADING = "No libraries in this collection yet"
 _EMPTY_BODY = "Press Import Part... (Ctrl+I) to add your first part. It is saved in the {own} folder of {root}."
+
+
+def catalog_model_vars(root: Path) -> dict[str, dict[str, str]]:
+    """Catalog id -> {variable: folder in the clone} for the scan's check of ${VAR} 3D model paths (CAT-06, D-26).
+
+    Read on a worker thread. A catalog.json that is missing or cannot be read means no rule: {} and no exception.
+    """
+    try:
+        record = catalog_manifest.load(root)
+    except Exception:
+        return {}
+    if isinstance(record, Issue):
+        return {}
+    return {entry.id: dict(entry.vars) for entry in record.libraries}
 
 
 def _selected_count(result: ScanResult) -> int:
@@ -251,9 +279,11 @@ class ScanWorker(QThread):
                     except Exception:
                         fingerprint = None
 
+            # Read on this thread: an unreadable record means no rule, never an exception (CAT-06)
             result = scan_all(self._repo_root, progress=on_progress,
                               kicad_fp_dir=self._kicad_fp_dir,
-                              skip=self._skip_requested, checking=self.checking.emit)
+                              skip=self._skip_requested, checking=self.checking.emit,
+                              model_vars=catalog_model_vars(self._repo_root))
 
             if self._cache_file is not None:
                 # Before finished: the GUI has not yet touched the selected flags
@@ -299,7 +329,8 @@ class LibraryRescanWorker(QThread):
                 except Exception:
                     entries = None
             outcome = rescan_library(
-                self._repo_root, self._previous, self._kind, self._rel_path, self._kicad_fp_dir
+                self._repo_root, self._previous, self._kind, self._rel_path, self._kicad_fp_dir,
+                model_vars=catalog_model_vars(self._repo_root),
             )
             if isinstance(outcome, Issue):
                 self.note.emit(outcome)
@@ -416,6 +447,9 @@ class MainWindow(QMainWindow):
         self._catalog_check_seq = 0
         self._catalog_check_due = True  # armed by a start and by a folder switch, consumed after that folder's scan
         self._close_after_catalog = False  # the catalog keeps a job running: close this window when it ends
+        self._scan_running = False  # set by _set_scan_running
+        self._catalog_block_sent = _NOT_SENT  # the reason last given to the catalog window's set_blocked
+        self._saved_tips: dict = {}  # control -> (tooltip, status tip) while the catalog replaces them
         self.setAcceptDrops(True)
         self._build_menu()
         self._build_ui()
@@ -886,6 +920,13 @@ class MainWindow(QMainWindow):
             return _BUSY_KICAD
         if self._atomic_dialog is not None:
             return _BUSY_ATOMIC
+        # An idle catalog window never blocks a switch (D-16)
+        catalog = self._catalog
+        if catalog is not None:
+            if catalog.is_job_running() or catalog.is_finishing():
+                return _BUSY_CATALOG
+            if catalog.holds_download():
+                return _BUSY_CATALOG_DOWNLOAD
         return None
 
     def _refuse_switch(self, text: str):
@@ -1179,21 +1220,48 @@ class MainWindow(QMainWindow):
 
     def _set_scan_running(self, running: bool):
         """Disable the controls that must not act while a scan is in flight."""
+        self._scan_running = running
+        self._refresh_busy_controls()
+        self._refresh_library_actions(running)
+        self._refresh_catalog_block()
+
+    def _refresh_busy_controls(self):
+        """Enable the controls that must not act while a scan runs or the catalog works on the collection.
+
+        The one list: a scan disables all of them, a catalog job (or its finishing) only Rescan, Generate Tables,
+        Import Part and Migrate, with the status tip "Wait for the library catalog to finish." (RESEARCH Pitfall 10).
+        """
+        scan = self._scan_running
+        catalog = self._catalog_busy()
+        catalog_gated = (
+            self._rescan_btn, self._act_rescan, self._act_generate, self._generate_btn,
+            self._act_import, self._import_btn,
+        )
         for control in (
             self._rescan_btn, self._act_rescan, self._act_set_kicad_path,
             self._act_generate, self._generate_btn, self._act_import,
             self._import_btn, self._select_all_btn, self._deselect_all_btn,
             self._act_check_atomic, self._act_setup_chooser,
         ):
-            control.setEnabled(not running)
-        self._tree.set_library_rescan_enabled(not running)
-        self._refresh_library_actions(running)
+            waiting = catalog and any(control is gated for gated in catalog_gated)
+            control.setEnabled(not scan and not waiting)
+        self._tree.set_library_rescan_enabled(not scan and not catalog)
+        for control in catalog_gated:
+            if catalog:
+                self._saved_tips.setdefault(control, (control.toolTip(), control.statusTip()))
+                control.setToolTip(_WAIT_FOR_CATALOG)
+                control.setStatusTip(_WAIT_FOR_CATALOG)
+            else:
+                saved = self._saved_tips.pop(control, None)
+                if saved is not None:
+                    control.setToolTip(saved[0])
+                    control.setStatusTip(saved[1])
         # Migrate's enabled state also depends on migration_reason(), not just the scan
         # state, so it is refreshed rather than blanket-enabled (D-13)
-        if running:
-            self._act_migrate.setEnabled(False)
-        else:
+        if catalog or not scan:
             self._refresh_migrate_action()
+        if scan:
+            self._act_migrate.setEnabled(False)
 
     def _refresh_migrate_action(self):
         """Enable Migrate exactly when Custom still has something to migrate (D-13).
@@ -1202,6 +1270,11 @@ class MainWindow(QMainWindow):
         of _finish_scan in case that start a fresh scan for a reason of its own) so the
         menu always reflects the Custom folder as it stands after the last scan.
         """
+        if self._catalog_busy():
+            self._act_migrate.setEnabled(False)
+            self._act_migrate.setToolTip(_WAIT_FOR_CATALOG)
+            self._act_migrate.setStatusTip(_WAIT_FOR_CATALOG)
+            return
         reason = migration_reason(RepoLayout.for_repo(self._root))
         if reason is None:
             self._act_migrate.setEnabled(False)
@@ -1373,7 +1446,9 @@ class MainWindow(QMainWindow):
         self._offer_vars_after_scan = False
         if self._path_var_busy:
             return
-        if would_change_path_vars(self._root, config_base=CHECKOUT_CONFIG_BASE):
+        if would_change_path_vars(
+            self._root, config_base=CHECKOUT_CONFIG_BASE, extra_vars=self._catalog_vars()
+        ):
             self._offer_from_switch = True
             self._sync_path_vars()
 
@@ -1629,6 +1704,7 @@ class MainWindow(QMainWindow):
         """
         pending, self._pending_post_install = self._pending_post_install, None
         self._refresh_library_actions()
+        self._refresh_catalog_block()
         if pending is None:
             return
         library = pending.library
@@ -1827,6 +1903,9 @@ class MainWindow(QMainWindow):
             return
         if self._import_busy():
             return
+        if self._catalog_busy():
+            self._log.log(_WAIT_FOR_CATALOG, "info")
+            return
         dialog = ImportDialog(
             self._root,
             RepoLayout.for_repo(self._root),
@@ -1845,6 +1924,7 @@ class MainWindow(QMainWindow):
         dialog.leave_cancelled.connect(self._on_dialog_leave_cancelled)
         self._import_dialog = dialog
         self._refresh_library_actions()
+        self._refresh_catalog_block()
         dialog.open()
 
     def _on_dialog_leave_cancelled(self):
@@ -1856,6 +1936,7 @@ class MainWindow(QMainWindow):
         if dialog is not None:
             dialog.deleteLater()
         self._refresh_library_actions()
+        self._refresh_catalog_block()
         if self._close_after_dialog:
             self._close_after_dialog = False
             QTimer.singleShot(0, self.close)
@@ -1909,6 +1990,9 @@ class MainWindow(QMainWindow):
         if self._import_dialog is not None:
             self._log.log("Close the import window before migrating.", "info")
             return
+        if self._catalog_busy():
+            self._log.log(_WAIT_FOR_CATALOG, "info")
+            return
         if self._migration_dialog is not None:
             self._migration_dialog.raise_()
             self._migration_dialog.activateWindow()
@@ -1928,6 +2012,7 @@ class MainWindow(QMainWindow):
         dialog.finished.connect(self._on_migration_dialog_finished)
         self._migration_dialog = dialog
         self._refresh_library_actions()
+        self._refresh_catalog_block()
         dialog.set_destination(self._dest_combo.currentText().strip())
         dialog.open()
 
@@ -1954,6 +2039,7 @@ class MainWindow(QMainWindow):
             dialog.deleteLater()
         self._refresh_migrate_action()
         self._refresh_library_actions()
+        self._refresh_catalog_block()
         if self._close_after_migration:
             self._close_after_migration = False
             QTimer.singleShot(0, self.close)
@@ -2161,6 +2247,7 @@ class MainWindow(QMainWindow):
             self._root,
             running=lambda: names,
             confirm=lambda changes: self._confirm_path_var_changes(changes, names),
+            extra_vars=self._catalog_vars(),
         )
         self._log_issues(issues)
         if any(issue.code == "config.retry" for issue in issues):
@@ -2473,6 +2560,8 @@ class MainWindow(QMainWindow):
                 dialog.apply_update_states(self._catalog_states)
             if self._catalog_check is not None:
                 dialog.set_check_running(True)
+            self._catalog_block_sent = _NOT_SENT
+            self._refresh_catalog_block()
         return self._catalog
 
     def _open_catalog(self):
@@ -2609,6 +2698,30 @@ class MainWindow(QMainWindow):
         self._act_catalog.setToolTip(tip)
         self._act_catalog.setStatusTip(tip)
 
+    def _catalog_vars(self) -> dict[str, str]:
+        """The catalog libraries' KiCad path variables (VAR -> folder) for the path-variable question (CAT-06)."""
+        record = catalog_manifest.load(self._root)
+        if isinstance(record, Issue):
+            return {}
+        return catalog_manifest.path_vars(self._root, record.libraries) or {}
+
+    def _refresh_catalog_block(self):
+        """Tell the catalog window why its actions wait: a scan, the import window or the migration window (D-16)."""
+        dialog = self._catalog
+        if dialog is None:
+            return
+        if self._scan_running:
+            reason = _CATALOG_WAIT_SCAN
+        elif self._import_dialog is not None or self._pending_post_install is not None:
+            reason = _CATALOG_WAIT_IMPORT
+        elif self._migration_dialog is not None or self._pending_migration:
+            reason = _CATALOG_WAIT_MIGRATION
+        else:
+            reason = None
+        if reason != self._catalog_block_sent:
+            self._catalog_block_sent = reason
+            dialog.set_blocked(reason)
+
     def _catalog_busy(self) -> bool:
         """True while a catalog job runs or its last change is being finished (the folder is not stable)."""
         dialog = self._catalog
@@ -2617,10 +2730,12 @@ class MainWindow(QMainWindow):
     def _on_catalog_job_finished(self, _outcome):
         """An Add, Update, Remove or Reinstall ended: recount the updates (plan 17-14 adds the rescan after it)."""
         self._refresh_catalog_action()
+        self._refresh_busy_controls()
         self._refresh_library_actions()
         self._maybe_close_after_catalog()
 
     def _on_catalog_busy_changed(self):
+        self._refresh_busy_controls()
         self._refresh_library_actions()
         self._maybe_close_after_catalog()
 
@@ -2676,6 +2791,15 @@ class MainWindow(QMainWindow):
         about.exec()
 
     def closeEvent(self, event: QCloseEvent):
+        # The catalog keeps a job or is finishing its change: it closes through its own rules (its question, Keep
+        # Working or Stop and Close); this window stays until the job has ended, then closes by itself (D-16)
+        catalog = self._catalog
+        if catalog is not None and (catalog.is_job_running() or catalog.is_finishing()):
+            catalog.close()
+            if catalog.isVisible() or catalog.is_job_running() or catalog.is_finishing():
+                self._close_after_catalog = True
+                event.ignore()
+                return
         # An install or a git job cannot be interrupted: the window stays until it ends
         # (D-07, D-10, T-05-33, T-06-24)
         dialog = self._import_dialog
@@ -2734,6 +2858,11 @@ class MainWindow(QMainWindow):
             task.cancel()
         if self._dest_check is not None:
             self._dest_check.cancel()
+        # An update check still asking GitHub is ended through its cancel event (its git process with it), never
+        # waited for (T-17-34); the catalog window is closed like the User Guide
+        self._stop_catalog_check()
+        if self._catalog is not None:
+            self._catalog.close()
         # A visible parentless window would keep the app running after this one closes
         if self._guide is not None:
             self._guide.close()
