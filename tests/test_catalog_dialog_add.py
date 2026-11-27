@@ -197,7 +197,7 @@ def build(qtbot, tmp_path, fakes, *, entries=(), folders=(), **overrides):
     qtbot.addWidget(dialog)
     dialog.show()
     qtbot.waitExposed(dialog)
-    qtbot.waitUntil(lambda: dialog._net_status is not None and dialog._vars_read, timeout=10000)
+    qtbot.waitUntil(lambda: bool(dialog._net_status is not None and dialog._vars_read), timeout=10000)
     return dialog
 
 
@@ -229,7 +229,7 @@ def open_licence(qtbot, dialog, name="SparkFun"):
     select(dialog, name)
     button = dialog._reinstall_btn if by_name(dialog)[name].text(1).startswith("✖") else dialog._add_btn
     button.click()
-    qtbot.waitUntil(lambda: dialog._page_kind == "licence", timeout=10000)
+    qtbot.waitUntil(lambda: bool(dialog._page_kind == "licence"), timeout=10000)
 
 
 def to_preview(qtbot, dialog, fakes, name="SparkFun"):
@@ -238,7 +238,7 @@ def to_preview(qtbot, dialog, fakes, name="SparkFun"):
     if page.tick() is not None:
         page.tick().setChecked(True)
     page.primary_button().click()
-    qtbot.waitUntil(lambda: dialog._page_kind == "preview", timeout=10000)
+    qtbot.waitUntil(lambda: bool(dialog._page_kind == "preview"), timeout=10000)
 
 
 def idle(dialog):
@@ -256,13 +256,13 @@ def test_curated_add_three_presses(qtbot, tmp_path, fakes):
     assert dialog._add_btn.text() == "Add This Library" and not dialog._add_btn.isHidden()
     assert dialog._reinstall_btn.isHidden()
     dialog._add_btn.click()  # press 1: the licence page, nothing is written
-    qtbot.waitUntil(lambda: dialog._page_kind == "licence", timeout=10000)
+    qtbot.waitUntil(lambda: bool(dialog._page_kind == "licence"), timeout=10000)
     assert dialog._licence_page.heading_text() == "Add SparkFun"
     assert fakes.stage_calls == [] and not (Path(dialog._root) / "ThirdParty" / "SparkFun").exists()
     assert dialog._pages.currentWidget() is dialog._licence_page
 
     dialog._licence_page.primary_button().click()  # press 2: the download
-    qtbot.waitUntil(lambda: dialog._job_label.full_text() == "Downloading SparkFun... 42%", timeout=10000)
+    qtbot.waitUntil(lambda: bool(dialog._job_label.full_text() == "Downloading SparkFun... 42%"), timeout=10000)
     assert dialog._job_strip.isVisibleTo(dialog) and dialog.is_job_running()
     assert (dialog._job_bar.minimum(), dialog._job_bar.maximum(), dialog._job_bar.value()) == (0, 100, 42)
     assert dialog._job_bar.width() == 240 and dialog._job_bar.accessibleName() == "Progress of adding SparkFun"
@@ -271,7 +271,7 @@ def test_curated_add_three_presses(qtbot, tmp_path, fakes):
     assert not dialog._licence_page.primary_button().isEnabled() and not dialog._licence_page.back_button().isEnabled()
     assert fakes.stage_calls[0].stock_fp == frozenset({"Device"}) and fakes.stage_calls[0].stock_sym == frozenset({"Device"})
     fakes.stage_release.set()
-    qtbot.waitUntil(lambda: dialog._page_kind == "preview", timeout=10000)
+    qtbot.waitUntil(lambda: bool(dialog._page_kind == "preview"), timeout=10000)
     assert dialog.holds_download() and idle(dialog) and dialog._job_strip.isHidden()
     preview = dialog._preview_page
     assert preview.heading_text() == "Add SparkFun" and preview.primary_button().text() == "Add Library"
@@ -281,11 +281,11 @@ def test_curated_add_three_presses(qtbot, tmp_path, fakes):
 
     fakes.register_release.clear()
     preview.primary_button().click()  # press 3: Add Library
-    qtbot.waitUntil(lambda: fakes.register_started.is_set(), timeout=10000)
+    qtbot.waitUntil(lambda: bool(fakes.register_started.is_set()), timeout=10000)
     assert dialog._job_label.full_text() == "Adding SparkFun..." and dialog._job_bar.maximum() == 0
     assert not preview.primary_button().isEnabled() and not preview.back_button().isEnabled()
     fakes.register_release.set()
-    qtbot.waitUntil(lambda: dialog._page_kind is None and idle(dialog), timeout=10000)
+    qtbot.waitUntil(lambda: bool(dialog._page_kind is None and idle(dialog)), timeout=10000)
 
     assert dialog._pages.currentWidget() is dialog._details_page
     assert by_name(dialog)["SparkFun"].text(1) == "✓ Installed"
@@ -305,6 +305,30 @@ def test_curated_add_three_presses(qtbot, tmp_path, fakes):
     assert not dialog.holds_download()
 
 
+def test_job_strip_steps(qtbot, tmp_path, fakes):
+    fakes.stage_release.clear()
+    dialog = build(qtbot, tmp_path, fakes)
+    open_licence(qtbot, dialog)
+    fakes.progress = [("Counting objects", None)]
+    dialog._licence_page.primary_button().click()
+    qtbot.waitUntil(lambda: fakes.stage_started.is_set(), timeout=10000)
+    assert dialog._job_label.full_text() == "Downloading SparkFun..." and dialog._job_bar.maximum() == 0
+    fakes.stage_release.set()
+    qtbot.waitUntil(lambda: dialog._page_kind == "preview", timeout=10000)
+    dialog._preview_page.back_button().click()
+    qtbot.waitUntil(lambda: dialog._page_kind is None and idle(dialog), timeout=10000)
+    fakes.stage_release.clear()
+    fakes.stage_started.clear()
+    fakes.progress = [("Receiving objects", 100)]  # the download is complete: its files are being checked
+    open_licence(qtbot, dialog)
+    dialog._licence_page.primary_button().click()
+    qtbot.waitUntil(lambda: fakes.stage_started.is_set(), timeout=10000)
+    qtbot.waitUntil(lambda: dialog._job_label.full_text() == "Checking SparkFun...", timeout=10000)
+    assert dialog._job_bar.maximum() == 0
+    fakes.stage_release.set()
+    qtbot.waitUntil(lambda: dialog._page_kind == "preview", timeout=10000)
+
+
 def test_clashes_are_reported_in_the_result_and_the_log(qtbot, tmp_path, fakes):
     fakes.collisions = (validate.Collision("Device", "Symbol", "a KiCad library"), validate.Collision("Acme_F", "Footprint", "your Custom libraries"))
     dialog = build(qtbot, tmp_path, fakes)
@@ -312,7 +336,7 @@ def test_clashes_are_reported_in_the_result_and_the_log(qtbot, tmp_path, fakes):
     to_preview(qtbot, dialog, fakes)
     assert dialog._preview_page.clash_list().row_count() == 2
     dialog._preview_page.primary_button().click()
-    qtbot.waitUntil(lambda: dialog._page_kind is None and idle(dialog) and outcomes, timeout=10000)
+    qtbot.waitUntil(lambda: bool(dialog._page_kind is None and idle(dialog) and outcomes), timeout=10000)
     result = [label.text() for label in dialog._result_strip.findChildren(QLabel) if label.objectName() == "resultLine"]
     assert result == [
         "✓ Added SparkFun: 2 symbol libraries and 1 footprint libraries are in your scan.",
@@ -340,7 +364,7 @@ def test_the_nickname_maps_come_from_the_last_scan(qtbot, tmp_path, fakes):
 
 def test_proprietary_tick_gates_download(qtbot, tmp_path, fakes):
     dialog = build(qtbot, tmp_path, fakes)
-    open_licence(qtbot, dialog, "WurthElektronik")
+    open_licence(qtbot, dialog, WURTH.name)
     page = dialog._licence_page
     assert page.tick() is not None and not page.tick().isChecked()
     assert not page.primary_button().isEnabled()
@@ -350,10 +374,10 @@ def test_proprietary_tick_gates_download(qtbot, tmp_path, fakes):
     assert fakes.stage_calls == [] and dialog._page_kind == "licence"
     page.tick().setChecked(True)
     page.primary_button().click()
-    qtbot.waitUntil(lambda: dialog._page_kind == "preview", timeout=10000)
+    qtbot.waitUntil(lambda: bool(dialog._page_kind == "preview"), timeout=10000)
     assert dialog._preview_page.tick() is None  # asked once, on the page where the licence is known
     dialog._preview_page.primary_button().click()
-    qtbot.waitUntil(lambda: fakes.register_calls and dialog._page_kind is None, timeout=10000)
+    qtbot.waitUntil(lambda: bool(fakes.register_calls and dialog._page_kind is None), timeout=10000)
     assert fakes.register_calls[0].acknowledged is True
 
 
@@ -368,19 +392,19 @@ def test_unknown_licence_tick_on_preview(qtbot, tmp_path, fakes):
     fakes.checks["https://github.com/acme/parts"] = checked_repo(spdx=None)
     dialog = build(qtbot, tmp_path, fakes)
     dialog._add_url_btn.click()
-    qtbot.waitUntil(lambda: dialog._page_kind == "url", timeout=5000)
+    qtbot.waitUntil(lambda: bool(dialog._page_kind == "url"), timeout=5000)
     dialog._url_page.field().setText("https://github.com/acme/parts")
     dialog._url_page.primary_button().click()
-    qtbot.waitUntil(lambda: dialog._page_kind == "licence", timeout=10000)
+    qtbot.waitUntil(lambda: bool(dialog._page_kind == "licence"), timeout=10000)
     assert dialog._licence_page.tick() is None and dialog._licence_page.primary_button().isEnabled()
     dialog._licence_page.primary_button().click()
-    qtbot.waitUntil(lambda: dialog._page_kind == "preview", timeout=10000)
+    qtbot.waitUntil(lambda: bool(dialog._page_kind == "preview"), timeout=10000)
     preview = dialog._preview_page
     assert preview.licence_box() is not None and "Some licence text." in preview.licence_box().toPlainText()
     assert not preview.primary_button().isEnabled()
     preview.tick().setChecked(True)
     preview.primary_button().click()
-    qtbot.waitUntil(lambda: fakes.register_calls and dialog._page_kind is None and idle(dialog), timeout=10000)
+    qtbot.waitUntil(lambda: bool(fakes.register_calls and dialog._page_kind is None and idle(dialog)), timeout=10000)
     assert fakes.register_calls[0].acknowledged is True
 
 
@@ -396,7 +420,7 @@ def test_add_by_url_flow(qtbot, tmp_path, fakes):
     select(dialog, "SparkFun")
     assert dialog._add_url_btn.isEnabled()
     dialog._add_url_btn.click()
-    qtbot.waitUntil(lambda: dialog._page_kind == "url", timeout=5000)
+    qtbot.waitUntil(lambda: bool(dialog._page_kind == "url"), timeout=5000)
     page = dialog._url_page
     assert dialog._tree.selectedItems() == [] and not dialog._tree.isEnabled()
     assert dialog._pages.currentWidget() is page
@@ -408,15 +432,15 @@ def test_add_by_url_flow(qtbot, tmp_path, fakes):
     assert fakes.check_calls == []  # an empty address never runs a check
     page.field().setText("https://example.com/nope")
     qtbot.keyClick(page.field(), Qt.Key.Key_Return)  # Enter presses Check Repository
-    qtbot.waitUntil(lambda: page.refusal_texts() and idle(dialog), timeout=10000)
+    qtbot.waitUntil(lambda: bool(page.refusal_texts() and idle(dialog)), timeout=10000)
     assert page.refusal_texts() == ["✖ Only web addresses that start with https://github.com/ can be added."]
     assert page.field().isEnabled() and page.field().text() == "https://example.com/nope"
     page.field().setText("https://github.com/acme/known")
     page.primary_button().click()
-    qtbot.waitUntil(lambda: page.refusal_texts() == ["✖ This library is already in your catalog as SparkFun. Select it in the list."], timeout=10000)
+    qtbot.waitUntil(lambda: bool(page.refusal_texts() == ["✖ This library is already in your catalog as SparkFun. Select it in the list."]), timeout=10000)
     page.field().setText("https://github.com/acme/parts.git")
     page.primary_button().click()
-    qtbot.waitUntil(lambda: dialog._page_kind == "licence", timeout=10000)
+    qtbot.waitUntil(lambda: bool(dialog._page_kind == "licence"), timeout=10000)
     licence = dialog._licence_page
     assert licence.heading_text() == "Add acme/parts"
     assert licence.findChild(cd.catalog_pages.LinkLabel).url() == "https://github.com/acme/parts"
@@ -436,7 +460,7 @@ def test_a_failed_check_is_a_refusal_row_and_a_step_failure_is_logged(qtbot, tmp
     dialog._add_url_btn.click()
     dialog._url_page.field().setText("https://github.com/acme/parts")
     dialog._url_page.primary_button().click()
-    qtbot.waitUntil(lambda: dialog._url_page.refusal_texts() and idle(dialog), timeout=10000)
+    qtbot.waitUntil(lambda: bool(dialog._url_page.refusal_texts() and idle(dialog)), timeout=10000)
     assert ("error", "Library catalog step failed: RuntimeError: kaput") in logs
     assert dialog._url_page.field().isEnabled() and dialog._page_kind == "url"
 
@@ -448,13 +472,13 @@ def test_cancel_check_returns_to_the_address_page(qtbot, tmp_path, fakes):
     dialog._add_url_btn.click()
     dialog._url_page.field().setText("https://github.com/acme/parts")
     dialog._url_page.primary_button().click()
-    qtbot.waitUntil(lambda: fakes.check_started.is_set(), timeout=10000)
+    qtbot.waitUntil(lambda: bool(fakes.check_started.is_set()), timeout=10000)
     assert dialog._job_label.full_text() == "Checking the repository..." and dialog._job_bar.maximum() == 0
     assert dialog._job_cancel.text() == "Cancel Check"
     assert not dialog._url_page.field().isEnabled() and not dialog._url_page.primary_button().isEnabled()
     dialog._job_cancel.click()
     assert dialog._job_label.full_text() == "Stopping..." and not dialog._job_cancel.isEnabled()
-    qtbot.waitUntil(lambda: idle(dialog), timeout=10000)
+    qtbot.waitUntil(lambda: bool(idle(dialog)), timeout=10000)
     assert dialog._page_kind == "url" and dialog._url_page.field().isEnabled() and dialog._url_page.refusal_texts() == []
     assert logs == []
 
@@ -466,9 +490,9 @@ def test_zero_libraries_ends_on_the_refusal_page(qtbot, tmp_path, fakes):
     dialog._add_url_btn.click()
     dialog._url_page.field().setText("https://github.com/acme/parts")
     dialog._url_page.primary_button().click()
-    qtbot.waitUntil(lambda: dialog._page_kind == "licence", timeout=10000)
+    qtbot.waitUntil(lambda: bool(dialog._page_kind == "licence"), timeout=10000)
     dialog._licence_page.primary_button().click()
-    qtbot.waitUntil(lambda: dialog._page_kind == "preview" and dialog._preview_page.is_refusal(), timeout=10000)
+    qtbot.waitUntil(lambda: bool(dialog._page_kind == "preview" and dialog._preview_page.is_refusal()), timeout=10000)
     assert "✖ This repository holds no KiCad symbol or footprint libraries, so there is nothing to add." in texts(dialog._preview_page)
     assert dialog._preview_page.primary_button().isHidden()
 
@@ -482,10 +506,10 @@ def test_cancel_adding(qtbot, tmp_path, fakes):
     logs, outcomes, busy = record(dialog)
     open_licence(qtbot, dialog)
     dialog._licence_page.primary_button().click()
-    qtbot.waitUntil(lambda: fakes.stage_started.is_set() and dialog._job_label.full_text().endswith("42%"), timeout=10000)
+    qtbot.waitUntil(lambda: bool(fakes.stage_started.is_set() and dialog._job_label.full_text().endswith("42%")), timeout=10000)
     dialog._job_cancel.click()
     assert dialog._job_label.full_text() == "Stopping..." and not dialog._job_cancel.isEnabled()
-    qtbot.waitUntil(lambda: idle(dialog) and dialog._page_kind is None, timeout=10000)
+    qtbot.waitUntil(lambda: bool(idle(dialog) and dialog._page_kind is None), timeout=10000)
     assert len(fakes.discard_calls) == 1  # a download that finished as Cancel was pressed is deleted
     assert ("info", "Stopped adding SparkFun. Nothing was added.") in logs
     assert dialog._pages.currentWidget() is dialog._details_page and dialog._tree.isEnabled()
@@ -503,7 +527,7 @@ def test_refusal_after_download_and_try_again(qtbot, tmp_path, fakes):
     logs, outcomes, _ = record(dialog)
     open_licence(qtbot, dialog)
     dialog._licence_page.primary_button().click()
-    qtbot.waitUntil(lambda: dialog._page_kind == "preview" and idle(dialog), timeout=10000)
+    qtbot.waitUntil(lambda: bool(dialog._page_kind == "preview" and idle(dialog)), timeout=10000)
     page = dialog._preview_page
     assert page.is_refusal() and "✖ " + lfs.text in texts(page)
     assert "Nothing was added. The downloaded copy was deleted." in texts(page)
@@ -515,10 +539,10 @@ def test_refusal_after_download_and_try_again(qtbot, tmp_path, fakes):
 
     open_licence(qtbot, dialog)
     dialog._licence_page.primary_button().click()
-    qtbot.waitUntil(lambda: dialog._page_kind == "preview" and idle(dialog) and page.primary_button().text() == "Try Again", timeout=10000)
+    qtbot.waitUntil(lambda: bool(dialog._page_kind == "preview" and idle(dialog) and page.primary_button().text() == "Try Again"), timeout=10000)
     assert not page.primary_button().isHidden() and "✖ " + failed.text in texts(page)
     page.primary_button().click()  # Try Again downloads again; the third answer is the real preview
-    qtbot.waitUntil(lambda: dialog.holds_download(), timeout=10000)
+    qtbot.waitUntil(lambda: bool(dialog.holds_download()), timeout=10000)
     assert len(fakes.stage_calls) == 3 and page.primary_button().text() == "Add Library"
     assert all(not outcome.ok for outcome in outcomes) and len(outcomes) == 2
 
@@ -529,7 +553,7 @@ def test_register_failure_keeps_the_preview_and_the_download(qtbot, tmp_path, fa
     logs, _, _ = record(dialog)
     to_preview(qtbot, dialog, fakes)
     dialog._preview_page.primary_button().click()
-    qtbot.waitUntil(lambda: idle(dialog) and logs, timeout=10000)
+    qtbot.waitUntil(lambda: bool(idle(dialog) and logs), timeout=10000)
     assert ("error", "Could not add SparkFun: The record could not be written.") in logs
     assert dialog._page_kind == "preview" and dialog.holds_download()
     assert "✖ The record could not be written." in texts(dialog._preview_page)
@@ -542,7 +566,7 @@ def test_discard_download(qtbot, tmp_path, fakes):
     to_preview(qtbot, dialog, fakes)
     assert dialog._preview_page.back_button().text() == "Discard Download"
     dialog._preview_page.back_button().click()
-    qtbot.waitUntil(lambda: dialog._page_kind is None and idle(dialog), timeout=10000)
+    qtbot.waitUntil(lambda: bool(dialog._page_kind is None and idle(dialog)), timeout=10000)
     assert len(fakes.discard_calls) == 1 and not dialog.holds_download()
     assert ("info", "Discarded the download of SparkFun. Nothing was added.") in logs
     assert outcomes and outcomes[-1].ok is False and fakes.register_calls == []
@@ -559,18 +583,18 @@ def test_reinstall_flow(qtbot, tmp_path, fakes):
     assert dialog._reinstall_btn.text() == "Reinstall This Library" and not dialog._reinstall_btn.isHidden()
     assert dialog._add_btn.isHidden()
     dialog._reinstall_btn.click()
-    qtbot.waitUntil(lambda: dialog._page_kind == "licence", timeout=10000)
+    qtbot.waitUntil(lambda: bool(dialog._page_kind == "licence"), timeout=10000)
     page = dialog._licence_page
     assert page.heading_text() == "Reinstall SparkFun"
     assert "You confirmed the licence terms on 2026-11-20." in texts(page) and page.tick() is None
     assert "main" in texts(page)
     page.primary_button().click()
-    qtbot.waitUntil(lambda: dialog._page_kind == "preview", timeout=10000)
+    qtbot.waitUntil(lambda: bool(dialog._page_kind == "preview"), timeout=10000)
     preview = dialog._preview_page
     assert preview.heading_text() == "Reinstall SparkFun" and preview.primary_button().text() == "Reinstall Library"
     assert [path for path, _ in preview.what_rows()] == [(Path(dialog._root) / "ThirdParty" / "SparkFun").as_posix() + "/"]
     preview.primary_button().click()
-    qtbot.waitUntil(lambda: outcomes and idle(dialog), timeout=10000)
+    qtbot.waitUntil(lambda: bool(outcomes and idle(dialog)), timeout=10000)
     assert ("success", "Reinstalled SparkFun: 2 symbol libraries, 1 footprint libraries.") in logs
     result = [label.text() for label in dialog._result_strip.findChildren(QLabel) if label.objectName() == "resultLine"]
     assert result == ["✓ Reinstalled SparkFun: 2 symbol libraries and 1 footprint libraries are in your scan."]
@@ -583,10 +607,10 @@ def test_reinstall_cancel_text(qtbot, tmp_path, fakes):
     logs, _, _ = record(dialog)
     open_licence(qtbot, dialog)
     dialog._licence_page.primary_button().click()
-    qtbot.waitUntil(lambda: dialog._job_label.full_text() == "Downloading SparkFun again... 42%", timeout=10000)
+    qtbot.waitUntil(lambda: bool(dialog._job_label.full_text() == "Downloading SparkFun again... 42%"), timeout=10000)
     assert dialog._job_cancel.text() == "Cancel Reinstalling"
     dialog._job_cancel.click()
-    qtbot.waitUntil(lambda: idle(dialog), timeout=10000)
+    qtbot.waitUntil(lambda: bool(idle(dialog)), timeout=10000)
     assert ("info", "Stopped reinstalling SparkFun. Nothing was added.") in logs
 
 
@@ -614,7 +638,7 @@ def test_close_question_keep_working_and_stop(qtbot, tmp_path, fakes, monkeypatc
     logs, _, _ = record(dialog)
     open_licence(qtbot, dialog)
     dialog._licence_page.primary_button().click()
-    qtbot.waitUntil(lambda: fakes.stage_started.is_set(), timeout=10000)
+    qtbot.waitUntil(lambda: bool(fakes.stage_started.is_set()), timeout=10000)
 
     seen = answer(monkeypatch, "Keep Working")
     dialog.close()
@@ -631,7 +655,7 @@ def test_close_question_keep_working_and_stop(qtbot, tmp_path, fakes, monkeypatc
 
     answer(monkeypatch, "Stop and Close")
     dialog.close()
-    qtbot.waitUntil(lambda: not dialog.isVisible(), timeout=10000)
+    qtbot.waitUntil(lambda: bool(not dialog.isVisible()), timeout=10000)
     assert idle(dialog) and ("info", "Stopped adding SparkFun. Nothing was added.") in logs
     assert len(fakes.discard_calls) == 1 and dialog._page_kind is None
 
@@ -641,11 +665,11 @@ def test_close_question_when_the_job_ended_first(qtbot, tmp_path, fakes, monkeyp
     dialog = build(qtbot, tmp_path, fakes)
     open_licence(qtbot, dialog)
     dialog._licence_page.primary_button().click()
-    qtbot.waitUntil(lambda: fakes.stage_started.is_set(), timeout=10000)
+    qtbot.waitUntil(lambda: bool(fakes.stage_started.is_set()), timeout=10000)
 
     def fake_exec(self):
         fakes.stage_release.set()  # the download ends while the question is open
-        qtbot.waitUntil(lambda: dialog.holds_download(), timeout=10000)
+        qtbot.waitUntil(lambda: bool(dialog.holds_download()), timeout=10000)
         for button in self.buttons():
             if button.text() == "Stop and Close":
                 button.click()
@@ -653,7 +677,7 @@ def test_close_question_when_the_job_ended_first(qtbot, tmp_path, fakes, monkeyp
 
     monkeypatch.setattr(QMessageBox, "exec", fake_exec)
     dialog.close()
-    qtbot.waitUntil(lambda: not dialog.isVisible(), timeout=10000)
+    qtbot.waitUntil(lambda: bool(not dialog.isVisible()), timeout=10000)
     assert len(fakes.discard_calls) == 1 and not dialog.holds_download()
 
 
@@ -675,7 +699,7 @@ def test_close_question_for_a_repository_check(qtbot, tmp_path, fakes, monkeypat
     dialog._add_url_btn.click()
     dialog._url_page.field().setText("https://github.com/acme/parts")
     dialog._url_page.primary_button().click()
-    qtbot.waitUntil(lambda: fakes.check_started.is_set(), timeout=10000)
+    qtbot.waitUntil(lambda: bool(fakes.check_started.is_set()), timeout=10000)
     seen = answer(monkeypatch, "Keep Working")
     dialog.close()
     assert seen[0].text() == (
@@ -684,7 +708,7 @@ def test_close_question_for_a_repository_check(qtbot, tmp_path, fakes, monkeypat
     )
     answer(monkeypatch, "Stop and Close")
     dialog.close()
-    qtbot.waitUntil(lambda: not dialog.isVisible(), timeout=10000)
+    qtbot.waitUntil(lambda: bool(not dialog.isVisible()), timeout=10000)
 
 
 def test_close_during_the_record_write_is_ignored(qtbot, tmp_path, fakes, monkeypatch):
@@ -692,14 +716,14 @@ def test_close_during_the_record_write_is_ignored(qtbot, tmp_path, fakes, monkey
     dialog = build(qtbot, tmp_path, fakes)
     to_preview(qtbot, dialog, fakes)
     dialog._preview_page.primary_button().click()
-    qtbot.waitUntil(lambda: fakes.register_started.is_set(), timeout=10000)
+    qtbot.waitUntil(lambda: bool(fakes.register_started.is_set()), timeout=10000)
     seen = answer(monkeypatch, "Stop and Close")
     dialog.close()
     assert seen == [] and dialog.isVisible()
     assert dialog._job_label.full_text() == "Adding cannot be stopped halfway. Close this window after it ends."
     assert not dialog._job_cancel.isEnabled()
     fakes.register_release.set()
-    qtbot.waitUntil(lambda: idle(dialog), timeout=10000)
+    qtbot.waitUntil(lambda: bool(idle(dialog)), timeout=10000)
 
 
 def test_no_worker_after_done(qtbot, tmp_path, fakes, monkeypatch):
@@ -708,10 +732,10 @@ def test_no_worker_after_done(qtbot, tmp_path, fakes, monkeypatch):
     logs, outcomes, _ = record(dialog)
     open_licence(qtbot, dialog)
     dialog._licence_page.primary_button().click()
-    qtbot.waitUntil(lambda: fakes.stage_started.is_set(), timeout=10000)
+    qtbot.waitUntil(lambda: bool(fakes.stage_started.is_set()), timeout=10000)
     answer(monkeypatch, "Stop and Close")
     dialog.close()
-    qtbot.waitUntil(lambda: not dialog.isVisible(), timeout=10000)
+    qtbot.waitUntil(lambda: bool(not dialog.isVisible()), timeout=10000)
     seen = (list(logs), list(outcomes))
     qtbot.wait(200)
     assert (logs, outcomes) == seen
@@ -725,7 +749,7 @@ def test_reopening_after_a_close_starts_on_the_list(qtbot, tmp_path, fakes):
     dialog.close()
     assert dialog._page_kind is None
     dialog.show()
-    qtbot.waitUntil(lambda: dialog._net_status is not None, timeout=10000)
+    qtbot.waitUntil(lambda: bool(dialog._net_status is not None), timeout=10000)
     assert dialog._pages.currentWidget() is not dialog._licence_page and dialog._tree.isEnabled()
 
 
@@ -742,11 +766,11 @@ def test_one_job_at_a_time_and_blocked_reasons(qtbot, tmp_path, fakes):
     dialog.set_blocked(None)
     assert page.primary_button().isEnabled()
     page.primary_button().click()
-    qtbot.waitUntil(lambda: fakes.stage_started.is_set(), timeout=10000)
+    qtbot.waitUntil(lambda: bool(fakes.stage_started.is_set()), timeout=10000)
     for button in (dialog._add_url_btn, dialog._check_btn):
         assert not button.isEnabled() and button.toolTip() == "Wait for adding SparkFun to finish."
     fakes.stage_release.set()
-    qtbot.waitUntil(lambda: dialog._page_kind == "preview", timeout=10000)
+    qtbot.waitUntil(lambda: bool(dialog._page_kind == "preview"), timeout=10000)
     dialog.set_blocked("Wait for the scan in the main window to end.")
     assert not dialog._preview_page.primary_button().isEnabled()
     assert dialog._preview_page.primary_button().toolTip() == "Wait for the scan in the main window to end."
@@ -787,7 +811,7 @@ def test_list_locked_while_a_page_is_open(qtbot, tmp_path, fakes):
     dialog._licence_page.back_button().click()
     assert dialog._tree.isEnabled() and dialog._search.isEnabled() and dialog.selected_id() == "SparkFun"
     assert dialog._pages.currentWidget() is dialog._details_page
-    qtbot.waitUntil(lambda: dialog._tree.hasFocus(), timeout=2000)
+    qtbot.waitUntil(lambda: bool(dialog._tree.hasFocus()), timeout=2000)
 
 
 def test_esc_backs_out_and_ctrl_return_presses_primary(qtbot, tmp_path, fakes):
@@ -802,19 +826,19 @@ def test_esc_backs_out_and_ctrl_return_presses_primary(qtbot, tmp_path, fakes):
     assert dialog.isVisible() and dialog._page_kind is None
     assert dialog._close_btn.isDefault()
 
-    open_licence(qtbot, dialog, "WurthElektronik")
+    open_licence(qtbot, dialog, WURTH.name)
     qtbot.keyClick(dialog, Qt.Key.Key_Return, Qt.KeyboardModifier.ControlModifier)
     qtbot.wait(100)
     assert fakes.stage_calls == [] and dialog._page_kind == "licence"  # the primary is disabled until the tick
     dialog._licence_page.tick().setChecked(True)
     qtbot.keyClick(dialog, Qt.Key.Key_Return, Qt.KeyboardModifier.ControlModifier)
-    qtbot.waitUntil(lambda: dialog._page_kind == "preview", timeout=10000)
+    qtbot.waitUntil(lambda: bool(dialog._page_kind == "preview"), timeout=10000)
     assert len(fakes.stage_calls) == 1 and fakes.register_calls == []
     qtbot.keyClick(dialog, Qt.Key.Key_Return)  # Enter alone never confirms the preview
     qtbot.wait(100)
     assert fakes.register_calls == [] and dialog._page_kind == "preview"
     qtbot.keyClick(dialog, Qt.Key.Key_Escape)  # Esc is Discard Download, never Add Library
-    qtbot.waitUntil(lambda: dialog._page_kind is None and idle(dialog), timeout=10000)
+    qtbot.waitUntil(lambda: bool(dialog._page_kind is None and idle(dialog)), timeout=10000)
     assert fakes.register_calls == [] and len(fakes.discard_calls) == 1
 
 
@@ -822,7 +846,7 @@ def test_ctrl_return_presses_the_details_primary(qtbot, tmp_path, fakes):
     dialog = build(qtbot, tmp_path, fakes)
     select(dialog, "SparkFun")
     qtbot.keyClick(dialog, Qt.Key.Key_Return, Qt.KeyboardModifier.ControlModifier)
-    qtbot.waitUntil(lambda: dialog._page_kind == "licence", timeout=10000)
+    qtbot.waitUntil(lambda: bool(dialog._page_kind == "licence"), timeout=10000)
 
 
 def test_one_accent_button_at_a_time(qtbot, tmp_path, fakes):
@@ -839,20 +863,20 @@ def test_one_accent_button_at_a_time(qtbot, tmp_path, fakes):
     select(dialog, "SparkFun")
     assert accent() == [dialog._add_btn]
     dialog._add_btn.click()
-    qtbot.waitUntil(lambda: dialog._page_kind == "licence", timeout=10000)
+    qtbot.waitUntil(lambda: bool(dialog._page_kind == "licence"), timeout=10000)
     assert accent() == [dialog._licence_page.primary_button()]
     dialog._licence_page.primary_button().click()
-    qtbot.waitUntil(lambda: fakes.stage_started.is_set(), timeout=10000)
+    qtbot.waitUntil(lambda: bool(fakes.stage_started.is_set()), timeout=10000)
     assert len(accent()) == 1
     fakes.stage_release.set()
-    qtbot.waitUntil(lambda: dialog._page_kind == "preview", timeout=10000)
+    qtbot.waitUntil(lambda: bool(dialog._page_kind == "preview"), timeout=10000)
     assert accent() == [dialog._preview_page.primary_button()]
     dialog._preview_page.back_button().click()
-    qtbot.waitUntil(lambda: dialog._page_kind is None, timeout=10000)
+    qtbot.waitUntil(lambda: bool(dialog._page_kind is None), timeout=10000)
     select(dialog, "Third One")  # recorded, folder missing: Reinstall is the one accent button
     assert accent() == [dialog._reinstall_btn]
     dialog._add_url_btn.click()
-    qtbot.waitUntil(lambda: dialog._page_kind == "url", timeout=5000)
+    qtbot.waitUntil(lambda: bool(dialog._page_kind == "url"), timeout=5000)
     assert accent() == [dialog._url_page.primary_button()]  # disabled while the field is empty, but still the one accent button
 
 
@@ -870,9 +894,9 @@ def test_web_address_long_text(qtbot, tmp_path, fakes):
     dialog._add_url_btn.click()
     page = dialog._url_page
     page.field().setText(long)
-    assert page.field().text() == long and page.field().width() < len(long)  # it scrolls inside the field
+    assert page.field().text() == long and page.field().fontMetrics().horizontalAdvance(long) > page.field().width()  # it scrolls inside the field
     page.primary_button().click()
-    qtbot.waitUntil(lambda: dialog._page_kind == "licence", timeout=10000)
+    qtbot.waitUntil(lambda: bool(dialog._page_kind == "licence"), timeout=10000)
     qtbot.wait(100)
     link = dialog._licence_page.findChild(cd.catalog_pages.LinkLabel)
     assert link.url() == long and link.toolTip() == long and link.font().family() == theme.MONO_FAMILY
@@ -890,7 +914,7 @@ def test_step_label_elides(qtbot, tmp_path, fakes):
     open_licence(qtbot, dialog, name)
     cancel_before = dialog._job_cancel.sizeHint()
     dialog._licence_page.primary_button().click()
-    qtbot.waitUntil(lambda: dialog._job_label.full_text() == f"Downloading {name}... 42%", timeout=10000)
+    qtbot.waitUntil(lambda: bool(dialog._job_label.full_text() == f"Downloading {name}... 42%"), timeout=10000)
     qtbot.wait(100)
     label = dialog._job_label
     assert label.toolTip() == label.full_text()
@@ -899,7 +923,7 @@ def test_step_label_elides(qtbot, tmp_path, fakes):
     assert dialog._job_cancel.sizeHint().width() >= cancel_before.width()
     assert dialog._job_cancel.isVisibleTo(dialog)
     fakes.stage_release.set()
-    qtbot.waitUntil(lambda: dialog._page_kind == "preview", timeout=10000)
+    qtbot.waitUntil(lambda: bool(dialog._page_kind == "preview"), timeout=10000)
 
 
 def test_set_root_drops_an_open_page(qtbot, tmp_path, fakes):
@@ -919,7 +943,7 @@ def test_a_crash_in_the_download_is_logged_and_offers_try_again(qtbot, tmp_path,
     logs, _, _ = record(dialog)
     open_licence(qtbot, dialog)
     dialog._licence_page.primary_button().click()
-    qtbot.waitUntil(lambda: dialog._page_kind == "preview" and idle(dialog), timeout=10000)
+    qtbot.waitUntil(lambda: bool(dialog._page_kind == "preview" and idle(dialog)), timeout=10000)
     assert ("error", "Library catalog step failed: RuntimeError: kaput") in logs
     assert dialog._preview_page.is_refusal() and dialog._preview_page.primary_button().text() == "Try Again"
     assert not dialog.holds_download()

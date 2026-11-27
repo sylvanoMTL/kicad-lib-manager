@@ -11,21 +11,21 @@ run on daemon threads (widgets/background.py), and a generation counter drops ev
 window closed or the collection changed.
 """
 
-import html
 import math
 import os
 import shutil
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QModelIndex, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QKeySequence
 from PySide6.QtWidgets import (
-    QAbstractItemView, QDialog, QFrame, QGridLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QPushButton, QScrollArea,
-    QSizePolicy, QSplitter, QStackedWidget, QStyle, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QAbstractItemView, QDialog, QFrame, QGridLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox,
+    QProgressBar, QPushButton, QScrollArea, QSizePolicy, QSplitter, QStackedWidget, QStyle, QToolButton, QTreeWidget,
+    QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 from .. import kicad_process, library_scanner
@@ -35,8 +35,15 @@ from ..catalog.licences import LicenceClass
 from ..catalog.manifest import CatalogEntry
 from ..catalog.status import Check, State
 from ..models import Issue, Severity
-from . import theme
+from . import catalog_pages, theme
 from .background import BackgroundTask, run_in_background
+from .catalog_pages import AddByUrlPage, AddPreviewPage, LicencePage, ReviewPage
+from .catalog_pages import LinkLabel as _LinkLabel
+from .catalog_pages import heading_font as _heading_font
+from .catalog_pages import mono as _mono
+from .catalog_pages import muted as _muted
+from .catalog_pages import plain_label as _plain_label
+from .import_dialog import TaskWorker
 from .import_result import ElidedLabel
 
 # ── The copy (UI-SPEC "Copywriting Contract"; each text is written once, here) ──────────────────────
@@ -65,14 +72,14 @@ INSTALLED_TIP = "Updates have not been checked, or GitHub could not be reached."
 UPDATE_AVAILABLE_TEXT = "⚠ Update available"
 FOLDER_MISSING_TEXT = "✖ Problem: folder missing"
 NOT_IN_CATALOG_TEXT = "⚠ Problem: not in the catalog"
-UNKNOWN_TEXT = "Unknown"
+UNKNOWN_TEXT = catalog_pages.UNKNOWN_TEXT
 
 RECORD_STRIP_TEXT = (
     "✖ The catalog record of this collection cannot be read ({reason}). Nothing was changed. "
     "Fix or delete catalog.json in {collection}, then reopen the catalog."
 )
-ERROR_GLYPH = "✖ "
-WARNING_GLYPH = "⚠ "
+ERROR_GLYPH = catalog_pages.ERROR_GLYPH
+WARNING_GLYPH = catalog_pages.WARNING_GLYPH
 
 RECORD_UNREADABLE_TIP = "The catalog record cannot be read."
 GIT_MISSING_TIP = "Git was not found."
@@ -95,8 +102,8 @@ FIELDS = (
     ("folder", "Folder"),
 )
 LABEL_COLUMN_WIDTH = 120
-NOT_STATED_TEXT = "Not stated by the repository"
-LICENCE_UNREADABLE_TEXT = "Could not be read from GitHub"
+NOT_STATED_TEXT = catalog_pages.NOT_STATED_TEXT
+LICENCE_UNREADABLE_TEXT = catalog_pages.LICENCE_UNREADABLE_TEXT
 SIZE_PENDING_TEXT = "Calculating..."
 LIBRARIES_UNKNOWN_TEXT = "Known after it is added"
 NO_VARS_TEXT = "This library needs none."
@@ -121,6 +128,111 @@ NOT_IN_CATALOG_STRIP = (
 UPDATE_STRIP = "⚠ A newer version is available ({installed} -> {available})."
 CHECK_OFFLINE_LINE = "Could not check for updates: GitHub could not be reached."
 STEP_FAILED = "Library catalog step failed: {text}"
+
+# The Add, Add by URL and Reinstall flows (UI-SPEC "Add flow", "Job strip", "Close rules", "Busy rules", "Log lines")
+ADD_THIS_TEXT = "Add This Library"
+REINSTALL_THIS_TEXT = "Reinstall This Library"
+PAGE_OPEN_TIP = "Go back to the list first."
+WAIT_TIP = "Wait for {job} to finish."
+STOPPING_TEXT = "Stopping..."
+CANCEL_TIP = "Stop {job} and delete what it downloaded. Nothing is changed."
+REGISTER_CANCEL_TIP = "Adding cannot be stopped halfway. It ends in a moment."
+REGISTER_CLOSE_TEXT = "Adding cannot be stopped halfway. Close this window after it ends."
+CHECKING_REPOSITORY_TEXT = "Checking the repository..."
+DOWNLOADING_TEXT = "Downloading {name}..."
+DOWNLOADING_PERCENT_TEXT = "Downloading {name}... {percent}%"
+DOWNLOADING_AGAIN_TEXT = "Downloading {name} again..."
+DOWNLOADING_AGAIN_PERCENT_TEXT = "Downloading {name} again... {percent}%"
+CHECKING_NAME_TEXT = "Checking {name}..."
+ADDING_NAME_TEXT = "Adding {name}..."
+CANCEL_CHECK_TEXT = "Cancel Check"
+CANCEL_ADDING_TEXT = "Cancel Adding"
+CANCEL_REINSTALLING_TEXT = "Cancel Reinstalling"
+STOP_TITLE = "Stop the current job?"
+STOP_TEXT = (
+    "{job} is still running. If you close the catalog now, it is stopped and the partly downloaded files are "
+    "deleted. {consequence}"
+)
+STOP_CLOSE_TEXT = "Stop and Close"
+KEEP_WORKING_TEXT = "Keep Working"
+CONSEQUENCE_ADD = "Nothing is added to your collection."
+CONSEQUENCE_CHECK = "Nothing is changed."
+RESULT_ADDED = "Added {name}: {s} symbol libraries and {f} footprint libraries are in your scan."
+RESULT_REINSTALLED = "Reinstalled {name}: {s} symbol libraries and {f} footprint libraries are in your scan."
+RESULT_CLASHES = "{n} of them share a name with a library you already have and are unticked."
+LOG_STOPPED_ADDING = "Stopped adding {name}. Nothing was added."
+LOG_STOPPED_REINSTALLING = "Stopped reinstalling {name}. Nothing was added."
+LOG_DISCARDED = "Discarded the download of {name}. Nothing was added."
+LOG_DISCARD_FAILED = "Could not delete the downloaded copy of {name}: {text}"
+LOG_COULD_NOT = "Could not {verb} {name}: {text}"
+CHECK_CRASHED_TEXT = "Something went wrong while checking the repository. See the log for details."
+STAGE_CRASHED_TEXT = "The download failed because something unexpected went wrong. See the log for details."
+REGISTER_CRASHED_TEXT = "Adding failed because something unexpected went wrong. See the log for details."
+OWN_ATOMIC_TEXT = "your Atomic_ libraries"
+OWN_CUSTOM_TEXT = "your Custom libraries"
+JOB_BAR_WIDTH = 240
+# a failed download may be tried again; a refusal after the download may not (the repository itself is the problem)
+RETRY_CODES = frozenset({
+    "git.clone_failed", "git.timeout", "git.unreachable", "git.not_started", "git.no_commit", "git.read_failed",
+    "git.branch_missing", "catalog.step_failed",
+})
+
+
+def job_label(flow: str, name: str) -> str:
+    """How a job is named in a tooltip or a question: `the repository check`, `adding {name}`, `reinstalling {name}`."""
+    if flow == "check":
+        return "the repository check"
+    return f"{'reinstalling' if flow == 'reinstall' else 'adding'} {name}"
+
+
+@dataclass(frozen=True)
+class CatalogOutcome:
+    """What a catalog job left behind, handed to the main window with job_finished.
+
+    kind is "add" or "reinstall"; ok is False for a stop, a refusal and a failure (the window logged it). The counts,
+    collisions (validate.Collision rows), vars (path variable -> folder inside the clone), legacy_prefix (the old
+    folder of a curated library, for the selection carry-over) and root_is_repo are filled when ok is True.
+    """
+
+    kind: str
+    id: str
+    name: str
+    ok: bool
+    symbol_count: int = 0
+    footprint_count: int = 0
+    collisions: tuple = ()
+    vars: dict = field(default_factory=dict)
+    legacy_prefix: str | None = None
+    root_is_repo: bool = False
+
+
+@dataclass
+class _Job:
+    """One job on a worker: phase is plan, check, stage, register or discard; flow is check, add or reinstall."""
+
+    phase: str
+    flow: str
+    name: str
+    cancel: threading.Event
+    gen: int
+    on_done: Callable | None = None
+    worker: object = None
+    stopping: bool = False
+    dropped: bool = False
+
+
+@dataclass
+class _Flow:
+    """The Add, Reinstall or Add by URL in progress: kind is add, reinstall or url (the address page)."""
+
+    kind: str
+    id: str = ""
+    name: str = ""
+    plan: object = None
+    url: bool = False
+
+
+_STOPPED = object()  # what a stage job returns when the user pressed Cancel
 
 # ── Sizes (UI-SPEC "Spacing Scale"; px at 96 DPI) ───────────────────────────────────────────────────
 
@@ -164,6 +276,8 @@ class CatalogServices:
     kicad_running: Callable = kicad_process.kicad_running
     repo_info: Callable = githubapi.repo_info
     free_space: Callable = shutil.disk_usage
+    stock_fp: Callable = library_scanner.get_kicad_default_fp_nicknames
+    stock_sym: Callable = library_scanner.get_kicad_default_sym_nicknames
 
 
 def _status_cell(row: status.Row) -> tuple[str, str | None, str]:
@@ -182,83 +296,6 @@ def _status_cell(row: status.Row) -> tuple[str, str | None, str]:
     if state is State.NOT_IN_CATALOG:
         return NOT_IN_CATALOG_TEXT, theme.AMBER, NOT_IN_CATALOG_TEXT
     return UNKNOWN_TEXT, theme.MUTED, UNKNOWN_TEXT
-
-
-def _plain_label(text: str = "", *, wrap: bool = False) -> QLabel:
-    """A plain-text label. A wrapped one ignores its text's width, so a long unbreakable path never widens the window.
-
-    Qt breaks a line only at spaces, so such a path is cut off at the right edge; every text that can hold a path
-    carries its full text as tooltip or sits in an ElidedLabel.
-    """
-    label = QLabel(text)
-    label.setTextFormat(Qt.TextFormat.PlainText)
-    label.setWordWrap(wrap)
-    if wrap:
-        label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-    return label
-
-
-def _heading_font(label: QLabel) -> None:
-    font = label.font()
-    font.setBold(True)
-    font.setPointSize(theme.HEADING_PT)
-    label.setFont(font)
-
-
-def _mono(widget: QWidget) -> None:
-    widget.setFont(QFont(theme.MONO_FAMILY, theme.MONO_PT))
-
-
-def _muted(label: QLabel) -> None:
-    label.setStyleSheet(f"color: {theme.MUTED};")
-
-
-class _LinkLabel(QLabel):
-    """The Repository link: one rich-text line elided in the middle to its width; the whole address is the tooltip.
-
-    A web address has no place a line may break, so it is elided instead of wrapped and never widens the window.
-    Only an https address becomes a link (opens in the browser).
-    """
-
-    def __init__(self):
-        super().__init__()
-        self.setObjectName("repositoryLink")
-        self.setTextFormat(Qt.TextFormat.RichText)  # the one rich-text label of the window
-        self.setOpenExternalLinks(True)
-        self.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
-        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        palette = self.palette()
-        palette.setColor(palette.ColorRole.Link, QColor(theme.LINK))
-        self.setPalette(palette)
-        self._url = ""
-
-    def set_url(self, url: str) -> None:
-        self._url = url
-        self.setToolTip(url)
-        self._refresh()
-
-    def url(self) -> str:
-        return self._url
-
-    def minimumSizeHint(self) -> QSize:
-        return QSize(0, super().minimumSizeHint().height())
-
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        self._refresh()
-
-    def _refresh(self) -> None:
-        if not self._url:
-            shown = ""
-        else:
-            width = self.contentsRect().width()
-            text = self._url if width < 40 else self.fontMetrics().elidedText(self._url, Qt.TextElideMode.ElideMiddle, width)
-            if self._url.startswith("https://"):
-                shown = f'<a href="{html.escape(self._url, quote=True)}">{html.escape(text)}</a>'
-            else:
-                shown = html.escape(text)
-        if self.text() != shown:
-            self.setText(shown)
 
 
 class CatalogDialog(QDialog):
@@ -311,6 +348,15 @@ class CatalogDialog(QDialog):
         self._split_user = False
         self._size_cache: dict[Path, int | None] = {}  # folder -> bytes on disk, None when it could not be measured
         self._size_pending: set[Path] = set()
+        self._kicad_fp_dir: Path | None = None
+        self._job: _Job | None = None  # the one job on a worker; plan, check, stage, register or discard
+        self._flow: _Flow | None = None  # the Add, Reinstall or Add by URL in progress
+        self._staged: ops.Staged | None = None  # a checked download waiting on the preview
+        self._page_kind: str | None = None  # None (the list), url, licence or preview
+        self._workers: list[TaskWorker] = []
+        self._pending_close: int | None = None  # a close waits for the job to end
+        self._asking = False
+        self._busy_sent = (False, False)
 
         self.setWindowTitle(CATALOG_TITLE)
         self.setWindowModality(Qt.WindowModality.NonModal)
@@ -321,6 +367,10 @@ class CatalogDialog(QDialog):
         self._fit_timer.setSingleShot(True)
         self._fit_timer.setInterval(0)
         self._fit_timer.timeout.connect(self._fit_detail)
+        self._focus_timer = QTimer(self)
+        self._focus_timer.setSingleShot(True)
+        self._focus_timer.setInterval(0)
+        self._focus_timer.timeout.connect(self._focus_page)
 
         self._build_ui()
         self._reload(reset=True)
@@ -389,6 +439,7 @@ class CatalogDialog(QDialog):
         widest = max(metrics.horizontalAdvance(CHECK_TEXT), metrics.horizontalAdvance(CHECKING_TEXT))
         self._check_btn.setMinimumWidth(max(self._check_btn.sizeHint().width(), widest + 2 * theme.SP_MD))
         self._check_btn.clicked.connect(self._on_check_clicked)
+        self._add_url_btn.clicked.connect(self._on_add_url)
         toolbar.addWidget(self._search, 1)
         toolbar.addWidget(self._check_btn)
         toolbar.addWidget(self._add_url_btn)
@@ -403,6 +454,7 @@ class CatalogDialog(QDialog):
         self._splitter.setStretchFactor(1, 55)
         self._splitter.splitterMoved.connect(self._on_splitter_moved)
         outer.addWidget(self._splitter, 1)
+        outer.addWidget(self._build_job_strip())
 
         bottom = QHBoxLayout()
         bottom.addStretch(1)
@@ -515,6 +567,17 @@ class CatalogDialog(QDialog):
 
         self._details_page = self._build_details()
         self._pages.addWidget(self._details_page)
+        self._url_page = AddByUrlPage()
+        self._licence_page = LicencePage()
+        self._preview_page = AddPreviewPage()
+        for page in (self._url_page, self._licence_page, self._preview_page):
+            self._pages.addWidget(page)
+        self._url_page.primary_pressed.connect(self._on_url_primary)
+        self._url_page.back_pressed.connect(self._on_page_back)
+        self._licence_page.primary_pressed.connect(self._start_download)
+        self._licence_page.back_pressed.connect(self._on_page_back)
+        self._preview_page.primary_pressed.connect(self._on_preview_primary)
+        self._preview_page.back_pressed.connect(self._on_preview_back)
         self._show_page(self._empty_page)
         layout.addWidget(self._scroll, 1)
         return pane
@@ -589,9 +652,23 @@ class CatalogDialog(QDialog):
         self._button_row = QHBoxLayout()
         self._button_row.setSpacing(theme.SP_SM)
         self._button_row.addStretch(1)
+        self._add_btn = self._details_primary_button(ADD_THIS_TEXT, self._on_add_clicked)
+        self._reinstall_btn = self._details_primary_button(REINSTALL_THIS_TEXT, self._on_reinstall_clicked)
         layout.addLayout(self._button_row)
         layout.addStretch(1)
         return page
+
+    def _details_primary_button(self, text: str, slot) -> QPushButton:
+        """A primary (accent) button of the Details page; only one is visible for a row, and none without a row."""
+        button = QPushButton(text)
+        button.setStyleSheet(theme.PRIMARY_BUTTON_QSS)
+        button.setAutoDefault(False)
+        button.setDefault(False)
+        button.setMinimumHeight(CONTROL_HEIGHT)
+        button.clicked.connect(slot)
+        button.hide()
+        self._button_row.addWidget(button)
+        return button
 
     def _make_value(self, key: str) -> QWidget:
         if key == "repository":
@@ -713,6 +790,7 @@ class CatalogDialog(QDialog):
             task.cancel()
         self._background = []
         self._fit_timer.stop()
+        self._focus_timer.stop()
         self._manual_check = False
         self._size_pending.clear()
 
@@ -858,6 +936,8 @@ class CatalogDialog(QDialog):
         self._refresh_details()
 
     def _refresh_details(self) -> None:
+        if self._page_kind is not None:  # a review page is open: a late result never pulls it away
+            return
         row = self.current_row()
         if row is None:
             self._show_page(self._empty_page)
@@ -894,6 +974,8 @@ class CatalogDialog(QDialog):
         self._show_field("version", installed)
         self._show_field("updates", installed)
         self._show_field("folder", installed or problem)
+        self._add_btn.setVisible(row.state is State.NOT_INSTALLED and row.curated is not None)
+        self._reinstall_btn.setVisible(row.state is State.FOLDER_MISSING and row.entry is not None)
 
     # -- the rows --
 
@@ -1130,8 +1212,8 @@ class CatalogDialog(QDialog):
         self._git_old_strip.setVisible(old)
         self._apply_split()
 
-    def _action_block(self) -> str | None:
-        """Why the network actions cannot run right now, or None when they can."""
+    def _external_block(self) -> str | None:
+        """Why the actions cannot run for a reason outside this window's own job, or None."""
         if self._finishing:
             return FINISHING_TIP
         if self._blocked:
@@ -1147,17 +1229,33 @@ class CatalogDialog(QDialog):
             return GIT_MISSING_TIP if net.refusal.code == "git.not_found" else net.refusal.text
         return None
 
+    def _action_block(self) -> str | None:
+        """Why the network actions cannot run right now, or None when they can."""
+        job = self._job
+        if job is not None:
+            return WAIT_TIP.format(job=job_label(job.flow, job.name))
+        return self._external_block()
+
     def _checking(self) -> bool:
         return self._manual_check or self._external_check
 
     def _refresh_actions(self) -> None:
         reason = self._action_block()
         checking = self._checking()
+        page_open = self._flow is not None
+        tip = reason or (PAGE_OPEN_TIP if page_open else "")
         self._check_btn.setText(CHECKING_TEXT if checking else CHECK_TEXT)
-        self._check_btn.setEnabled(reason is None and not checking)
-        self._check_btn.setToolTip(reason or "")
-        self._add_url_btn.setEnabled(reason is None)
-        self._add_url_btn.setToolTip(reason or "")
+        self._check_btn.setEnabled(reason is None and not checking and not page_open)
+        self._check_btn.setToolTip(tip)
+        self._add_url_btn.setEnabled(reason is None and not page_open)
+        self._add_url_btn.setToolTip(tip)
+        for button in (self._add_btn, self._reinstall_btn):
+            button.setEnabled(reason is None)
+            button.setToolTip(reason or "")
+        external, busy = self._external_block(), self._job is not None
+        for page in (self._url_page, self._licence_page, self._preview_page):
+            page.set_blocked(external)
+            page.set_busy(busy)
 
     def _on_check_clicked(self) -> None:
         """Check for Updates on a daemon thread; the result is dropped when the window closed or the collection changed."""
@@ -1212,6 +1310,8 @@ class CatalogDialog(QDialog):
     def set_root(self, root: Path) -> None:
         """Show another collection: header, list, strips and statuses reload in one step, any open page is dropped."""
         self._stop_background()
+        self._release_download()
+        self._abandon_flow()
         self._root = Path(root)
         self._updates = {}
         self._scan = None
@@ -1245,12 +1345,16 @@ class CatalogDialog(QDialog):
         self._load()
 
     def is_job_running(self) -> bool:
-        """True while an Add, Update, Remove or Reinstall runs (the jobs attach in plan 17-13)."""
-        return False
+        """True while a catalog job runs: planning, a repository check, a download, the final Add or a discard."""
+        return self._job is not None
 
     def holds_download(self) -> bool:
-        """True while a downloaded copy waits for the user's answer on a review page."""
-        return False
+        """True while a downloaded copy waits for the user's answer on a review page (or is being deleted)."""
+        return self._staged is not None
+
+    def set_kicad_fp_dir(self, path: Path | None) -> None:
+        """KiCad's footprint folder, where the stock library names are read from (inside the download job)."""
+        self._kicad_fp_dir = Path(path) if path else None
 
     def is_finishing(self) -> bool:
         return self._finishing
@@ -1264,16 +1368,596 @@ class CatalogDialog(QDialog):
         self._refresh_actions()
         self.busy_changed.emit()
 
+    # ── The Add, Add by URL and Reinstall flows ───────────────────────────────────────────────
+
+    # -- the job strip and the runner --
+
+    def _build_job_strip(self) -> QWidget:
+        """The job strip: a step label, a progress bar and a cancel button named for the job; shown only while one runs."""
+        strip = QWidget()
+        layout = QHBoxLayout(strip)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(theme.SP_SM)
+        self._job_label = ElidedLabel("", mode=Qt.TextElideMode.ElideRight, full_tooltip=True)
+        self._job_bar = QProgressBar()
+        self._job_bar.setFixedWidth(JOB_BAR_WIDTH)
+        self._job_bar.setTextVisible(False)
+        self._job_bar.setRange(0, 0)
+        self._job_bar.setStyleSheet(
+            f"QProgressBar {{ border: 1px solid {theme.BORDER}; background-color: {theme.SURFACE_BASE}; height: 12px; }}"
+            f"QProgressBar::chunk {{ background-color: {theme.ACCENT}; }}"
+        )
+        self._job_cancel = QPushButton()
+        self._job_cancel.setAutoDefault(False)
+        self._job_cancel.setMinimumHeight(CONTROL_HEIGHT)
+        self._job_cancel.clicked.connect(self._on_cancel_clicked)
+        layout.addWidget(self._job_label, 1)
+        layout.addWidget(self._job_bar)
+        layout.addWidget(self._job_cancel)
+        strip.hide()
+        self._job_strip = strip
+        return strip
+
+    def _spawn(self, fn: Callable, tag=None) -> TaskWorker:
+        """Create a worker owned by the window; it stays referenced until the window goes (a finished one is never deleted early)."""
+        worker = TaskWorker(fn, parent=self, tag=tag)
+        self._workers.append(worker)
+        worker.finished.connect(lambda w=worker: self._reap(w))
+        return worker
+
+    def _reap(self, worker: TaskWorker) -> None:
+        """Join a finished worker; QThread.finished arrives just before the thread ends, so the bounded wait is short."""
+        worker.wait(2000)
+
+    def _start_job(self, phase: str, flow: str, name: str, fn: Callable, on_done: Callable) -> _Job:
+        """Run fn(progress, cancel) on a worker as the one job; on_done(job, value) runs on the GUI thread when it ends."""
+        job = _Job(phase, flow, name, threading.Event(), self._gen, on_done)
+
+        def run(emit):
+            def progress(text, percent):
+                emit(text, -1 if percent is None else int(percent), 0)
+
+            return fn(progress, job.cancel)
+
+        worker = self._spawn(run, tag=job)
+        job.worker = worker
+        worker.progress.connect(lambda text, percent, _total, j=job: self._on_job_progress(j, percent))
+        worker.result.connect(lambda value, j=job: self._on_job_result(j, value))
+        worker.failed.connect(lambda text, j=job: self._on_job_failed(j, text))
+        self._job = job
+        self._show_job(job)
+        self._refresh_actions()
+        self._emit_busy()
+        worker.start()
+        return job
+
+    def _show_job(self, job: _Job) -> None:
+        label = job_label(job.flow, job.name)
+        self._job_bar.setAccessibleName(f"Progress of {label}")
+        self._job_bar.setRange(0, 0)
+        if job.phase in ("plan", "discard"):
+            self._job_strip.hide()
+            return
+        again = job.flow == "reinstall"
+        if job.phase == "check":
+            text, cancel = CHECKING_REPOSITORY_TEXT, CANCEL_CHECK_TEXT
+        else:
+            cancel = CANCEL_REINSTALLING_TEXT if again else CANCEL_ADDING_TEXT
+            if job.phase == "stage":
+                text = (DOWNLOADING_AGAIN_TEXT if again else DOWNLOADING_TEXT).format(name=job.name)
+            else:
+                text = ADDING_NAME_TEXT.format(name=job.name)
+        stoppable = job.phase != "register"
+        self._set_job_text(text)
+        self._job_cancel.setText(cancel)
+        self._job_cancel.setEnabled(stoppable)
+        self._job_cancel.setToolTip(CANCEL_TIP.format(job=label) if stoppable else REGISTER_CANCEL_TIP)
+        self._job_strip.show()
+
+    def _set_job_text(self, text: str) -> None:
+        self._job_label.set_full_text(text)
+
+    def _on_job_progress(self, job: _Job, percent: int) -> None:
+        if job is not self._job or job.phase != "stage" or job.stopping:
+            return
+        again = job.flow == "reinstall"
+        if percent < 0:
+            self._job_bar.setRange(0, 0)
+            text = (DOWNLOADING_AGAIN_TEXT if again else DOWNLOADING_TEXT).format(name=job.name)
+        elif percent >= 100:  # the download is complete; what follows is the check of its files
+            self._job_bar.setRange(0, 0)
+            text = CHECKING_NAME_TEXT.format(name=job.name)
+        else:
+            self._job_bar.setRange(0, 100)
+            self._job_bar.setValue(percent)
+            template = DOWNLOADING_AGAIN_PERCENT_TEXT if again else DOWNLOADING_PERCENT_TEXT
+            text = template.format(name=job.name, percent=percent)
+        self._set_job_text(text)
+
+    def _on_cancel_clicked(self) -> None:
+        job = self._job
+        if job is not None and job.phase in ("check", "stage") and not job.stopping:
+            self._cancel_job(job)
+
+    def _cancel_job(self, job: _Job) -> None:
+        """Ask the job to stop; the job ends by itself (git's process tree is ended through the cancel event)."""
+        job.stopping = True
+        job.cancel.set()
+        self._job_bar.setRange(0, 0)
+        self._set_job_text(STOPPING_TEXT)
+        self._job_cancel.setEnabled(False)
+
+    def _end_job(self) -> None:
+        self._job = None
+        self._job_strip.hide()
+        self._refresh_actions()
+
+    def _emit_busy(self) -> None:
+        state = (self.is_job_running(), self.holds_download())
+        if state != self._busy_sent:
+            self._busy_sent = state
+            self.busy_changed.emit()
+
+    def _on_job_result(self, job: _Job, value) -> None:
+        if job is not self._job:  # an abandoned job: its answer is dropped
+            return
+        self._end_job()
+        closing = self._pending_close is not None
+        if job.on_done is not None and not (closing and job.phase in ("plan", "check")):
+            job.on_done(job, value)
+        self._emit_busy()
+        self._complete_pending_close()
+
+    def _on_job_failed(self, job: _Job, text: str) -> None:
+        if job is not self._job:
+            return
+        self._end_job()
+        self.log_line.emit(STEP_FAILED.format(text=text), "error")
+        if self._pending_close is None:
+            phase = job.phase
+            if phase == "plan":
+                self._leave_pages(clear_selection=bool(self._flow and self._flow.url))
+            elif phase == "check":
+                self._url_page.show_refusals([Issue(Severity.ERROR, "catalog.step_failed", CHECK_CRASHED_TEXT)])
+            elif phase == "stage":
+                self._show_refusal(Issue(Severity.ERROR, "catalog.step_failed", STAGE_CRASHED_TEXT))
+            elif phase == "register":
+                self._preview_page.show_notice(REGISTER_CRASHED_TEXT)
+            else:  # discard
+                self._staged = None
+                self._leave_pages(clear_selection=bool(self._flow and self._flow.url))
+        self._emit_busy()
+        self._complete_pending_close()
+
+    def _complete_pending_close(self) -> None:
+        if self._pending_close is not None and self._job is None:
+            r, self._pending_close = self._pending_close, None
+            self._complete_close(r)
+
+    # -- the pages --
+
+    def _review_page(self) -> ReviewPage | None:
+        return {"url": self._url_page, "licence": self._licence_page, "preview": self._preview_page}.get(self._page_kind)
+
+    def _enter_page(self, kind: str) -> None:
+        """Show a review page: the list locks to the chosen library, Close gives up its default, focus follows."""
+        self._page_kind = kind
+        self._lock_list(True)
+        self._show_page(self._review_page())
+        self._update_default_button()
+        self._refresh_actions()
+        self._focus_timer.start()
+
+    def _leave_pages(self, *, clear_selection: bool = False) -> None:
+        """Back to the list: its row's Details (or the empty pane), the list unlocked and focused."""
+        self._page_kind = None
+        self._flow = None
+        self._lock_list(False)
+        if clear_selection:
+            self._tree.clearSelection()
+            self._tree.setCurrentIndex(QModelIndex())
+        self._refresh_details()
+        self._update_default_button()
+        self._refresh_actions()
+        self._tree.setFocus()
+
+    def _lock_list(self, locked: bool) -> None:
+        """While a page is open the list stays on the chosen library (no other row, no search that could hide it)."""
+        self._tree.setEnabled(not locked)
+        self._search.setEnabled(not locked)
+
+    def _update_default_button(self) -> None:
+        """Close is the default button on the idle list view only; never on a review page, so Enter cannot dismiss a preview."""
+        idle = self._page_kind is None
+        self._close_btn.setAutoDefault(idle)
+        self._close_btn.setDefault(idle)
+
+    def _focus_page(self) -> None:
+        page = self._review_page()
+        if page is not None:
+            page.focus_first()
+
+    def _on_page_back(self) -> None:
+        flow = self._flow
+        self._leave_pages(clear_selection=bool(flow is not None and (flow.url or flow.kind == "url")))
+
+    def _details_primary(self) -> QPushButton | None:
+        if self._pages.currentWidget() is not self._details_page or self._flow is not None:
+            return None
+        for button in (self._add_btn, self._reinstall_btn):
+            if button.isVisibleTo(self._details_page) and button.isEnabled():
+                return button
+        return None
+
+    def keyPressEvent(self, event) -> None:
+        """Esc presses a review page's back button (never a confirm); Ctrl+Return presses the enabled primary."""
+        page = self._review_page()
+        key = event.key()
+        if key == Qt.Key.Key_Escape and page is not None:
+            if page.back_button().isEnabled():
+                page.back_button().click()
+            event.accept()
+            return
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            button = page.primary_button() if page is not None else self._details_primary()
+            if button is not None and button.isEnabled() and button.isVisibleTo(self):
+                button.click()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    # -- Add and Reinstall from the Details page --
+
+    def _on_add_clicked(self) -> None:
+        row = self.current_row()
+        if row is not None and row.curated is not None and row.state is State.NOT_INSTALLED:
+            self._begin_flow("add", row)
+
+    def _on_reinstall_clicked(self) -> None:
+        row = self.current_row()
+        if row is not None and row.entry is not None and row.state is State.FOLDER_MISSING:
+            self._begin_flow("reinstall", row)
+
+    def _begin_flow(self, kind: str, row: status.Row) -> None:
+        """Plan the Add or Reinstall off the GUI thread (free space and running KiCad are read there), then open the licence page."""
+        mf = self._mf
+        if self._action_block() is not None or self._flow is not None or isinstance(mf, Issue):
+            return
+        services, root = self._services, self._root
+        self._flow = _Flow(kind, row.id, row.name)
+        self._lock_list(True)
+        known, entry = row.curated, row.entry
+
+        def plan(progress, cancel):
+            if kind == "add":
+                return services.plan_add(root, known, mf, free_space=services.free_space, running=services.kicad_running)
+            return services.plan_reinstall(root, entry, mf, free_space=services.free_space, running=services.kicad_running)
+
+        self._start_job("plan", kind, row.name, plan, self._on_planned)
+
+    def _on_planned(self, job: _Job, plan) -> None:
+        flow = self._flow
+        if flow is None:
+            return
+        flow.plan = plan
+        self._licence_page.show_plan(plan, reinstall=plan.reinstall, acknowledged_on=plan.acknowledged_on, name=flow.name)
+        self._enter_page("licence")
+
+    # -- Add by URL --
+
+    def _on_add_url(self) -> None:
+        if self._flow is not None or self._action_block() is not None:
+            return
+        self._tree.clearSelection()
+        self._tree.setCurrentIndex(QModelIndex())
+        self._flow = _Flow("url")
+        self._url_page.reset()
+        self._enter_page("url")
+
+    def _on_url_primary(self) -> None:
+        text = self._url_page.address()
+        mf, net = self._mf, self._net_status
+        if not text or self._action_block() is not None or isinstance(mf, Issue) or net is None or net.net is None:
+            return
+        self._url_page.show_refusals([])
+        services, root, git = self._services, self._root, net.net
+
+        def check(progress, cancel):
+            checked = services.check_repository(root, text, mf, git, repo_info=services.repo_info, cancel=cancel)
+            if isinstance(checked, Issue) or cancel.is_set():
+                return checked
+            plan = services.plan_add(root, checked, mf, free_space=services.free_space, running=services.kicad_running)
+            return checked, plan
+
+        self._start_job("check", "check", "", check, self._on_checked)
+
+    def _on_checked(self, job: _Job, value) -> None:
+        if job.stopping or self._flow is None:
+            return  # stopped: the address page stays as it was, the field editable
+        if isinstance(value, Issue):
+            self._url_page.show_refusals([value])
+            return
+        checked, plan = value
+        ref = checked.ref
+        display = f"{ref.owner}/{ref.repo}" if ref.owner else plan.name
+        self._flow = _Flow("add", plan.source.id, display, plan, url=True)
+        self._licence_page.show_plan(plan, reinstall=False, acknowledged_on="", name=display, address=ref.https_url)
+        self._enter_page("licence")
+
+    # -- the download --
+
+    def _nickname_maps(self, id: str) -> tuple[dict[str, str], dict[str, str]]:
+        """The nicknames the download may clash with, from the last scan: your own libraries and the other catalog libraries."""
+        own: dict[str, str] = {}
+        other: dict[str, str] = {}
+        scan = self._scan
+        if scan is None:
+            return own, other
+        names = {row.id.casefold(): row.name for row in self._rows}
+        for lib in (*scan.symbol_libs, *scan.footprint_libs):
+            rel = lib.rel_path.replace("\\", "/")
+            if rel.startswith("ThirdParty/"):
+                if lib.source.casefold() != id.casefold():
+                    other.setdefault(lib.nickname, names.get(lib.source.casefold(), lib.source))
+            elif lib.source == "Custom":
+                own.setdefault(lib.nickname, OWN_ATOMIC_TEXT if lib.nickname.startswith("Atomic_") else OWN_CUSTOM_TEXT)
+        return own, other
+
+    def _start_download(self) -> None:
+        flow, net = self._flow, self._net_status
+        if flow is None or flow.plan is None or self._action_block() is not None or net is None or net.net is None:
+            return
+        own, other = self._nickname_maps(flow.id)
+        services, root, fp_dir, plan, git = self._services, self._root, self._kicad_fp_dir, flow.plan, net.net
+
+        def stage(progress, cancel):
+            stock_fp = frozenset(services.stock_fp(fp_dir))
+            stock_sym = frozenset(services.stock_sym(fp_dir))
+            result = services.stage_add(
+                root, plan, git, progress=progress, cancel=cancel, stock_fp=stock_fp, stock_sym=stock_sym,
+                own=own, other_catalog=other, free_space=services.free_space,
+            )
+            if cancel.is_set():  # a download that finished as the user pressed Cancel is deleted, never shown
+                if isinstance(result, ops.Staged):
+                    services.discard_staging(result)
+                return _STOPPED
+            return result
+
+        self._start_job("stage", flow.kind, flow.name, stage, self._on_staged)
+
+    def _on_staged(self, job: _Job, value) -> None:
+        flow = self._flow
+        if flow is None:
+            return
+        if value is _STOPPED or job.stopping:
+            line = LOG_STOPPED_REINSTALLING if flow.kind == "reinstall" else LOG_STOPPED_ADDING
+            self.log_line.emit(line.format(name=flow.name), "info")
+            self._emit_outcome(flow, ok=False)
+            self._leave_pages(clear_selection=flow.url)
+            return
+        if isinstance(value, Issue):
+            self._show_refusal(value)
+            return
+        self._staged = value
+        self._preview_page.show_staged(
+            value, flow.plan, root_is_repo=(self._root / ".git").exists(),
+            name=flow.name if flow.url else None, licence_confirmed=self._licence_page.acknowledged(),
+        )
+        self._enter_page("preview")
+
+    def _show_refusal(self, issue: Issue) -> None:
+        """A refused or failed download: the ✖ row with Back to List (and Try Again for a failed download); nothing was added."""
+        flow = self._flow
+        if flow is None:
+            return
+        verb = "reinstall" if flow.kind == "reinstall" else "add"
+        self.log_line.emit(LOG_COULD_NOT.format(verb=verb, name=flow.name, text=issue.text), "error")
+        heading = (catalog_pages.REINSTALL_HEADING if flow.kind == "reinstall" else catalog_pages.ADD_HEADING).format(name=flow.name)
+        self._preview_page.show_refusal(issue, can_retry=issue.code in RETRY_CODES, heading=heading)
+        self._enter_page("preview")
+        self._emit_outcome(flow, ok=False)
+
+    def _emit_outcome(self, flow: _Flow, *, ok: bool, **fields) -> None:
+        kind = "reinstall" if flow.kind == "reinstall" else "add"
+        self.job_finished.emit(CatalogOutcome(kind, flow.id, flow.name, ok, **fields))
+
+    # -- the preview: Add Library, Discard Download, Try Again --
+
+    def _on_preview_primary(self) -> None:
+        if self._preview_page.is_refusal():  # Try Again
+            self._start_download()
+            return
+        flow, staged, net = self._flow, self._staged, self._net_status
+        if flow is None or staged is None or self._action_block() is not None:
+            return
+        acknowledged = self._licence_page.acknowledged() or self._preview_page.acknowledged()
+        today = self._clock().date().isoformat()
+        services, root = self._services, self._root
+
+        def register(progress, cancel):
+            return services.register_add(root, staged, acknowledged=acknowledged, today=today)
+
+        self._start_job("register", flow.kind, flow.name, register, self._on_registered)
+
+    def _on_registered(self, job: _Job, issues) -> None:
+        flow, staged = self._flow, self._staged
+        if flow is None or staged is None:
+            return
+        errors = [issue for issue in issues if issue.severity is Severity.ERROR]
+        verb = "reinstall" if flow.kind == "reinstall" else "add"
+        if errors:  # the download is still waiting: the preview shows why, and Add Library or Discard Download remain
+            text = errors[0].text
+            self.log_line.emit(LOG_COULD_NOT.format(verb=verb, name=flow.name, text=text), "error")
+            self._preview_page.show_notice(text)
+            return
+        for issue in issues:
+            self.log_line.emit(issue.text, issue.severity.value)
+        report = staged.report
+        symbols = len(report.symbol_libs) if report is not None else 0
+        footprints = len(report.footprint_libs) if report is not None else 0
+        collisions = tuple(report.collisions) if report is not None else ()
+        variables = dict(staged.vars) if staged.vars is not None else dict(staged.source.vars)
+        plan = flow.plan
+        outcome = CatalogOutcome(
+            "reinstall" if flow.kind == "reinstall" else "add", flow.id, flow.name, True, symbols, footprints,
+            collisions, variables, plan.legacy_prefix if plan is not None else None, (self._root / ".git").exists(),
+        )
+        self._staged = None
+        self._flow = None
+        self._page_kind = None
+        self._lock_list(False)
+        # the library was just downloaded at its recorded commit, so its row reads installed and current
+        self._updates[flow.id] = status.UpdateState(flow.id, Check.CURRENT, staged.commit, self._clock())
+        self.refresh()
+        self._select_row(flow.id)
+        template = RESULT_REINSTALLED if outcome.kind == "reinstall" else RESULT_ADDED
+        lines = [(template.format(name=flow.name, s=symbols, f=footprints), "success")]
+        if collisions:
+            lines.append((RESULT_CLASHES.format(n=len(collisions)), "warning"))
+        self.show_result(lines, generate=True, manifest_note=True)
+        self._refresh_details()
+        self._update_default_button()
+        self._refresh_actions()
+        self._tree.setFocus()
+        self._emit_busy()
+        self.job_finished.emit(outcome)
+
+    def _select_row(self, id: str) -> None:
+        for index in range(self._tree.topLevelItemCount()):
+            item = self._tree.topLevelItem(index)
+            if item.data(0, _ROW_ID) == id and not item.isHidden():
+                self._tree.setCurrentItem(item)
+                item.setSelected(True)
+                return
+
+    def _on_preview_back(self) -> None:
+        flow = self._flow
+        if self._preview_page.is_refusal() or self._staged is None or flow is None:  # Back to List
+            self._leave_pages(clear_selection=bool(flow is not None and flow.url))
+            return
+        staged, services = self._staged, self._services
+
+        def discard(progress, cancel):
+            return services.discard_staging(staged)
+
+        self._start_job("discard", flow.kind, flow.name, discard, self._on_discarded)
+
+    def _on_discarded(self, job: _Job, issue) -> None:
+        flow = self._flow
+        name = flow.name if flow is not None else ""
+        if isinstance(issue, Issue):  # the leftover is cleaned up at the next start
+            self.log_line.emit(LOG_DISCARD_FAILED.format(name=name, text=issue.text), "error")
+        else:
+            self.log_line.emit(LOG_DISCARDED.format(name=name), "info")
+        self._staged = None
+        if flow is not None:
+            self._emit_outcome(flow, ok=False)
+        self._leave_pages(clear_selection=bool(flow is not None and flow.url))
+
+    def _release_download(self) -> None:
+        """Delete a waiting download now, on the GUI thread (the window is closing or the collection changed)."""
+        staged = self._staged
+        if staged is None:
+            return
+        name = self._flow.name if self._flow is not None else (staged.plan.name if staged.plan is not None else staged.source.name)
+        issue = self._services.discard_staging(staged)
+        self._staged = None
+        if isinstance(issue, Issue):
+            self.log_line.emit(LOG_DISCARD_FAILED.format(name=name, text=issue.text), "error")
+        else:
+            self.log_line.emit(LOG_DISCARDED.format(name=name), "info")
+
+    def _abandon_flow(self) -> None:
+        """Drop the job, the page and the flow without asking: the window closed or the collection changed."""
+        job = self._job
+        if job is not None:
+            job.cancel.set()
+            job.dropped = True
+            self._job = None
+            self._job_strip.hide()
+        self._flow = None
+        self._page_kind = None
+        self._lock_list(False)
+        self._update_default_button()
+        self._refresh_actions()
+        self._emit_busy()
+
     # ── Closing ───────────────────────────────────────────────────────────────────────────────
 
     def closeEvent(self, event) -> None:
-        """A close always drops outstanding results, also for a window that is not visible (it is then deleted)."""
+        """A visible window closes through done() and its rules; a hidden one drops everything at once (it may be deleted)."""
+        if self.isVisible():
+            super().closeEvent(event)  # QDialog calls reject(), which ends in done(); the event is ignored if the window stays
+            return
+        self._release_download()
+        self._abandon_flow()
         self._stop_background()
         self._fresh = False
         super().closeEvent(event)
 
+    def _stop_question(self, job: _Job) -> tuple[QMessageBox, object]:
+        """The window-modal question `Stop the current job?`; Keep Working is the default and the Esc button."""
+        label = job_label(job.flow, job.name)
+        consequence = CONSEQUENCE_CHECK if job.flow == "check" else CONSEQUENCE_ADD
+        text = STOP_TEXT.format(job=label[:1].upper() + label[1:], consequence=consequence)
+        box = QMessageBox(QMessageBox.Icon.Question, STOP_TITLE, text, QMessageBox.StandardButton.NoButton, self)
+        box.setTextFormat(Qt.TextFormat.PlainText)
+        stop = box.addButton(STOP_CLOSE_TEXT, QMessageBox.ButtonRole.DestructiveRole)
+        keep = box.addButton(KEEP_WORKING_TEXT, QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(keep)
+        box.setEscapeButton(keep)
+        box.setWindowModality(Qt.WindowModality.WindowModal)
+        return box, stop
+
+    def _ask_stop(self, job: _Job) -> bool:
+        """True when the user chose Stop and Close."""
+        box, _stop = self._stop_question(job)
+        box.exec()
+        clicked = box.clickedButton()
+        return clicked is not None and box.buttonRole(clicked) == QMessageBox.ButtonRole.DestructiveRole
+
     def done(self, r: int) -> None:
-        """Hide the window (it is reused); stop every timer and drop every outstanding result."""
+        """Hide the window (it is reused), after the job rules: a job is stopped first, a Remove-like step is waited for.
+
+        A repository check or a download asks `Stop the current job?` (Stop and Close ends the job and closes the
+        window when it has ended); the final Add cannot be stopped halfway, so the close is ignored and the strip says
+        so; a download waiting on a preview is deleted without asking.
+        """
+        if self._asking:
+            return
+        job = self._job
+        if job is not None:
+            if job.phase == "register":
+                self._set_job_text(REGISTER_CLOSE_TEXT)
+                return
+            if job.phase in ("check", "stage") and not job.stopping and self.isVisible():
+                self._asking = True
+                try:
+                    stop = self._ask_stop(job)
+                finally:
+                    self._asking = False
+                if not stop:
+                    return
+                job = self._job  # it may have ended while the question was open
+            if job is not None:
+                self._pending_close = r
+                if job.phase in ("check", "stage") and not job.stopping:
+                    self._cancel_job(job)
+                else:
+                    job.cancel.set()
+                return
+        self._complete_close(r)
+
+    def _complete_close(self, r: int) -> None:
+        """No job is left: delete a waiting download, drop the page, join the workers and hide the window."""
+        self._pending_close = None
+        self._release_download()
+        self._abandon_flow()
+        for worker in self._workers:
+            if worker.isRunning():
+                worker.wait(2000)  # bounded: a worker that has answered is about to end
+        self._emit_busy()
+        self._refresh_details()  # before the background tasks are dropped: it may start a folder size read
         self._stop_background()
         self._fresh = False
         super().done(r)
