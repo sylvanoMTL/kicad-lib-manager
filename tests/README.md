@@ -55,10 +55,14 @@ The behavioural tests of the publishing controls that need a real git repository
 `tests/test_githooks.py` (pre-push block, the commit-msg hook as a git hook), `tests/test_prepublish_scan.py` (exit codes and the history walk on a repository),
 `tests/test_cutover_collection.py` and `tests/test_split_export.py` (the export builder, the planning sync, the cutover).
 The commit-msg hook itself is tested in the quick form (the hook run on a message file, no repository), and the scan's unit tests run in CI.
+The library catalog has four more slow modules that start real git: `tests/test_catalog_tracer.py` (one library from add to scan), `tests/test_catalog_gitnet_git.py` (the hardened git runner),
+`tests/test_catalog_ops_git.py` (add, update, remove against real repositories) and `tests/test_wurth_to_catalog.py` (the one-off Wurth conversion script).
+They use local `file://` repositories that the tests build themselves and never the network (CAT-11), so they are safe to run offline.
+The rest of the catalog tests are quick and use fake git runners.
 Run the slow ones before every publish:
 
 ```
-.\env\Scripts\python.exe -m pytest --full tests/test_githooks.py tests/test_prepublish_scan.py tests/test_cutover_collection.py tests/test_split_export.py
+.\env\Scripts\python.exe -m pytest --full tests/test_githooks.py tests/test_prepublish_scan.py tests/test_cutover_collection.py tests/test_split_export.py tests/test_catalog_tracer.py tests/test_catalog_gitnet_git.py tests/test_catalog_ops_git.py tests/test_wurth_to_catalog.py
 ```
 
 ## Timeouts

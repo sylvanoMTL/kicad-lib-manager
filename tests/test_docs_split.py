@@ -217,6 +217,62 @@ def test_claude_md_describes_the_library_folder():
     assert "Library Collection" not in shortcuts
 
 
+def test_claude_md_names_the_catalog():
+    """Phase 17 (CAT-01, CAT-10, CAT-11): the shortcut, the GUI behaviour and the folders of the library catalog."""
+    text = _read("CLAUDE.md")
+    gui_behavior = _section(text, "### GUI Behavior", "### Menu Shortcuts")
+    for token in (
+        "Library Catalog...",
+        "Ctrl+Shift+L",
+        "(n updates)",
+        "catalog.json",
+        "ThirdParty",
+        "Plugin and Content Manager",
+        "Add by URL...",
+        "Update available",
+        "Problem: folder missing",
+        "Problem: not in the catalog",
+        "Reinstall This Library",
+        "Keep Library",
+        "cannot be stopped",
+        "Git 2.32",
+        "ThirdParty/WurthElektronik",
+        "never commits",
+    ):
+        assert token in gui_behavior, f"GUI Behavior is missing {token!r}"
+
+    shortcuts = _section(text, "### Menu Shortcuts", "## Running the Tests")
+    assert "- `Ctrl+Shift+L` — Library Catalog..." in shortcuts
+
+    structure = _section(text, "## Repository Structure", "## Importing Parts")
+    assert "`catalog/`" in structure
+    assert "`scripts/catalog/`" in structure
+
+    running = _section(text, "## Running the Tests", *CLAUDE_HEADINGS)
+    assert "file://" in running and "network" in running
+
+
+def test_readme_names_the_catalog():
+    text = _read("README.md")
+    libraries = _section(text, "## Libraries and licences", *README_HEADINGS)
+    for token in ("Library Catalog...", "ThirdParty", "catalog.json", "own licence"):
+        assert token in libraries, f"Libraries and licences is missing {token!r}"
+
+
+def test_tests_readme_lists_the_catalog_slow_modules():
+    text = _read("tests/README.md")
+    command = _section(text, "### Publishing-control tests that CI does not run", "## Timeouts")
+    for module in (
+        "test_catalog_tracer.py",
+        "test_catalog_gitnet_git.py",
+        "test_catalog_ops_git.py",
+        "test_wurth_to_catalog.py",
+    ):
+        assert module in command, f"the publish command is missing {module}"
+        assert (REPO_ROOT / "tests" / module).is_file(), f"{module} does not exist"
+    assert "file://" in command and "never the network" in command
+
+
 def test_claude_md_dev_workflow():
     text = _read("CLAUDE.md")
     workflow = _section(text, "## Dev Workflow", *CLAUDE_HEADINGS)
