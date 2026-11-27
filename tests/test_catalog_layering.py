@@ -16,8 +16,8 @@ Rules held for every catalog module:
 
 One rule is about the rest of the application (CAT-11): the commit path cannot reach the
 network. The transitive import closure of gitops, every importer module, the commit panel,
-the import and migration windows, changes and atomic_fixes must not contain catalog.gitnet or
-catalog.githubapi, however many modules lie between them.
+the import and migration windows, changes and atomic_fixes must not contain catalog.gitnet,
+catalog.githubapi or catalog.addons, however many modules lie between them.
 """
 
 import ast
@@ -38,6 +38,8 @@ ALLOWED: dict[str, set[str]] = {
     "catalog.licences": set(),
     "catalog.gitnet": {"models", "procs"},
     "catalog.githubapi": {"models"},
+    # reads KiCad's add-on list over the network: a network module, so the commit path never imports it
+    "catalog.addons": {"models", "fsutil", "catalog.urls", "catalog.licences"},
     "catalog.manifest": {"models", "fsutil", "collection", "catalog.urls"},
     "catalog.curated": {"models", "catalog.licences"},
     "catalog.names": {"models", "catalog.curated", "catalog.manifest", "catalog.urls"},  # the one name rule of a library
@@ -77,7 +79,7 @@ COMMIT_NAMES = frozenset(
     {"commit_paths", "commit_gitlink", "add_intent", "unstage", "create_tag", "init_repository", "run_git"}
 )
 # the modules only the network side may import
-NETWORK_MODULES = ("catalog.gitnet", "catalog.githubapi")
+NETWORK_MODULES = ("catalog.gitnet", "catalog.githubapi", "catalog.addons")
 # the commit path: these modules, and every importer module
 COMMIT_ROOTS = (
     "gitops",
