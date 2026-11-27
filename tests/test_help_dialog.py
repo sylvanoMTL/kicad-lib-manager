@@ -92,7 +92,7 @@ def test_help_shortcuts_complete():
         ("Ctrl+G", "Generate Tables"), ("Ctrl+R", "Restore Backup"),
         ("Ctrl+K", "Set KiCad Footprint Path"), ("Ctrl+Q", "Exit"), ("F1", "User Guide"),
         ("Ctrl+Shift+A", "Check Atomic Parts"), ("Ctrl+Shift+K", "Pin Atomic Libraries in KiCad"),
-        ("Ctrl+Shift+M", "Migrate to Atomic Libraries"),
+        ("Ctrl+Shift+M", "Migrate to Atomic Libraries"), ("Ctrl+Shift+L", "Library Catalog"),
     ):
         assert shortcut in page, shortcut
         assert action in page, action
@@ -557,13 +557,133 @@ def test_help_names_the_toolbar_help():
         assert "HELP_ACTION_TEXT" not in HELP_PAGES[key]
 
 
+# -- The Library Catalog page (phase 17, plan 17-16; CAT-01, CAT-10) ---------------------------------------------
+
+CATALOG_SECTIONS = [
+    "What the catalog is", "Adding a library", "Adding by web address", "Licences", "Updating", "Removing",
+    "If a library shows a problem", "Update checks", "Path variables",
+]
+
+
+def _catalog_section(label: str) -> str:
+    """One h3 section of the catalog page as the reader sees it."""
+    raw = HELP_PAGES["catalog"]
+    start = raw.index(f"<h3>{label}</h3>")
+    nxt = raw.find("<h3>", start + 1)
+    body = raw[start:nxt if nxt != -1 else len(raw)]
+    return re.sub(r"\s+", " ", html_module.unescape(re.sub(r"<[^>]+>", "", body)))
+
+
+def test_catalog_page_sections():
+    raw = HELP_PAGES["catalog"]
+    assert raw.count("<h2>") == 1 and "<h2>Library Catalog</h2>" in raw
+    assert help_dialog.page_sections("catalog") == [(help_dialog.section_anchor(s), s) for s in CATALOG_SECTIONS]
+
+
+def test_catalog_page_is_after_importing():
+    how_to_use = next(children for key, _label, children in TOC_STRUCTURE if key == "_how_to_use")
+    assert ("catalog", "Library Catalog") in how_to_use
+    assert how_to_use.index(("catalog", "Library Catalog")) == how_to_use.index(("importing", "Importing Parts")) + 1
+    assert how_to_use.index(("catalog", "Library Catalog")) < how_to_use.index(("migrating", "Migrating to Atomic Libraries"))
+
+
+def test_catalog_topic_is_a_guide_page():
+    from kicad_lib_manager.widgets.catalog_dialog import CATALOG_TOPIC
+
+    assert CATALOG_TOPIC in HELP_PAGES
+
+
+def test_catalog_page_opens_from_the_catalog_topic(qtbot):
+    dialog = HelpDialog(topic="catalog")
+    qtbot.addWidget(dialog)
+    assert _current_key(dialog) == "catalog"
+    assert dialog.shows_asked_topic()  # a topic a caller asked for is not the owner's remembered place
+    assert settings.load_help_topic() != "catalog"
+
+
+def test_catalog_page_names_the_window_and_the_buttons():
+    page = _page_text("catalog")
+    for text in (
+        "File", "Library Catalog...", "Ctrl+Shift+L", "(2 updates)", "Search libraries", "Check for Updates",
+        "Add This Library", "Download and Check", "Cancel Adding", "Add Library", "Discard Download",
+        "Add by URL...", "Check Repository", "Update This Library", "Update Library", "Keep Current Version",
+        "Cancel Updating", "Remove This Library", "Remove Library", "Keep Library", "Reinstall This Library",
+        "Set Path Variables...", "Generate Tables", "I have read the licence terms",
+    ):
+        assert text in page, text
+
+
+def test_catalog_page_says_what_the_catalog_leaves_alone():
+    intro = _catalog_section("What the catalog is")
+    for claim in ("ThirdParty", "catalog.json", "Plugin and Content Manager", "never touches", "does not commit"):
+        assert claim in intro, claim
+    assert "Git 2.32" in intro  # the version the catalog needs for its downloads
+    assert "3D model" in intro and "warning" in intro  # a missing upstream model is a warning, not a problem
+
+
+def test_catalog_page_says_the_final_write_cannot_be_stopped():
+    adding = _catalog_section("Adding a library")
+    for claim in ("Nothing is written to your collection", "cannot be stopped", "same name", "never changed", "unticked"):
+        assert claim in adding, claim
+    assert "Cancel Adding" in adding and "deleted" in adding
+    assert "WurthElektronik/KiCad-Library" in adding and "ThirdParty/WurthElektronik" in adding  # the ticks carry over
+
+
+def test_catalog_page_removing_defaults_to_keeping_the_library():
+    removing = _catalog_section("Removing")
+    for claim in ("Keep Library", "Esc", "Remove Library", "cannot be stopped", "Generate Tables", "stay set"):
+        assert claim in removing, claim
+
+
+def test_catalog_page_update_refuses_changed_files():
+    updating = _catalog_section("Updating")
+    for claim in ("Looking for changes", "Libraries added", "Libraries removed", "Custom", "overwrite", "Keep Current Version"):
+        assert claim in updating, claim
+
+
+def test_catalog_page_licences_never_refuse():
+    licences = _catalog_section("Licences")
+    for claim in ("nothing is refused", "I have read the licence terms", "share-alike", "proprietary", "keeps its own licence"):
+        assert claim.casefold() in licences.casefold(), claim
+
+
+def test_catalog_page_update_checks_write_nothing_and_stay_silent_offline():
+    checks = _catalog_section("Update checks")
+    for claim in ("at every start", "downloads nothing", "writes no file", "no message", "Check for Updates"):
+        assert claim in checks, claim
+
+
+def test_catalog_page_problems_and_path_variables():
+    problems = _catalog_section("If a library shows a problem")
+    for claim in ("Problem: folder missing", "Reinstall This Library", "Problem: not in the catalog", "never deletes"):
+        assert claim in problems, claim
+    variables = _catalog_section("Path variables")
+    for claim in ("Change KiCad path variables?", "No is the default", "Set Path Variables...", "restart KiCad"):
+        assert claim.casefold() in variables.casefold(), claim
+
+
+def test_catalog_page_plain_language():
+    page = _page_text("catalog")
+    for word in ("ls-remote", "clone", "SPDX", "manifest", "submodule", "refspec", "--depth", "LFS"):
+        assert word.casefold() not in page.casefold(), word
+    # the file name catalog.json is the one name from the record the page may use; no field names of it
+    for field in ('"id"', "legacy_prefix", "licence_spdx", "acknowledged", "vars"):
+        assert field not in page, field
+    assert not re.search(r"[A-Za-z]:[\\/]", page)  # no folder of anybody's computer
+
+
+def test_help_library_tree_names_catalog_sources():
+    page = _page_text("library_tree")
+    assert "each catalog library" in page and "SparkFun" in page
+
+
 # -- Numbered menu with the pages' sections (plan 12-14, G-12-11) ---------------------------------------------
 
 MENU_NUMBERS = {
     "overview": "1", "_getting_started": "2", "requirements": "2.1", "how_to_run": "2.2",
     "_on_launch": "3", "library_folder": "3.1", "kicad_detection": "3.2", "repo_scan": "3.3",
     "_how_to_use": "4", "library_tree": "4.1", "selecting": "4.2", "generating": "4.3", "importing": "4.4",
-    "migrating": "4.5", "restoring": "4.6", "filter": "5", "shortcuts": "6", "roadmap": "7",
+    "catalog": "4.5", "migrating": "4.6", "restoring": "4.7", "filter": "5", "shortcuts": "6", "roadmap": "7",
 }
 IMPORTING_SECTIONS = [
     "Start", "Items", "Target library", "Footprint", "Fields", "Atomic check", "Conflicts",
