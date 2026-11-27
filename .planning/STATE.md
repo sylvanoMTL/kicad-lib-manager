@@ -5,16 +5,16 @@ milestone_name: Public Library Manager
 current_phase: 17
 current_phase_name: Library Catalog
 status: executing
-stopped_at: Completed 17-24-PLAN.md
-last_updated: "2026-11-27T17:25:05.327Z"
+stopped_at: Completed 17-25-PLAN.md
+last_updated: "2026-11-27T17:48:14.804Z"
 last_activity: 2026-11-27
 last_activity_desc: Phase 17 execution started
-state_head: 50d5268b70b313566f871c8e3c819c7c6c8552d0
+state_head: 2e2beb9dab4b0abfe694cca21b8555a67a4601b7
 progress:
   total_phases: 8
   completed_phases: 3
   total_plans: 67
-  completed_plans: 61
+  completed_plans: 62
   percent: 38
 ---
 
@@ -101,6 +101,7 @@ Progress: [████░░░░░░] 38%
 | Phase 17 P22 | 16 min | 3 tasks | 8 files |
 | Phase 17 P23 | 25 min | 3 tasks | 9 files |
 | Phase 17 P24 | 17 min | 3 tasks | 21 files |
+| Phase 17 P25 | 19 min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -163,6 +164,7 @@ The full decision log is in the PROJECT.md Key Decisions table. The v1.0 per-pha
 - [Phase 17]: Name rule (17-24): over every symbol file, links to the download's own footprint libraries count as plain by exact stem or PCM_ by PCM_+stem; more PCM_ gives PCM_, more plain gives none, a tie gives the caller's default (none for a web address, PCM_ for KiCad's add-on list); curated sources and Reinstall fix it
 - [Phase 17]: catalog.json records name, nickname_prefix and addon_id per library; display_name uses the recorded name first; Update, Remove and the scan name libraries with the prefix
 - [Phase 17]: 3D models on a *_3RD_PARTY variable are counted apart from KiCad's other own variables and reported; the catalog never sets, reads or lists KiCad's add-on folder, installed_packages.json or settings
+- [Phase 17]: 17-25: a library of KiCad's add-on list is one row (curated wins on repository key; a recorded library takes its listing by add-on id, else repository); Add from the list runs the same GitHub check, licence page, download check and preview; the line about KiCad's list is hidden on review pages
 
 ### Pending Todos
 
@@ -208,8 +210,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-27T17:25:03.555Z
-Stopped at: Completed 17-24-PLAN.md
+Last session: 2026-11-27T17:48:13.641Z
+Stopped at: Completed 17-25-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
