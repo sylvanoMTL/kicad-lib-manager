@@ -140,15 +140,18 @@ def _read_head(path: Path, limit: int) -> bytes | None:
         return None
 
 
-def _holds_lfs_attr(path: Path) -> bool:
-    data = _read_head(path, _MAX_ATTR_BYTES)
-    if data is None:
-        return False
-    for line in data.decode("utf-8", errors="replace").splitlines():
+def lfs_attributes(data: bytes) -> bool:
+    """True when the content of a .gitattributes file routes any file through the LFS filter."""
+    for line in data[:_MAX_ATTR_BYTES].decode("utf-8", errors="replace").splitlines():
         text = line.strip()
         if text and not text.startswith("#") and _LFS_ATTR_RE.search(text):
             return True
     return False
+
+
+def _holds_lfs_attr(path: Path) -> bool:
+    data = _read_head(path, _MAX_ATTR_BYTES)
+    return data is not None and lfs_attributes(data)
 
 
 def _is_lfs_pointer(path: Path) -> bool:

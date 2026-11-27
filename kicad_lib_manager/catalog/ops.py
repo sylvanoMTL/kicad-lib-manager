@@ -1,4 +1,8 @@
-"""Add and Reinstall a library of the catalog: plan, stage (download and check), register (Phase 17).
+"""Add, Reinstall, Update and Remove a library of the catalog (Phase 17).
+
+Update runs as plan_update (a download into the object store only) and apply_update (a reset to the previewed
+commit), Remove as plan_remove and apply_remove. Add and Reinstall run as plan, stage (download and check) and
+register:
 
 plan_add / plan_reinstall refuse before any download (folder in the way, a path variable another library
 owns, not enough disk space) and report what the licence page and the Add preview show. stage_add clones into
@@ -612,8 +616,8 @@ def clean_staging(root: Path, *, older_than_s: float = 3600.0, now: Callable[[],
 
 # ── Register ─────────────────────────────────────────────────────────
 
-def _move(source: Path, target: Path) -> Issue | None:
-    """os.replace, retried while another program (a virus scanner) holds a file."""
+def _try_move(source: Path, target: Path) -> OSError | None:
+    """os.replace, retried while another program (a virus scanner) holds a file; the last error, or None on success."""
     error: OSError | None = None
     for _ in range(_RENAME_TRIES):
         try:
@@ -625,7 +629,14 @@ def _move(source: Path, target: Path) -> Issue | None:
         except OSError as e:
             error = e
             break
-    return Issue(Severity.ERROR, "catalog.move_failed", f"Could not move the download into place: {(error and error.strerror) or error}")
+    return error
+
+
+def _move(source: Path, target: Path) -> Issue | None:
+    error = _try_move(source, target)
+    if error is None:
+        return None
+    return Issue(Severity.ERROR, "catalog.move_failed", f"Could not move the download into place: {error.strerror or error}")
 
 
 def _clash_warning(name: str, report: validate.StagingReport) -> Issue:
@@ -729,4 +740,406 @@ def register_add(
                 f"{manifest.MANIFEST_NAME} in {Path(root).as_posix()} changed. The app does not commit it for you.",
             )
         )
+    return issues
+
+
+# ── Update ───────────────────────────────────────────────────────────
+
+_MAX_NAMES = 5
+
+
+def _name_list(names, limit: int = _MAX_NAMES) -> str:
+    """The names joined with commas, at most limit of them, then "and {m} more"."""
+    shown = ", ".join(names[:limit])
+    return f"{shown} and {len(names) - limit} more" if len(names) > limit else shown
+
+
+def _library_names(paths) -> set[str]:
+    """The library names in a list of file paths: a .kicad_sym file's stem and a .pretty folder that holds a .kicad_mod."""
+    names: set[str] = set()
+    for path in paths:
+        parts = str(path).split("/")
+        leaf = parts[-1]
+        low = leaf.casefold()
+        if low.endswith(".kicad_sym"):
+            names.add(leaf[: -len(".kicad_sym")])
+        elif low.endswith(".kicad_mod") and len(parts) > 1 and parts[-2].casefold().endswith(".pretty"):
+            names.add(parts[-2][: -len(".pretty")])
+    return names
+
+
+@dataclass(frozen=True)
+class UpdatePlan:
+    """What the Update preview shows: the clone's HEAD (old) and the fetched commit (new) of the recorded branch.
+
+    files_changed counts the files that differ, added and removed are the library names that appear or leave,
+    dirty the files changed inside the folder since it was added (git status minus the recorded baseline) and
+    current is True when old and new are the same commit. refusal stops the update (changed files, Git LFS in
+    the new version); kicad_open names running KiCad programs (a warning).
+    """
+
+    entry: CatalogEntry
+    name: str
+    folder: Path
+    old: str
+    new: str
+    files_changed: int
+    added: tuple[str, ...]
+    removed: tuple[str, ...]
+    dirty: tuple[str, ...]
+    current: bool
+    kicad_open: tuple[str, ...]
+    refusal: Issue | None
+
+
+def _clone_problem(folder: Path, name: str) -> Issue | None:
+    """Refuse a missing folder or a clone whose git settings the app did not write, before any git runs (D-11, Pitfall 4)."""
+    if not Path(folder).is_dir():
+        return Issue(
+            Severity.ERROR,
+            "catalog.folder_missing",
+            f"The folder {Path(folder).as_posix()} is missing. Reinstall {name} to download it again.",
+        )
+    problems = gitnet.config_problems(folder)
+    if problems:
+        return Issue(
+            Severity.ERROR,
+            "catalog.unexpected_settings",
+            f"{name} cannot be updated: its download folder has git settings the app did not write "
+            f"({_name_list(problems, 3)}). Remove {name} and add it again.",
+        )
+    return None
+
+
+def _dirty_issue(name: str, folder: Path) -> Issue:
+    return Issue(
+        Severity.ERROR,
+        "catalog.dirty",
+        f"{name} cannot be updated: files in {Path(folder).as_posix()} were changed after it was added. "
+        "Catalog libraries are managed copies, and an update would overwrite your changes. "
+        "Keep your own changes in Custom/ instead.",
+    )
+
+
+def _dirty_files(net: NetGit, folder: Path, known_dirty) -> tuple[str, ...] | Issue:
+    """The changed or untracked files of a clone, without the baseline of files git lists right after the download."""
+    entries = gitnet.status_entries(net, folder)
+    if isinstance(entries, Issue):
+        return entries
+    known = {path.casefold() for path in known_dirty}
+    return tuple(path for path in entries if path.casefold() not in known)
+
+
+def _lfs_issue(name: str) -> Issue:
+    return Issue(
+        Severity.ERROR,
+        "catalog.lfs",
+        f"{name} cannot be updated: the new version keeps its 3D models in Git LFS, which the catalog does not "
+        "support. Nothing was changed.",
+    )
+
+
+def _uses_lfs(net: NetGit, folder: Path, sha: str, paths) -> bool:
+    """True when any .gitattributes of the commit routes a file through the LFS filter (read from git, never checked out)."""
+    for path in paths:
+        if path.split("/")[-1].casefold() != ".gitattributes":
+            continue
+        data = gitnet.read_blob(net, folder, sha, path)
+        if data is not None and validate.lfs_attributes(data):
+            return True
+    return False
+
+
+def _record_changed(root: Path) -> Issue:
+    return Issue(
+        Severity.INFO,
+        "catalog.record_changed",
+        f"{manifest.MANIFEST_NAME} in {Path(root).as_posix()} changed. The app does not commit it for you.",
+    )
+
+
+def plan_update(
+    root: Path,
+    entry: CatalogEntry,
+    net: NetGit,
+    *,
+    progress: Callable[[str, int | None], None] | None = None,
+    cancel=None,
+    running: Callable[[], list[str]] = kicad_process.kicad_running,
+) -> UpdatePlan | Issue:
+    """Look for a newer version of a listed library without changing any file in its folder (D-07, D-08).
+
+    Order: a missing folder or unexpected git settings (an Issue, before git runs), the clean-tree check (a plan
+    with dirty files and a refusal), then the download of the recorded address and branch at depth 1 into the
+    object store only. old is the clone's HEAD, new the fetched commit; the plan lists the files changed and the
+    library names added and removed from the two trees, and refuses when the new version brings Git LFS.
+    """
+    folder = manifest.entry_folder(root, entry)
+    name = _display_name(entry.id)
+    problem = _clone_problem(folder, name)
+    if problem is not None:
+        return problem
+    dirty = _dirty_files(net, folder, entry.known_dirty)
+    if isinstance(dirty, Issue):
+        return dirty
+    open_programs = tuple(running())
+    if dirty:
+        return UpdatePlan(
+            entry, name, folder, entry.commit, "", 0, (), (), dirty, False, open_programs, _dirty_issue(name, folder)
+        )
+    old = gitnet.head_commit(net, folder)
+    if isinstance(old, Issue):
+        return old
+    new = gitnet.fetch_shallow(net, folder, entry.url, entry.branch, progress=progress, cancel=cancel)
+    if isinstance(new, Issue):
+        return new
+    if new == old:
+        return UpdatePlan(entry, name, folder, old, new, 0, (), (), (), True, open_programs, None)
+    changed = gitnet.changed_paths(net, folder, new)
+    if isinstance(changed, Issue):
+        return changed
+    before = gitnet.tree_paths(net, folder, "HEAD")
+    if isinstance(before, Issue):
+        return before
+    after = gitnet.tree_paths(net, folder, new)
+    if isinstance(after, Issue):
+        return after
+    names_before, names_after = _library_names(before), _library_names(after)
+    refusal = _lfs_issue(name) if _uses_lfs(net, folder, new, after) else None
+    return UpdatePlan(
+        entry, name, folder, old, new, len(changed),
+        tuple(sorted(names_after - names_before, key=str.casefold)),
+        tuple(sorted(names_before - names_after, key=str.casefold)),
+        (), False, open_programs, refusal,
+    )  # fmt: skip
+
+
+def apply_update(root: Path, plan: UpdatePlan, net: NetGit, *, cancel=None) -> list[Issue]:
+    """Move the clone to the commit that was previewed (plan.new), never to a newer one (T-17-27).
+
+    The clean tree, the git settings and the LFS rule are checked again right before the reset; an update stopped
+    before the reset leaves every file as it was. A clone that already is at plan.new gets no reset. The entry's
+    commit and the baseline of files git lists as changed are rewritten from the state after the reset.
+    """
+    if plan.refusal is not None:
+        return [plan.refusal]
+    entry, folder, name = plan.entry, plan.folder, plan.name
+    problem = _clone_problem(folder, name)
+    if problem is not None:
+        return [problem]
+    current = manifest.load(root, allow_file=net.allow_file)
+    if isinstance(current, Issue):
+        return [current]
+    listed = current.find(entry.id)
+    if listed is None:
+        return [Issue(Severity.ERROR, "catalog.not_listed", f"{name} is no longer in the catalog, so it was not updated.")]
+    head = gitnet.head_commit(net, folder)
+    if isinstance(head, Issue):
+        return [head]
+    baseline = tuple(listed.known_dirty)
+    if head != plan.new:
+        dirty = _dirty_files(net, folder, listed.known_dirty)
+        if isinstance(dirty, Issue):
+            return [dirty]
+        if dirty:
+            return [_dirty_issue(name, folder)]
+        paths = gitnet.tree_paths(net, folder, plan.new)
+        if isinstance(paths, Issue):
+            return [paths]
+        if _uses_lfs(net, folder, plan.new, paths):
+            return [_lfs_issue(name)]
+        if cancel is not None and cancel.is_set():
+            return [Issue(Severity.INFO, "git.cancelled", "Stopped.")]
+        reset = gitnet.reset_hard(net, folder, plan.new)
+        if isinstance(reset, Issue):
+            return [reset]
+        fresh, unread = _baseline(net, folder)
+        if unread is None:
+            baseline = fresh
+    if listed.commit != plan.new or baseline != tuple(listed.known_dirty):
+        saved = manifest.save(root, current.with_entry(replace(listed, commit=plan.new, known_dirty=baseline)))
+        if saved is not None:
+            return [saved]
+    issues = [
+        Issue(
+            Severity.SUCCESS,
+            "catalog.updated",
+            f"Updated {name} to {plan.new[:7]}: {len(plan.added)} libraries added, {len(plan.removed)} removed.",
+        )
+    ]
+    if plan.removed:
+        issues.append(
+            Issue(
+                Severity.WARNING,
+                "catalog.update_removed",
+                f"Update of {name} removed {len(plan.removed)} libraries: {_name_list(plan.removed)}. "
+                "Projects that use them lose those parts.",
+            )
+        )
+    if (Path(root) / ".git").exists():
+        issues.append(_record_changed(root))
+    return issues
+
+
+# ── Remove ───────────────────────────────────────────────────────────
+
+def size_on_disk(folder: Path) -> int:
+    """The bytes of every file below folder, links not followed; 0 for a folder that is not there."""
+    total = 0
+    for current, _dirs, files in os.walk(folder, followlinks=False):
+        for leaf in files:
+            try:
+                total += os.lstat(os.path.join(current, leaf)).st_size
+            except OSError:
+                continue
+    return total
+
+
+@dataclass(frozen=True)
+class RemovePlan:
+    """What the Remove page shows: the folder, its size, the libraries that leave the scan and the variables it used.
+
+    exists is False for a listed library whose folder is already gone (only the entry is removed); listed is False
+    for a ThirdParty folder the catalog does not list (the folder is deleted, the catalog is not changed).
+    """
+
+    id: str
+    name: str
+    folder: Path
+    exists: bool
+    size_bytes: int
+    nicknames: tuple[str, ...]
+    vars: tuple[str, ...]
+    listed: bool
+    kicad_open: tuple[str, ...]
+
+
+def _disk_paths(folder: Path) -> list[str]:
+    paths: list[str] = []
+    for current, dirs, files in os.walk(folder, followlinks=False):
+        dirs[:] = [d for d in dirs if d != ".git"]
+        for leaf in files:
+            paths.append((Path(current) / leaf).relative_to(folder).as_posix())
+    return paths
+
+
+def plan_remove(
+    root: Path,
+    target_id: str,
+    mf: Manifest,
+    *,
+    scan=None,
+    running: Callable[[], list[str]] = kicad_process.kicad_running,
+) -> RemovePlan:
+    """The plan for removing a listed library or an unlisted ThirdParty folder (D-21, D-06, D-05).
+
+    The library names come from the last scan when given (the libraries whose files sit in the folder), else
+    from the files on disk.
+    """
+    entry = mf.find(target_id)
+    existing = _existing_folder(root, target_id)
+    folder = Path(root) / THIRD_PARTY_DIR / (existing or (entry.id if entry is not None else target_id))
+    exists = existing is not None and folder.is_dir()
+    if scan is not None:
+        prefix = f"{THIRD_PARTY_DIR}/{folder.name}/".casefold()
+        found = {
+            lib.nickname
+            for lib in [*scan.symbol_libs, *scan.footprint_libs]
+            if lib.rel_path.replace("\\", "/").casefold().startswith(prefix)
+        }
+    else:
+        found = _library_names(_disk_paths(folder)) if exists else set()
+    return RemovePlan(
+        id=entry.id if entry is not None else folder.name,
+        name=_display_name(entry.id if entry is not None else folder.name),
+        folder=folder,
+        exists=exists,
+        size_bytes=size_on_disk(folder) if exists else 0,
+        nicknames=tuple(sorted(found, key=str.casefold)),
+        vars=tuple(sorted(entry.vars)) if entry is not None else (),
+        listed=entry is not None,
+        kicad_open=tuple(running()),
+    )
+
+
+def _remove_failed(name: str, folder: Path, reason: str, *, listed: bool = True) -> Issue:
+    text = f"Could not remove {name}: {reason}. Close anything that uses files in {Path(folder).as_posix()}, then try again."
+    if listed:
+        text += " The catalog entry was kept."
+    return Issue(Severity.ERROR, "catalog.remove_failed", text)
+
+
+# A failed Remove keeps the catalog entry (decided: CONTEXT is silent, the UI-SPEC copy says "The catalog entry
+# was kept."): the folder is renamed into ThirdParty/.staging first, so a file in use stops the Remove before
+# anything else changes; then the entry is removed (a failed save moves the folder back) and the renamed folder
+# is deleted last. A delete that fails leaves a leftover in .staging that clean_staging removes later, so an
+# interrupted Remove leaves either the library installed with its entry or the entry gone (D-21).
+def apply_remove(root: Path, plan: RemovePlan, *, allow_file: bool = False) -> list[Issue]:
+    """Delete the folder of plan and remove its catalog entry; allow_file lets a test whose catalog lists a file:// upstream read it.
+
+    Only a direct child of ThirdParty is ever removed, never .staging or a dot folder. Path variables are never
+    unset (D-21). The collection's own folders and KiCad's files are never touched (CAT-10).
+    """
+    third = Path(root) / THIRD_PARTY_DIR
+    folder, name = Path(plan.folder), plan.name
+    if folder.parent != third or folder.name in ("", ".", "..", STAGING_DIR) or folder.name.startswith("."):
+        return [
+            Issue(
+                Severity.ERROR,
+                "catalog.remove_failed",
+                f"Could not remove {name}: {folder.name or 'that folder'} is not a library folder of the catalog, so it was left alone.",
+            )
+        ]
+    current = manifest.load(root, allow_file=allow_file)
+    if isinstance(current, Issue):
+        return [current]
+    entry = current.find(plan.id)
+    listed = entry is not None
+    renamed: Path | None = None
+    if os.path.lexists(folder):
+        staging = third / STAGING_DIR
+        try:
+            staging.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            return [_remove_failed(name, folder, e.strerror or str(e), listed=listed)]
+        renamed = staging / f"{folder.name}.removing.{secrets.token_hex(4)}"
+        error = _try_move(folder, renamed)
+        if error is not None:
+            return [_remove_failed(name, folder, error.strerror or str(error), listed=listed)]
+    if entry is not None:
+        remaining = Manifest(tuple(e for e in current.libraries if e.id.casefold() != entry.id.casefold()))
+        saved = manifest.save(root, remaining)
+        if saved is not None:
+            issues = [_remove_failed(name, folder, "the catalog record could not be written"), saved]
+            if renamed is not None and _try_move(renamed, folder) is not None:
+                issues.append(
+                    Issue(
+                        Severity.WARNING,
+                        "catalog.remove_leftover",
+                        f"The files of {name} could not be moved back to {folder.as_posix()}. They are in "
+                        f"{THIRD_PARTY_DIR}/{STAGING_DIR}. Reinstall {name} to download it again.",
+                    )
+                )
+            return issues
+    what = f"Removed {name} from the catalog." if listed else f"Removed the folder {name}."
+    issues = [
+        Issue(
+            Severity.SUCCESS,
+            "catalog.removed",
+            f"{what} Generate Tables drops its libraries from your KiCad library tables.",
+        )
+    ]
+    if renamed is not None:
+        failure = fsutil.remove_tree(renamed, inside=third)
+        if failure is not None:
+            issues.append(
+                Issue(
+                    Severity.WARNING,
+                    "catalog.remove_leftover",
+                    f"Part of {name} could not be deleted yet ({failure.text}). It is in {THIRD_PARTY_DIR}/{STAGING_DIR} "
+                    "and is deleted the next time the catalog starts.",
+                )
+            )
+    if listed and (Path(root) / ".git").exists():
+        issues.append(_record_changed(root))
     return issues
