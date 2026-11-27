@@ -1,10 +1,15 @@
-"""The app's own list of curated libraries and its candidates (Phase 17 plan 04; CAT-09, CAT-10, D-22, D-28).
+"""The app's own list of curated libraries, its candidates and its rejections (Phase 17 plans 04 and 18; CAT-09, CAT-10, D-22, D-28, D-33).
 
-No test pins the exact set of curated ids: it checks that the required ones are present and that the lists
-stay consistent, so plan 17-18 can promote a candidate without editing unrelated tests.
+Only test_the_curated_list_is_wurth_and_sparkfun names the whole id set; every other test derives what it
+expects from CURATED, CANDIDATES and REJECTED, and no test is parametrized over the (empty) CANDIDATES, so a
+change of the verified list never turns a test into a skip.
 """
 
+from pathlib import Path
+
 import pytest
+
+from kicad_lib_manager.catalog import addons
 
 from kicad_lib_manager.catalog import curated
 from kicad_lib_manager.catalog.curated import CANDIDATES, CURATED, REJECTED, Candidate, CuratedEntry, curated_by_id
@@ -15,8 +20,18 @@ from kicad_lib_manager.catalog.urls import RepoRef, parse_github_url, repo_key, 
 REQUIRED_IDS = {"WurthElektronik", "SparkFun"}
 
 
+FIXTURE = Path(__file__).parent / "fixtures" / "addons" / "packages.json"
+ESPRESSIF = "https://github.com/espressif/kicad-libraries.git"
+
+
 def test_the_two_required_libraries_are_curated():
     assert REQUIRED_IDS <= {e.id for e in CURATED}
+
+
+def test_the_curated_list_is_wurth_and_sparkfun():
+    # D-22 and D-33 (plan 17-18): KiCad's add-on list brings 4ms and Alternate, so only these two are curated
+    assert {e.id for e in CURATED} == REQUIRED_IDS
+    assert CANDIDATES == ()
 
 
 def test_curated_entries_have_the_documented_type():
@@ -74,14 +89,11 @@ def test_sparkfun_facts():
 LICENCE_URLS = {
     "WurthElektronik": "https://github.com/WurthElektronik/KiCad-Library/blob/master/License_Terms_WE_KiCad_library.pdf",
     "SparkFun": "https://github.com/sparkfun/SparkFun-KiCad-Libraries#license",
-    "4ms": "https://github.com/4ms/4ms-kicad-lib/blob/master/UNLICENSE",
-    "Alternate-KiCad-Library": "https://github.com/DawidCislo/Alternate-KiCad-Library#readme",
-    "Espressif": "",
 }
 
 
 def test_the_licence_addresses_were_checked_by_the_owner_on_2026_11_27():
-    known = {e.id: e for e in (*CURATED, *CANDIDATES)}  # a candidate promoted by plan 17-18 keeps its address
+    known = {e.id: e for e in (*CURATED, *CANDIDATES)}
     assert {"WurthElektronik", "SparkFun"} <= set(known)
     for id, url in LICENCE_URLS.items():
         if id in known:
@@ -122,23 +134,32 @@ def test_curated_by_id_is_case_insensitive_and_curated_only():
     assert curated_by_id("") is None
 
 
-@pytest.mark.parametrize("candidate", CANDIDATES, ids=lambda c: c.id)
-def test_every_candidate_is_well_formed(candidate):
-    assert valid_id(candidate.id)
-    assert isinstance(parse_github_url(candidate.url), RepoRef)
-    assert candidate.research.strip()
-    assert candidate.name and candidate.size_mb > 0 and candidate.branch
-    for name, folder in candidate.vars.items():
-        assert valid_var_name(name) and safe_var_folder(folder)
+def test_every_candidate_is_well_formed():
+    # a loop, not a parametrization: CANDIDATES is empty after plan 17-18 and an empty parametrization is a skip
+    for candidate in CANDIDATES:
+        assert valid_id(candidate.id)
+        assert isinstance(parse_github_url(candidate.url), RepoRef)
+        assert candidate.research.strip()
+        assert candidate.name and candidate.size_mb > 0 and candidate.branch
+        for name, folder in candidate.vars.items():
+            assert valid_var_name(name) and safe_var_folder(folder)
 
 
-def test_the_three_conditional_libraries_are_candidates():
-    ids = {c.id for c in CANDIDATES}
-    keys = {repo_key(c.url) for c in CANDIDATES}
-    # containment only: plan 17-18 moves a passed candidate to CURATED and a failed one to REJECTED
-    for key in ("4ms/4ms-kicad-lib", "dawidcislo/alternate-kicad-library", "espressif/kicad-libraries"):
-        assert key in keys or key in {repo_key(e.url) for e in CURATED} or key in {repo_key(url) for url, _ in REJECTED}
-    assert len(ids) == len(CANDIDATES)
+def test_the_candidate_type_still_builds():
+    candidate = Candidate("x", "X", "https://github.com/x/x.git", "main", None, 1, research="r")
+    assert candidate.vars == {} and candidate.licence_url == ""
+
+
+def test_the_three_conditional_libraries_left_the_candidates_by_their_own_outcome():
+    candidate_keys = {repo_key(c.url) for c in CANDIDATES}
+    curated_keys = {repo_key(e.url) for e in CURATED}
+    rejected_keys = {repo_key(url) for url, _ in REJECTED}
+    # 4ms and Alternate come from KiCad's add-on list (D-33): neither curated, rejected nor a candidate
+    for key in ("4ms/4ms-kicad-lib", "dawidcislo/alternate-kicad-library"):
+        assert key not in candidate_keys | curated_keys | rejected_keys, key
+    # Espressif failed the D-22 check and is recorded as rejected
+    assert "espressif/kicad-libraries" in rejected_keys
+    assert not candidate_keys
 
 
 def test_a_candidate_is_never_listed_found_or_counted_as_curated():
@@ -161,11 +182,46 @@ def test_rejected_entries_carry_a_url_and_a_reason():
         assert reason.strip()
 
 
-def test_espressif_is_a_candidate_with_the_pcm_reason_while_it_is_unverified():
-    keys = {repo_key(c.url): c for c in CANDIDATES}
-    if "espressif/kicad-libraries" in keys:
-        assert "Plugin and Content Manager" in keys["espressif/kicad-libraries"].research
+def test_espressif_is_rejected_with_the_add_on_folder_reason():
+    reasons = {repo_key(url): reason for url, reason in REJECTED}
+    assert [url for url, _ in REJECTED] == [ESPRESSIF]
+    reason = reasons["espressif/kicad-libraries"]
+    assert "Plugin and Content Manager" in reason and "add-on folder" in reason
+    assert "KICAD8_3RD_PARTY" in reason and "KICAD9_3RD_PARTY" in reason
+    assert "not in KiCad's add-on list" in reason
+    assert "web address" in reason  # it stays installable by its web address
 
 
-def test_the_module_documents_the_d22_rule():
-    assert "D-22" in curated.__doc__ and "REJECTED" in curated.__doc__
+def test_no_rejected_address_is_curated():
+    curated_keys = {repo_key(e.url) for e in CURATED}
+    assert not {repo_key(url) for url, _ in REJECTED} & curated_keys
+
+
+def test_kicads_list_brings_4ms_and_alternate():
+    result = addons.parse_packages(FIXTURE.read_bytes())
+    assert isinstance(result, tuple)
+    addable = {repo_key(x.url): x for x in result if x.addable}
+    assert {"4ms/4ms-kicad-lib", "dawidcislo/alternate-kicad-library"} <= set(addable)
+    curated_keys = {repo_key(e.url) for e in CURATED}
+    assert not curated_keys & {"4ms/4ms-kicad-lib", "dawidcislo/alternate-kicad-library"}
+    # KiCad's licence for Alternate is the one the catalog shows
+    assert addable["dawidcislo/alternate-kicad-library"].licence == "CC-BY-SA"
+    # SparkFun is both curated and listed: the window shows it once (plan 17-25)
+    assert repo_key(curated_by_id("SparkFun").url) in addable
+
+
+def test_espressif_is_not_in_kicads_list():
+    # backs the REJECTED reason "not in KiCad's add-on list"
+    result = addons.parse_packages(FIXTURE.read_bytes())
+    assert isinstance(result, tuple)
+    seen = {repo_key(x.url) for x in result if x.url} | {repo_key(x.page) for x in result if x.page}
+    assert repo_key(ESPRESSIF) not in seen
+
+
+def test_the_module_documents_the_d22_rule_and_the_17_17_results():
+    doc = curated.__doc__
+    assert "D-22" in doc and "D-33" in doc and "REJECTED" in doc
+    assert "2026-11-27" in doc and "17-17" in doc and "17-18" in doc
+    # the owner-run results of the two libraries that now come from KiCad's list
+    assert "4ms" in doc and "325 MB" in doc and "25 / 29" in doc
+    assert "Alternate" in doc and "39 / 63" in doc and "6,900" in doc and "CC-BY-SA" in doc
