@@ -5,16 +5,16 @@ milestone_name: Public Library Manager
 current_phase: 17
 current_phase_name: Library Catalog
 status: executing
-stopped_at: Completed 17-22-PLAN.md
-last_updated: "2026-11-27T16:45:21.663Z"
+stopped_at: Completed 17-23-PLAN.md
+last_updated: "2026-11-27T17:01:37.808Z"
 last_activity: 2026-11-27
 last_activity_desc: Phase 17 execution started
-state_head: cf5d10fd55fde6d115f5ee77e44587848fa945a1
+state_head: 9a3a67ee50f645e85a02c4874e70121ba57a631c
 progress:
   total_phases: 8
   completed_phases: 3
   total_plans: 67
-  completed_plans: 59
+  completed_plans: 60
   percent: 38
 ---
 
@@ -99,6 +99,7 @@ Progress: [████░░░░░░] 38%
 | Phase 17 P16 | 6 min | 2 tasks | 6 files |
 | Phase 17 P21 | 62 min | 3 tasks | 14 files |
 | Phase 17 P22 | 16 min | 3 tasks | 8 files |
+| Phase 17 P23 | 25 min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -156,6 +157,8 @@ The full decision log is in the PROJECT.md Key Decisions table. The v1.0 per-pha
 - [Phase 17]: 17-21: catalog/names.py is the one name rule; an address-added library is owner/repo in every catalog line, its id stays the folder name
 - [Phase 17]: 17-22: the add-on list opener is opener(request, timeout, limit); read_index never raises and offline gives the last kept copy with its date (copy file mtime, set on every successful read)
 - [Phase 17]: 17-22: only urls.parse_github_url links become a download address; program repositories, other hosts, packed files and no-link packages are listed as not addable with a plain reason
+- [Phase 17]: 17-23: a catalog source is shown by catalog.json's name (names.source_names) in the trees and log; per-file scan lines of a ThirdParty library are summarized one per library and kind in the log only (the scan result keeps every issue)
+- [Phase 17]: 17-23: the refreshing overlay's wheel timer runs only while shown (showEvent/hideEvent), the worker sends at most one file count per whole percent
 
 ### Pending Todos
 
@@ -201,8 +204,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-27T16:45:20.670Z
-Stopped at: Completed 17-22-PLAN.md
+Last session: 2026-11-27T17:01:35.936Z
+Stopped at: Completed 17-23-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
