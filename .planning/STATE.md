@@ -5,16 +5,16 @@ milestone_name: Public Library Manager
 current_phase: 17
 current_phase_name: Library Catalog
 status: executing
-stopped_at: Completed 17-07-PLAN.md
-last_updated: "2026-11-27T09:50:37.945Z"
+stopped_at: Completed 17-08-PLAN.md
+last_updated: "2026-11-27T09:58:44.535Z"
 last_activity: 2026-11-27
 last_activity_desc: Phase 17 execution started
-state_head: 162db4d7aa9915f87f6754649a82159fb020f606
+state_head: 977fcfb47d6582051a692a28b54064fbda31dfb9
 progress:
   total_phases: 8
   completed_phases: 3
   total_plans: 60
-  completed_plans: 47
+  completed_plans: 48
   percent: 38
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-26)
 ## Current Position
 
 Phase: 17 (Library Catalog) — EXECUTING
-Plan: 8 of 20
+Plan: 9 of 20
 Status: Ready to execute
 Last activity: 2026-11-27 — Phase 17 execution started
 
@@ -88,6 +88,7 @@ Progress: [████░░░░░░] 38%
 | Phase 17 P05 | 12 min | 3 tasks | 9 files |
 | Phase 17 P06 | 9 min | 2 tasks | 3 files |
 | Phase 17 P07 | 14 min | 2 tasks | 8 files |
+| Phase 17 P08 | 7 min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -122,6 +123,8 @@ The full decision log is in the PROJECT.md Key Decisions table. The v1.0 per-pha
 - [Phase 17]: 17-05: scanner stays catalog-free; catalog 3D variables arrive as model_vars {id: {VAR: folder}} and the confirmation takes extra_vars; scan_source/remove_source share _replace_source and match a full scan
 - [Phase 17]: 17-06: validate_staging refuses in the order no libraries, KiCad 5, PCM, Git LFS, link; detect_vars takes the folder holding at least 80 percent of up to 200 sampled models, KiCad and PCM variables are counted and never mapped
 - [Phase 17]: 17-07: register_add reads catalog.json before anything moves; stage_add also accepts a plain AddSource so the tracer is unchanged; sizes shown in decimal units (12 GB); needed space = curated install_mb or 6 x GitHub size + 500 MB, margin = max(500 MB, 25 %)
+- [Phase 17]: 17-08: importer name search covers ThirdParty/<id> clones (label '<id>:', recursive, sorted without case, staging and dot folders skipped) plus the legacy WurthElektronik folder while it exists
+- [Phase 17]: 17-08: the Wurth corpus root is ThirdParty/WurthElektronik when it exists, else the legacy folder; vendor folder name allowed only in catalog/curated.py, importer/verify.py, widgets/help_dialog.py (guard test)
 
 ### Pending Todos
 
@@ -167,8 +170,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-27T09:50:37.085Z
-Stopped at: Completed 17-07-PLAN.md
+Last session: 2026-11-27T09:58:43.590Z
+Stopped at: Completed 17-08-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
