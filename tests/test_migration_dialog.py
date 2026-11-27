@@ -713,3 +713,68 @@ def test_close_while_planning_waits_without_blocking(qtbot, make_dialog, tmp_pat
 
     gate.set()
     qtbot.waitUntil(lambda: not dialog.isVisible(), timeout=30000)
+
+
+def test_close_with_pending_timers_starts_no_rebuild(qtbot, make_dialog, tmp_path):
+    part_a = _part(KEY_A, "Lib", "Atomic_Connector", "P1")
+    counts = {"build": 0, "save": 0}
+    saved = []
+
+    def counting_build_plan(inventory, choices, ctx):
+        counts["build"] += 1
+        return _plan_for(inventory, (part_a,))
+
+    def fake_save_draft(path, repo_root, choices, prints):
+        counts["save"] += 1
+        saved.append(choices)
+        return None
+
+    core = core_with(tmp_path, build_plan=counting_build_plan, save_draft=fake_save_draft)
+    dialog = make_dialog(core)
+    dialog.show()
+    qtbot.waitUntil(lambda: dialog._current_key == KEY_A, timeout=30000)
+    qtbot.waitUntil(lambda: not any(w.isRunning() for w in dialog._workers), timeout=30000)
+    builds_before = counts["build"]
+
+    dialog._field_edits["mpn"].setText("LASTEDIT")
+    dialog._field_edits["mpn"].textEdited.emit("LASTEDIT")
+    assert dialog._draft_timer.isActive()
+    assert dialog._rebuild_timer.isActive()
+
+    dialog.reject()
+    assert not dialog._draft_timer.isActive()
+    assert not dialog._rebuild_timer.isActive()
+
+    # The pending draft save runs once as a worker and the window closes when it ends
+    qtbot.waitUntil(lambda: not dialog.isVisible(), timeout=30000)
+    assert counts["save"] == 1
+    assert saved[0].parts[KEY_A].mpn == "LASTEDIT"
+
+    # Wait past both delays: no timer may start a worker after the window closed
+    qtbot.wait(max(_REBUILD_DELAY_MS, _DRAFT_DELAY_MS) + 500)
+    assert counts["build"] == builds_before
+    assert counts["save"] == 1
+
+
+def test_close_without_pending_draft_closes_at_once(qtbot, make_dialog, tmp_path):
+    dialog = make_dialog()
+    dialog.show()
+    qtbot.waitUntil(lambda: dialog._gate is not None, timeout=30000)
+    qtbot.waitUntil(lambda: not any(w.isRunning() for w in dialog._workers), timeout=30000)
+    dialog._draft_timer.stop()
+    dialog._rebuild_timer.stop()
+
+    spawned = []
+    original_spawn = dialog._spawn
+
+    def counting_spawn(fn, tag=None):
+        spawned.append(tag)
+        return original_spawn(fn, tag)
+
+    dialog._spawn = counting_spawn
+    dialog.reject()
+
+    assert not dialog.isVisible()  # closed at once, nothing to wait for
+    assert spawned == []
+    assert not dialog._draft_timer.isActive()
+    assert not dialog._rebuild_timer.isActive()
