@@ -5,16 +5,16 @@ milestone_name: Public Library Manager
 current_phase: 17
 current_phase_name: Library Catalog
 status: executing
-stopped_at: Completed 17-05-PLAN.md
-last_updated: "2026-11-27T09:26:50.880Z"
+stopped_at: Completed 17-06-PLAN.md
+last_updated: "2026-11-27T09:36:15.666Z"
 last_activity: 2026-11-27
 last_activity_desc: Phase 17 execution started
-state_head: 5a40dff380a7b1265340ec2bc90e42aaeca8f128
+state_head: cac403b3e0a366d9c80596b2ccf1e973f93a15be
 progress:
   total_phases: 8
   completed_phases: 3
   total_plans: 60
-  completed_plans: 45
+  completed_plans: 46
   percent: 38
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-26)
 ## Current Position
 
 Phase: 17 (Library Catalog) — EXECUTING
-Plan: 6 of 20
+Plan: 7 of 20
 Status: Ready to execute
 Last activity: 2026-11-27 — Phase 17 execution started
 
@@ -86,6 +86,7 @@ Progress: [████░░░░░░] 38%
 | Phase 17 P03 | 11 min | 2 tasks | 4 files |
 | Phase 17 P04 | 9 min | 2 tasks | 9 files |
 | Phase 17 P05 | 12 min | 3 tasks | 9 files |
+| Phase 17 P06 | 9 min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -118,6 +119,7 @@ The full decision log is in the PROJECT.md Key Decisions table. The v1.0 per-pha
 - [Phase 17]: default_id is cut to 63 characters and valid_id refuses Custom and ThirdParty, so every address GitHub allows gives a valid, unambiguous id
 - [Phase 17]: Only WurthElektronik and SparkFun are CURATED; 4ms, Alternate-KiCad-Library and Espressif stay CANDIDATES until plan 17-17 passes, REJECTED is empty until 17-18
 - [Phase 17]: 17-05: scanner stays catalog-free; catalog 3D variables arrive as model_vars {id: {VAR: folder}} and the confirmation takes extra_vars; scan_source/remove_source share _replace_source and match a full scan
+- [Phase 17]: 17-06: validate_staging refuses in the order no libraries, KiCad 5, PCM, Git LFS, link; detect_vars takes the folder holding at least 80 percent of up to 200 sampled models, KiCad and PCM variables are counted and never mapped
 
 ### Pending Todos
 
@@ -163,8 +165,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-27T09:26:50.040Z
-Stopped at: Completed 17-05-PLAN.md
+Last session: 2026-11-27T09:36:14.811Z
+Stopped at: Completed 17-06-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
