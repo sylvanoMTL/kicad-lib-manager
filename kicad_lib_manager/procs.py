@@ -6,6 +6,7 @@ frozen app; argv is always a list, never a shell string. Stdlib only.
 
 import subprocess
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 
 
 def run_process(argv: Sequence[str], *, runner: Callable | None = None, **kwargs):
@@ -21,3 +22,12 @@ def run_process(argv: Sequence[str], *, runner: Callable | None = None, **kwargs
     kwargs["creationflags"] = kwargs.get("creationflags", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0)
     run = runner if runner is not None else subprocess.run
     return run(list(argv), **kwargs)
+
+
+@dataclass(frozen=True)
+class StreamOutcome:
+    returncode: int | None
+    stdout: bytes
+    lines: tuple[str, ...]
+    cancelled: bool
+    timed_out: bool
