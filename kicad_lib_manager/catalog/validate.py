@@ -16,6 +16,7 @@ from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .. import kicad_files, library_scanner
 from ..models import Issue, Severity
 
 NO_LIBRARIES_TEXT = "This repository holds no KiCad symbol or footprint libraries, so there is nothing to add."
@@ -31,6 +32,8 @@ LFS_TEXT = (
     "This library keeps its 3D models in Git LFS, "
     "which the catalog does not support. Nothing was added."
 )
+KICAD_VARS_TEXT = "{n} 3D models use KiCad's own path variables; they show only in a matching KiCad version."
+KICAD_VARS_ONE_TEXT = "1 3D model uses KiCad's own path variables; it shows only in a matching KiCad version."
 SUBMODULES_TEXT = "This repository uses Git submodules; submodules are not downloaded, so what they hold is missing."
 
 MAX_LICENCE_BYTES = 64 * 1024
@@ -47,6 +50,32 @@ _LICENCE_PREFIXES = ("license", "licence", "unlicense", "copying")
 _DOC_PREFIXES = ("readme", "license", "licence", "unlicense", "copying", "changelog")
 _DOT_FILES = frozenset({".gitignore", ".gitattributes", ".gitmodules", ".editorconfig"})
 _PCM_NAMES = frozenset({"repository.json", "packages.json"})
+
+# a variable's folder is the one where at least this share of its sampled model paths exist
+MIN_SHARE_PERCENT = 80
+SAMPLE_LIMIT = 200
+_VAR_MODEL_RE = re.compile(r"\$\{([A-Za-z0-9_]+)\}/(.*)", re.DOTALL)
+# Module-private copies of the catalog.manifest variable rules (catalog.validate may not import it); the tests pin both
+# copies to the same cases. KiCad's own variables and the Plugin and Content Manager ones are never mapped (CAT-10).
+_VAR_RE = re.compile(r"[A-Z][A-Z0-9_]{2,63}")
+_KICAD_OWN = (
+    re.compile(r"KICAD\d+_"),
+    re.compile(r"KISYS"),
+    re.compile(r".*_3RD_PARTY"),
+    re.compile(r"KIPRJMOD"),
+    re.compile(r"KICAD_(USER|SYSTEM)_TEMPLATE_DIR"),
+    re.compile(r"KICAD_(CONFIG|DATA|STOCK_DATA|CACHE|STATE|DOCUMENTS)_HOME"),
+    re.compile(r"KICAD_PATH"),
+)
+_APP_OWN = frozenset({"KICAD_LIB_GITHUB", "CUSTOM_3DMODEL_DIR"})
+_SYSTEM_NAMES = frozenset(
+    {
+        "PATH", "PATHEXT", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "PROGRAMDATA", "PROGRAMFILES",
+        "TEMP", "TMP", "TMPDIR", "COMSPEC", "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "USERNAME", "SHELL",
+        "PYTHONPATH", "PYTHONHOME", "NODE_OPTIONS",
+    }
+)
+_SYSTEM_PREFIXES = ("LD_", "DYLD_", "PYTHON")
 
 KIND_SYMBOL = "Symbol"
 KIND_FOOTPRINT = "Footprint"
@@ -227,6 +256,126 @@ def licence_text(folder: Path) -> str | None:
     return None
 
 
+def _is_kicad_own(name: str) -> bool:
+    """True for a variable KiCad or its Plugin and Content Manager sets (KICAD8_3RD_PARTY, KISYS3DMOD, ...)."""
+    return any(pattern.match(name) for pattern in _KICAD_OWN)
+
+
+def _mappable(name: str) -> bool:
+    """True for a variable name a library may map to a folder; the rule of catalog.manifest.valid_var_name."""
+    if _VAR_RE.fullmatch(name) is None:
+        return False
+    if name in _APP_OWN or name in _SYSTEM_NAMES or name.startswith(_SYSTEM_PREFIXES):
+        return False
+    return not _is_kicad_own(name)
+
+
+def _safe_folder(text: str) -> bool:
+    """True for a folder inside a clone: relative, forward slashes, no .., no drive, no empty or dotted part."""
+    if text == "":
+        return True
+    if text.startswith("/") or "\\" in text or ":" in text or any(ord(ch) < 32 for ch in text):
+        return False
+    return all(part not in ("", ".", "..") and not part.endswith((".", " ")) for part in text.split("/"))
+
+
+def _clone_files(folder: Path) -> list[str]:
+    """Every file of the clone as a forward-slash relative path; .git is skipped and links are never followed."""
+    found: list[str] = []
+    for current, dirnames, filenames in os.walk(folder):
+        here = Path(current)
+        dirnames[:] = [d for d in dirnames if d != ".git" and not _is_link(here / d)]
+        base = here.relative_to(folder)
+        found.extend((base / n).as_posix() for n in filenames if n != ".git" and not _is_link(here / n))
+    return found
+
+
+def _index(files: list[str]) -> dict[str, list[str]]:
+    """Clone files by their last path component and by their last two (<x>.3dshapes/<file>)."""
+    index: dict[str, list[str]] = {}
+    for rel in files:
+        parts = rel.split("/")
+        index.setdefault(parts[-1], []).append(rel)
+        if len(parts) > 1:
+            index.setdefault("/".join(parts[-2:]), []).append(rel)
+    return index
+
+
+def _sample(paths: set[str]) -> list[str]:
+    """At most SAMPLE_LIMIT of the paths, spread evenly over the sorted list."""
+    ordered = sorted(paths)
+    step = -(-len(ordered) // SAMPLE_LIMIT)
+    return ordered[::step] if step > 1 else ordered
+
+
+def _folders_of(rest: str, index: dict[str, list[str]]) -> set[str]:
+    """The clone folders under which the model path `rest` exists (exact letter case)."""
+    parts = rest.split("/")
+    if not rest or any(part in ("", ".", "..") for part in parts):
+        return set()
+    found: set[str] = set()
+    for rel in index.get("/".join(parts[-2:]), ()):
+        if rel == rest:
+            found.add("")
+        elif rel.endswith("/" + rest):
+            found.add(rel[: -len(rest) - 1])
+    return {folder for folder in found if _safe_folder(folder)}
+
+
+def detect_vars(folder: Path, footprint_files: list[Path]) -> tuple[dict[str, str], int]:
+    """The path variables the footprint models need, and how many models use KiCad's own variables (CAT-10).
+
+    For each non-KiCad ${VAR}/rest model path, looks for `rest` in the clone and takes the folder that holds
+    at least MIN_SHARE_PERCENT % of up to SAMPLE_LIMIT sampled paths of that variable (the shorter folder when two
+    tie). The result maps VAR to that clone-relative folder ('' is the clone itself). Variables of KiCad and of
+    the Plugin and Content Manager are counted, never mapped. A variable with no such folder is left out.
+    """
+    wanted: dict[str, set[str]] = {}
+    kicad_models = 0
+    for mod_file in footprint_files:
+        loaded = kicad_files.load(mod_file)
+        if isinstance(loaded, Issue):
+            continue
+        name = kicad_files.footprint_name(loaded.root)
+        if name is None:
+            continue
+        for model in kicad_files.find_models(name.node):
+            match = _VAR_MODEL_RE.match(model.path)
+            if match is None:
+                continue
+            var, rest = match.groups()
+            if _is_kicad_own(var):
+                kicad_models += 1
+            elif _mappable(var):
+                wanted.setdefault(var, set()).add(rest)
+    if not wanted:
+        return {}, kicad_models
+    index = _index(_clone_files(Path(folder)))
+    mapping: dict[str, str] = {}
+    for var, rests in sorted(wanted.items()):
+        sample = _sample(rests)
+        votes: dict[str, int] = {}
+        for rest in sample:
+            for where in _folders_of(rest, index):
+                votes[where] = votes.get(where, 0) + 1
+        # most paths first; on a tie the shorter folder, then the name, so the answer never depends on file order
+        ranked = sorted(votes.items(), key=lambda item: (-item[1], len(item[0]), item[0]))
+        if ranked and ranked[0][1] * 100 >= MIN_SHARE_PERCENT * len(sample):
+            mapping[var] = ranked[0][0]
+    return mapping, kicad_models
+
+
+def unresolved_models(folder: Path, vars: Mapping[str, str]) -> list[str]:
+    """The model paths of the clone's footprints that a mapped variable points at and that do not exist.
+
+    Names are compared exactly, case included, by library_scanner.unresolved_var_models: the dialog, the scan rule
+    and the conversion script share this one check (D-26 check 3, D-31).
+    """
+    folder = Path(folder)
+    mod_files = sorted(folder / rel for rel in _clone_files(folder) if rel.casefold().endswith(".kicad_mod"))
+    return library_scanner.unresolved_var_models(folder, mod_files, vars)
+
+
 def find_collisions(
     symbol_libs: Collection[str],
     footprint_libs: Collection[str],
@@ -288,6 +437,11 @@ def validate_staging(
     warnings: list[Issue] = []
     if tree.gitmodules:
         warnings.append(Issue(Severity.WARNING, "catalog.submodules", SUBMODULES_TEXT))
+    needed_vars, kicad_var_models = detect_vars(folder, tree.mod_files)
+    if kicad_var_models == 1:
+        warnings.append(Issue(Severity.WARNING, "catalog.kicad_vars", KICAD_VARS_ONE_TEXT))
+    elif kicad_var_models:
+        warnings.append(Issue(Severity.WARNING, "catalog.kicad_vars", KICAD_VARS_TEXT.format(n=kicad_var_models)))
     return StagingReport(
         symbol_libs=tuple(tree.symbol_libs),
         footprint_libs=tuple(tree.footprint_libs),
@@ -299,8 +453,8 @@ def validate_staging(
             own=own,
             other_catalog=other_catalog,
         ),
-        vars={},
-        kicad_var_models=0,
+        vars=needed_vars,
+        kicad_var_models=kicad_var_models,
         licence_text=licence_text(folder),
         warnings=tuple(warnings),
     )
