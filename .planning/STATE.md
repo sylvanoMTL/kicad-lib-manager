@@ -5,16 +5,16 @@ milestone_name: Public Library Manager
 current_phase: 17
 current_phase_name: Library Catalog
 status: executing
-stopped_at: Completed 17-15-PLAN.md
-last_updated: "2026-11-27T12:15:56.099Z"
+stopped_at: Completed 17-16-PLAN.md
+last_updated: "2026-11-27T12:27:20.883Z"
 last_activity: 2026-11-27
 last_activity_desc: Phase 17 execution started
-state_head: ff21228d6176fe95b8dd33c4004511e2e603275c
+state_head: 4b030c9a305e3e3c2aab4fb16fd7ff648f10b6ab
 progress:
   total_phases: 8
   completed_phases: 3
   total_plans: 60
-  completed_plans: 55
+  completed_plans: 56
   percent: 38
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-26)
 ## Current Position
 
 Phase: 17 (Library Catalog) — EXECUTING
-Plan: 16 of 20
+Plan: 17 of 20
 Status: Ready to execute
 Last activity: 2026-11-27 — Phase 17 execution started
 
@@ -96,6 +96,7 @@ Progress: [████░░░░░░] 38%
 | Phase 17 P13 | 22 min | 2 tasks | 5 files |
 | Phase 17 P14 | 12 min | 2 tasks | 4 files |
 | Phase 17 P15 | 35 min | 2 tasks | 3 files |
+| Phase 17 P16 | 6 min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -147,6 +148,7 @@ The full decision log is in the PROJECT.md Key Decisions table. The v1.0 per-pha
 - [Phase 17]: 17-14: the catalog source rescan runs on CatalogRescanWorker(QThread), not TaskWorker (the exit guard allows two TaskWorker calls in main_window.py); an Update ticks only libraries not in the previous scan; _select_linked_footprints is not called after a catalog job
 - [Phase 17]: 17-15: Update ends in a look job and an apply job; apply_update is called only from the preview's Update Library, apply_remove only from the Remove page's Remove Library (Keep Library is default, Esc and first focus; Ctrl+Return skipped)
 - [Phase 17]: 17-15: a Remove that makes the row leave the list shows its result strip on the empty pane; a failed Remove keeps the entry and the row and offers Back to List
+- [Phase 17]: 17-16: the catalog guide page describes the built window (Würth carry-over, Keep Library default with Esc, silent start check, manual check logs offline) and uses no deny-list word
 
 ### Pending Todos
 
@@ -192,8 +194,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-27T12:15:55.234Z
-Stopped at: Completed 17-15-PLAN.md
+Last session: 2026-11-27T12:27:13.760Z
+Stopped at: Completed 17-16-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

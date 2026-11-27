@@ -45,7 +45,7 @@ Research: `.planning/research/SUMMARY.md` (and STACK, FEATURES, ARCHITECTURE, PI
 
 ### Library catalog (CAT)
 
-- [ ] **CAT-01**: User can open the Library Catalog and see curated libraries with status (not installed / installed / update available / problem), licence and size
+- [x] **CAT-01**: User can open the Library Catalog and see curated libraries with status (not installed / installed / update available / problem), licence and size
 - [ ] **CAT-02**: User can add a curated library in one click: shallow clone with progress and Cancel, validated before it is registered, licence shown before cloning
 - [ ] **CAT-03**: User can add a library by GitHub URL; non-KiCad, KiCad 5-only, PCM-only and private repos are refused with a message saying why
 - [x] **CAT-04**: User can update an installed library, and remove one (clone and manifest entry) after a confirmation naming what goes
@@ -54,7 +54,7 @@ Research: `.planning/research/SUMMARY.md` (and STACK, FEATURES, ARCHITECTURE, PI
 - [ ] **CAT-07**: At startup the app checks installed libraries against GitHub in the background (remote commit vs local commit, no download) and flags "Update available"; it never blocks, and offline the status is unknown with no error
 - [x] **CAT-08**: Adding a library warns about nickname collisions with KiCad stock, other catalog or `Atomic_` libraries, and never renames automatically
 - [ ] **CAT-09**: Würth and SparkFun are verified end to end; Espressif, 4ms and Alternate-KiCad-Library are verified and added to the curated list if they work
-- [ ] **CAT-10**: KiCad's PCM is left alone: `PCM_` entries, the `3rdparty` folder and `installed_packages.json` are never touched
+- [x] **CAT-10**: KiCad's PCM is left alone: `PCM_` entries, the `3rdparty` folder and `installed_packages.json` are never touched
 - [ ] **CAT-11**: Network git is safe: a separate runner (https only, no hooks or credential prompts, no submodule recursion, long paths on, autocrlf off), and the commit path cannot reach the network
 - [ ] **CAT-12**: WurthElektronik becomes a catalog entry in the owner's collection, with no missing library or 3D model afterwards
 
@@ -143,7 +143,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SPLIT-06 | Phase 16 | Complete |
 | SPLIT-07 | Phase 16 | Complete |
 | SPLIT-08 | Phase 16 | Complete |
-| CAT-01 | Phase 17 | Pending |
+| CAT-01 | Phase 17 | Complete |
 | CAT-02 | Phase 17 | Pending |
 | CAT-03 | Phase 17 | Pending |
 | CAT-04 | Phase 17 | Complete |
@@ -152,7 +152,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CAT-07 | Phase 17 | Pending |
 | CAT-08 | Phase 17 | Complete |
 | CAT-09 | Phase 17 | Pending |
-| CAT-10 | Phase 17 | Pending |
+| CAT-10 | Phase 17 | Complete |
 | CAT-11 | Phase 17 | Pending |
 | CAT-12 | Phase 17 | Pending |
 | TBL-03 | Phase 18 | Pending |
