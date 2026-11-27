@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import kicad_process, library_scanner
+from ..collection import OWN_DIR, THIRD_PARTY_DIR
 from ..catalog import curated as curated_list
 from ..catalog import githubapi, manifest, ops, status
 from ..catalog.licences import LicenceClass
@@ -1696,10 +1697,10 @@ class CatalogDialog(QDialog):
         names = {row.id.casefold(): row.name for row in self._rows}
         for lib in (*scan.symbol_libs, *scan.footprint_libs):
             rel = lib.rel_path.replace("\\", "/")
-            if rel.startswith("ThirdParty/"):
+            if rel.startswith(f"{THIRD_PARTY_DIR}/"):
                 if lib.source.casefold() != id.casefold():
                     other.setdefault(lib.nickname, names.get(lib.source.casefold(), lib.source))
-            elif lib.source == "Custom":
+            elif lib.source == OWN_DIR:
                 own.setdefault(lib.nickname, OWN_ATOMIC_TEXT if lib.nickname.startswith("Atomic_") else OWN_CUSTOM_TEXT)
         return own, other
 
