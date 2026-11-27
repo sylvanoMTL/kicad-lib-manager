@@ -5,16 +5,16 @@ milestone_name: Public Library Manager
 current_phase: 17
 current_phase_name: Library Catalog
 status: executing
-stopped_at: Completed 17-21-PLAN.md
-last_updated: "2026-11-27T16:27:35.822Z"
+stopped_at: Completed 17-22-PLAN.md
+last_updated: "2026-11-27T16:45:21.663Z"
 last_activity: 2026-11-27
 last_activity_desc: Phase 17 execution started
-state_head: 0d8f37bcd66bc8e2bde8b50aca1cbfeab655fe43
+state_head: cf5d10fd55fde6d115f5ee77e44587848fa945a1
 progress:
   total_phases: 8
   completed_phases: 3
   total_plans: 67
-  completed_plans: 58
+  completed_plans: 59
   percent: 38
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-26)
 ## Current Position
 
 Phase: 17 (Library Catalog) — EXECUTING
-Plan: 19 of 20
+Plan: 20 of 20
 Status: Ready to execute
 Last activity: 2026-11-27 — Phase 17 execution started
 
@@ -98,6 +98,7 @@ Progress: [████░░░░░░] 38%
 | Phase 17 P15 | 35 min | 2 tasks | 3 files |
 | Phase 17 P16 | 6 min | 2 tasks | 6 files |
 | Phase 17 P21 | 62 min | 3 tasks | 14 files |
+| Phase 17 P22 | 16 min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -153,6 +154,8 @@ The full decision log is in the PROJECT.md Key Decisions table. The v1.0 per-pha
 - [Phase 17]: D-33: catalog lists KiCad's official add-on index libraries by their git links, PCM_ nicknames; fix plan before 17-18 (17-17 findings)
 - [Phase 17]: 17-21: the check's file count rides the worker progress signal as (check-files, done, total), throttled to one count per whole percent; folder sizes are measured one at a time and survive a reload
 - [Phase 17]: 17-21: catalog/names.py is the one name rule; an address-added library is owner/repo in every catalog line, its id stays the folder name
+- [Phase 17]: 17-22: the add-on list opener is opener(request, timeout, limit); read_index never raises and offline gives the last kept copy with its date (copy file mtime, set on every successful read)
+- [Phase 17]: 17-22: only urls.parse_github_url links become a download address; program repositories, other hosts, packed files and no-link packages are listed as not addable with a plain reason
 
 ### Pending Todos
 
@@ -198,8 +201,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-27T16:27:33.073Z
-Stopped at: Completed 17-21-PLAN.md
+Last session: 2026-11-27T16:45:20.670Z
+Stopped at: Completed 17-22-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
