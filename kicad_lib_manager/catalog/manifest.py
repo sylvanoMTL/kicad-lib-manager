@@ -14,6 +14,7 @@ from ..models import Issue, Severity
 
 MANIFEST_NAME = "catalog.json"
 FORMAT = 1
+MAX_MANIFEST_BYTES = 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -26,6 +27,7 @@ class CatalogEntry:
     licence_spdx: str | None = None
     acknowledged: bool = False
     acknowledged_on: str = ""
+    added_on: str = ""
     known_dirty: tuple[str, ...] = ()
 
 
@@ -60,7 +62,23 @@ def _entry_from(raw: dict) -> CatalogEntry:
     )
 
 
-def load(root: Path) -> Manifest | Issue:
+def entry_folder(root, entry):
+    return Path(root)
+
+
+def valid_var_name(name) -> bool:
+    return False
+
+
+def safe_var_folder(text) -> bool:
+    return False
+
+
+def path_vars(root, entries) -> dict:
+    return {}
+
+
+def load(root: Path, *, allow_file: bool = False) -> Manifest | Issue:
     """Read root/catalog.json; a missing file is an empty Manifest, an unreadable one an Issue."""
     path = Path(root) / MANIFEST_NAME
     try:
