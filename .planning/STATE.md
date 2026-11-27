@@ -5,16 +5,16 @@ milestone_name: Public Library Manager
 current_phase: 17
 current_phase_name: Library Catalog
 status: executing
-stopped_at: Completed 17-04-PLAN.md
-last_updated: "2026-11-27T09:14:00.847Z"
+stopped_at: Completed 17-05-PLAN.md
+last_updated: "2026-11-27T09:26:50.880Z"
 last_activity: 2026-11-27
 last_activity_desc: Phase 17 execution started
-state_head: 244ba652a74c5954b714db1642ac23ad13114114
+state_head: 5a40dff380a7b1265340ec2bc90e42aaeca8f128
 progress:
   total_phases: 8
   completed_phases: 3
   total_plans: 60
-  completed_plans: 44
+  completed_plans: 45
   percent: 38
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-26)
 ## Current Position
 
 Phase: 17 (Library Catalog) — EXECUTING
-Plan: 5 of 20
+Plan: 6 of 20
 Status: Ready to execute
 Last activity: 2026-11-27 — Phase 17 execution started
 
@@ -85,6 +85,7 @@ Progress: [████░░░░░░] 38%
 | Phase 17 P02 | 6 min | 2 tasks | 3 files |
 | Phase 17 P03 | 11 min | 2 tasks | 4 files |
 | Phase 17 P04 | 9 min | 2 tasks | 9 files |
+| Phase 17 P05 | 12 min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -116,6 +117,7 @@ The full decision log is in the PROJECT.md Key Decisions table. The v1.0 per-pha
 - [Phase 17]: valid_var_name also refuses system and loader names (PATH, APPDATA, LD_*, DYLD_*, PYTHON*) and KiCad's *_HOME and KICAD_PATH names, beyond the plan list (CAT-10)
 - [Phase 17]: default_id is cut to 63 characters and valid_id refuses Custom and ThirdParty, so every address GitHub allows gives a valid, unambiguous id
 - [Phase 17]: Only WurthElektronik and SparkFun are CURATED; 4ms, Alternate-KiCad-Library and Espressif stay CANDIDATES until plan 17-17 passes, REJECTED is empty until 17-18
+- [Phase 17]: 17-05: scanner stays catalog-free; catalog 3D variables arrive as model_vars {id: {VAR: folder}} and the confirmation takes extra_vars; scan_source/remove_source share _replace_source and match a full scan
 
 ### Pending Todos
 
@@ -161,8 +163,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-27T09:14:00.011Z
-Stopped at: Completed 17-04-PLAN.md
+Last session: 2026-11-27T09:26:50.040Z
+Stopped at: Completed 17-05-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
