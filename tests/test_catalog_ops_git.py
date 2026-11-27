@@ -288,3 +288,65 @@ def test_unreadable_remote_is_an_issue_not_a_change(work):
 
     assert isinstance(answer, Issue) and answer.severity is Severity.ERROR
     assert _tree_hashes(clone) == before and _head(clone) == first
+
+
+# ── names follow the library's own links (D-33, D-34) ────────────────
+
+PCM_SYMBOL = SYMBOL_TEXT.replace('"Demo:R_0603"', '"PCM_Demo:R_0603"')
+
+
+def _add_by_address(root: Path, bare: Path, id: str = "Demo"):
+    """Stage and register a library the way an Add by web address does: the name rule is decided from its links."""
+    source = ops.AddSource(
+        id=id, name=id, url=upstream_url(bare), branch="main", vars={}, licence_spdx="MIT", nickname_prefix=None
+    )
+    staged = ops.stage_add(root, source, _net())
+    assert isinstance(staged, ops.Staged), staged
+    assert not _errors(ops.register_add(root, staged, allow_file=True))
+    return staged
+
+
+def _scan_names(root: Path, tmp: Path):
+    from kicad_lib_manager.library_scanner import scan_all
+
+    prefixes = manifest.nickname_prefixes(manifest.load(root, allow_file=True))
+    return prefixes, scan_all(root, kicad_fp_dir=tmp / "nokicad" / "footprints", prefixes=prefixes)
+
+
+def test_addon_names_reach_the_tables(work):
+    from kicad_lib_manager.table_generator import generate_fp_lib_table
+
+    root = make_collection(work / "col")
+    bare, _ = make_upstream(work / "up", {**LIB_FILES, "symbols/Demo.kicad_sym": PCM_SYMBOL})
+
+    staged = _add_by_address(root, bare)
+
+    assert staged.report.nickname_prefix == "PCM_"
+    assert staged.report.symbol_libs == ("PCM_Demo",) and staged.report.footprint_libs == ("PCM_Demo",)
+    assert _entry(root).nickname_prefix == "PCM_"
+    prefixes, result = _scan_names(root, work)
+    assert prefixes == {"Demo": "PCM_"}
+    assert [lib.nickname for lib in result.symbol_libs if lib.source == "Demo"] == ["PCM_Demo"]
+    footprints = [lib for lib in result.footprint_libs if lib.source == "Demo"]
+    assert [lib.nickname for lib in footprints] == ["PCM_Demo"]
+    assert result.symbol_libs[0].footprint_refs[0].library_name == "PCM_Demo"
+    assert not [i for i in result.issues if i.code == "scan.footprint_lib_missing" and "PCM_Demo" in i.text]
+    footprints[0].selected = True
+    table = generate_fp_lib_table(footprints)
+    assert 'name "PCM_Demo"' in table.content
+    assert '${KICAD_LIB_GITHUB}/ThirdParty/Demo/footprints/Demo.pretty' in table.content
+
+
+def test_plain_links_keep_the_plain_names(work):
+    root = make_collection(work / "col")
+    bare, _ = make_upstream(work / "up", LIB_FILES)
+
+    staged = _add_by_address(root, bare)
+
+    assert staged.report.nickname_prefix == ""
+    assert staged.report.symbol_libs == ("Demo",) and staged.report.footprint_libs == ("Demo",)
+    assert _entry(root).nickname_prefix == ""
+    prefixes, result = _scan_names(root, work)
+    assert prefixes == {}
+    assert [lib.nickname for lib in result.footprint_libs if lib.source == "Demo"] == ["Demo"]
+    assert not [i for i in result.issues if i.code == "scan.footprint_lib_missing"]
