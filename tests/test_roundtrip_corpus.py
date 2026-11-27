@@ -232,7 +232,7 @@ def test_local_kicad_tables_with_opt_in(monkeypatch, tmp_path):
     assert params[0].values == (table,)
 
 
-# ── Corpus: the collection's WurthElektronik submodule (stress and performance corpus) ───────
+# ── Corpus: the collection's Wurth library, ThirdParty/WurthElektronik (stress and performance corpus) ───────
 
 # Seconds allowed per Wurth file when parsing the whole corpus (see test_wurth_corpus_parse_budget)
 _WURTH_PARSE_BUDGET_PER_FILE = 0.05
@@ -240,7 +240,8 @@ _WURTH_PARSE_BUDGET_PER_FILE = 0.05
 
 def _wurth_root_in(collection: Path) -> Path:
     """The Wurth library of a collection: its ThirdParty clone when that folder exists, else the legacy submodule folder."""
-    return collection / "WurthElektronik"
+    clone = collection.joinpath("ThirdParty", "WurthElektronik")
+    return clone if clone.is_dir() else collection / "WurthElektronik"
 
 
 def _wurth_root() -> Path:

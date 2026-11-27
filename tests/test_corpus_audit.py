@@ -1,6 +1,6 @@
 """Static audit that keeps the public suite from reading repository data again (D-18, PITFALLS 11).
 
-The public tests run from a fresh clone that holds neither the Custom or WurthElektronik submodules nor the vendor
+The public tests run from a fresh clone that holds neither the Custom or WurthElektronik submodules, the collection's ThirdParty folder nor the vendor
 downloads. This module reads test source files only (no git, no Qt) and fails when a test module builds a path from
 the repository root to that data, when a skip reason names a missing vendor download, Custom submodule or KiCad
 install (those cases are deselected through the corpus and needs_kicad marks, never skipped), or when a module that
@@ -20,7 +20,7 @@ _NOT_MARKED_CHECKED = {"conftest.py", _HELPER}
 # The spellings a test uses for the repository root (any name that ends in ROOT or REPO, such as REPO_ROOT or ROOT),
 # then a slash and a quoted data folder name, which may carry a path after it ("Custom/Symbols")
 _ROOT = r"(?:\b\w*(?:ROOT|REPO)\b|Path\(__file__\)(?:\.resolve\(\))?\.(?:parent\.parent|parents\[1\]))"
-_DATA = r"""["'](?:Custom|WurthElektronik|downloaded_examples|\.planning)(?:["']|[/\\])"""
+_DATA = r"""["'](?:Custom|WurthElektronik|ThirdParty|downloaded_examples|\.planning)(?:["']|[/\\])"""
 _REPO_DATA_RE = re.compile(rf"{_ROOT}\s*/\s*{_DATA}|{_ROOT}\.joinpath\(\s*{_DATA}|os\.path\.join\(\s*{_ROOT}\s*,\s*{_DATA}")
 
 # A skip call, then (through its balanced closing parenthesis) a reason that names a missing corpus-type resource
@@ -289,7 +289,7 @@ def test_audit_finds_planted_skips():
 
 
 def test_no_test_module_reads_repo_data():
-    """No test module builds a path from the repository root to Custom, WurthElektronik, downloaded_examples or .planning."""
+    """No test module builds a path from the repository root to Custom, WurthElektronik, ThirdParty, downloaded_examples or .planning."""
     offenders = []
     for path in _sources():
         for number in repo_data_lines(path.read_text(encoding="utf-8")):
