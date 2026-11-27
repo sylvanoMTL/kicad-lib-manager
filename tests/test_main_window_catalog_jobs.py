@@ -610,3 +610,138 @@ def test_refresh_overlay_during_the_source_read(harness):
 
     assert not overlay.isVisibleTo(window)
     assert window._tree.isEnabled()
+
+
+def test_refresh_disables_the_list_controls(harness):
+    h = harness.h
+    root = make_collection(h.tmp_path / "lib")
+    acme(root)
+    window = harness(root)
+    controls = (window._select_all_btn, window._deselect_all_btn, window._tree, window._generate_btn)
+    before = [control.isEnabled() for control in controls]
+    tip = window._generate_btn.toolTip()
+    assert before == [True, True, True, True]
+    h.source_gate = threading.Event()
+
+    window._catalog.job_finished.emit(outcome("add"))
+
+    assert not any(control.isEnabled() for control in controls)
+    assert window._generate_btn.toolTip() == main_window._WAIT_FOR_CATALOG
+    h.source_gate.set()
+    harness.finish(window)
+
+    assert [control.isEnabled() for control in controls] == before
+    assert window._generate_btn.toolTip() == tip
+
+
+def test_refresh_controls_stay_off_while_a_scan_runs(harness):
+    h = harness.h
+    root = make_collection(h.tmp_path / "lib")
+    acme(root)
+    window = harness(root)
+
+    window._set_scan_running(True)
+
+    assert not window._select_all_btn.isEnabled()
+    assert not window._deselect_all_btn.isEnabled()
+    window._set_scan_running(False)
+    assert window._select_all_btn.isEnabled()
+
+
+@pytest.mark.parametrize("how", ["fallback", "failure"])
+def test_refresh_ends_on_fallback_and_failure(harness, monkeypatch, how):
+    h = harness.h
+    root = make_collection(h.tmp_path / "lib")
+    acme(root)
+    window = harness(root)
+    if how == "fallback":
+        window._scan_result = None  # no earlier scan: the read answers 'run the full scan'
+    else:
+        def boom(*args, **kwargs):
+            raise RuntimeError("disk gone")
+
+        monkeypatch.setattr(main_window, "scan_source", boom)
+    seen = []
+    real_start = window._start_scan
+
+    def start_scan(*args, **kwargs):
+        seen.append((window._refresh_overlay.isHidden(), window._tree.isEnabled()))
+        return real_start(*args, **kwargs)
+
+    monkeypatch.setattr(window, "_start_scan", start_scan)
+    h.source_gate = threading.Event()
+
+    window._catalog.job_finished.emit(outcome("add"))
+    assert not window._refresh_overlay.isHidden()
+    h.source_gate.set()
+    harness.finish(window)
+
+    # hidden, and the trees usable again, before the Loading Libraries window's scan started
+    assert seen and seen[0] == (True, True)
+    assert window._refresh_overlay.isHidden()
+    assert window._tree.isEnabled()
+
+
+@pytest.mark.parametrize(("kind", "verb"), [("update", "updating"), ("remove", "removing"), ("reinstall", "reinstalling")])
+def test_refresh_for_update_and_remove(harness, kind, verb):
+    h = harness.h
+    root = make_collection(h.tmp_path / "lib")
+    acme(root)
+    window = harness(root)
+    h.source_gate = threading.Event()
+
+    window._catalog.job_finished.emit(outcome(kind))
+
+    assert window._refresh_overlay.text() == (
+        f"Refreshing the library list after {verb} Acme. Large libraries can take a minute."
+    )
+    h.source_gate.set()
+    harness.finish(window)
+    assert window._refresh_overlay.isHidden()
+
+
+def test_progress_is_throttled_to_whole_percents(qtbot, tmp_path):
+    worker = main_window.CatalogRescanWorker(tmp_path, None, None, "add", "ThirdParty/Big")
+    counts = []
+    worker.progress.connect(lambda done, total: counts.append((done, total)))
+
+    for done in range(0, 11051):
+        worker._report(done, 11050)
+
+    assert len(counts) <= 102
+    assert counts[0] == (0, 11050)
+    assert counts[-1] == (11050, 11050)
+    assert [done for done, _total in counts] == sorted(done for done, _total in counts)
+
+
+def test_close_stops_the_wheel(harness):
+    h = harness.h
+    root = make_collection(h.tmp_path / "lib")
+    acme(root)
+    window = harness(root)
+    window.show()
+    wheel = window._refresh_overlay.wheel
+
+    # closing while the read runs waits for the job, then closes; the wheel is off by then
+    h.source_gate = threading.Event()
+    window._catalog.job_finished.emit(outcome("add"))
+    assert wheel.is_spinning()
+    window.close()
+    h.source_gate.set()
+    harness.wait(lambda: not window.isVisible())
+    assert not wheel.is_spinning()
+
+
+def test_close_with_the_overlay_showing_stops_the_wheel(harness):
+    h = harness.h
+    root = make_collection(h.tmp_path / "lib")
+    window = harness(root)
+    window.show()
+    window._refresh_overlay.show_for("add", "Acme")
+    wheel = window._refresh_overlay.wheel
+    assert wheel.is_spinning()
+
+    window.close()
+
+    assert not window.isVisible()
+    assert not wheel.is_spinning()
