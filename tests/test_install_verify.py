@@ -429,6 +429,37 @@ def test_elsewhere_wurth(tmp_path):
     assert "WurthElektronik:WE-Connector" in issues[0].text
 
 
+def test_search_dirs_cover_third_party_clones(tmp_path):
+    layout = _layout(tmp_path)
+    stock, extra = tmp_path / "stock", tmp_path / "extra"
+    stock.mkdir()
+    extra.mkdir()
+    third = tmp_path / "ThirdParty"
+    for name in ("WurthElektronik", "SparkFun", ".staging", ".hidden"):
+        (third / name).mkdir(parents=True)
+    (third / ".staging" / "x").mkdir()
+    (third / "note.txt").write_text("not a folder")
+    (tmp_path / "WurthElektronik").mkdir()
+    dirs = verify.symbol_search_dirs(layout, ToolContext(kicad_symbols_dir=stock, extra_symbol_dirs=(extra,)))
+    assert dirs == [
+        ("", layout.symbols_dir),
+        ("SparkFun:", third / "SparkFun"),
+        ("WurthElektronik:", third / "WurthElektronik"),
+        ("WurthElektronik:", tmp_path / "WurthElektronik"),
+        ("KiCad:", stock),
+        ("", extra),
+    ]
+
+
+def test_third_party_label_is_searched_recursively(tmp_path):
+    layout = _layout(tmp_path)
+    deep = tmp_path / "ThirdParty" / "SparkFun" / "symbols" / "deep"
+    _names_in(layout, "A", "A_part", lib_dir=deep)
+    issues = _search(layout, "A_part")
+    assert len(issues) == 1
+    assert "SparkFun:A" in issues[0].text
+
+
 def test_elsewhere_extra_dirs(tmp_path):
     layout = _layout(tmp_path)
     extra = tmp_path / "extra"
