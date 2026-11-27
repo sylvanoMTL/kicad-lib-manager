@@ -5,16 +5,16 @@ milestone_name: Public Library Manager
 current_phase: 17
 current_phase_name: Library Catalog
 status: executing
-stopped_at: Completed 17-23-PLAN.md
-last_updated: "2026-11-27T17:01:37.808Z"
+stopped_at: Completed 17-24-PLAN.md
+last_updated: "2026-11-27T17:25:05.327Z"
 last_activity: 2026-11-27
 last_activity_desc: Phase 17 execution started
-state_head: 9a3a67ee50f645e85a02c4874e70121ba57a631c
+state_head: 50d5268b70b313566f871c8e3c819c7c6c8552d0
 progress:
   total_phases: 8
   completed_phases: 3
   total_plans: 67
-  completed_plans: 60
+  completed_plans: 61
   percent: 38
 ---
 
@@ -100,6 +100,7 @@ Progress: [████░░░░░░] 38%
 | Phase 17 P21 | 62 min | 3 tasks | 14 files |
 | Phase 17 P22 | 16 min | 3 tasks | 8 files |
 | Phase 17 P23 | 25 min | 3 tasks | 9 files |
+| Phase 17 P24 | 17 min | 3 tasks | 21 files |
 
 ## Accumulated Context
 
@@ -159,6 +160,9 @@ The full decision log is in the PROJECT.md Key Decisions table. The v1.0 per-pha
 - [Phase 17]: 17-22: only urls.parse_github_url links become a download address; program repositories, other hosts, packed files and no-link packages are listed as not addable with a plain reason
 - [Phase 17]: 17-23: a catalog source is shown by catalog.json's name (names.source_names) in the trees and log; per-file scan lines of a ThirdParty library are summarized one per library and kind in the log only (the scan result keeps every issue)
 - [Phase 17]: 17-23: the refreshing overlay's wheel timer runs only while shown (showEvent/hideEvent), the worker sends at most one file count per whole percent
+- [Phase 17]: Name rule (17-24): over every symbol file, links to the download's own footprint libraries count as plain by exact stem or PCM_ by PCM_+stem; more PCM_ gives PCM_, more plain gives none, a tie gives the caller's default (none for a web address, PCM_ for KiCad's add-on list); curated sources and Reinstall fix it
+- [Phase 17]: catalog.json records name, nickname_prefix and addon_id per library; display_name uses the recorded name first; Update, Remove and the scan name libraries with the prefix
+- [Phase 17]: 3D models on a *_3RD_PARTY variable are counted apart from KiCad's other own variables and reported; the catalog never sets, reads or lists KiCad's add-on folder, installed_packages.json or settings
 
 ### Pending Todos
 
@@ -204,8 +208,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-27T17:01:35.936Z
-Stopped at: Completed 17-23-PLAN.md
+Last session: 2026-11-27T17:25:03.555Z
+Stopped at: Completed 17-24-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
