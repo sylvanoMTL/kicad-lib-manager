@@ -346,3 +346,142 @@ def test_a_library_that_clashes_twice_is_one_row(tmp_path):
 def test_no_collisions(tmp_path):
     report = _check(_write(tmp_path / "d", {"a.kicad_sym": SYM}), stock_sym={"Other"})
     assert report.collisions == ()
+
+
+# -- the name rule a download's own links decide (plan 17-24, D-33, D-34) --------------------------
+
+
+def _links(*links: str) -> str:
+    """A symbol file whose symbols link the footprints in links ('<library>:<footprint>')."""
+    body = "".join(f'  (symbol "S{i}" (property "Footprint" "{link}" (at 0 0 0)))\n' for i, link in enumerate(links))
+    return f"(kicad_symbol_lib\n{body})\n"
+
+
+def _rule(tmp_path, files, *, prefix=None, default_prefix="", **kwargs):
+    folder = _write(tmp_path / "d", files)
+    result = validate.validate_staging(
+        folder, stock_fp=set(), stock_sym=set(), own=kwargs.get("own", {}), other_catalog=kwargs.get("other_catalog", {}),
+        prefix=prefix, default_prefix=default_prefix,
+    )
+    assert isinstance(result, validate.StagingReport), result
+    return result
+
+
+def _download(*links: str) -> dict[str, str]:
+    return {"symbols/Lib.kicad_sym": _links(*links), "footprints/Lib.pretty/A.kicad_mod": MOD}
+
+
+def test_the_name_rule_constant_is_the_one_of_the_manifest():
+    from kicad_lib_manager.catalog import manifest
+
+    assert validate.PCM_PREFIX == manifest.PCM_PREFIX == "PCM_"
+
+
+@pytest.mark.parametrize(
+    ("links", "default", "expected"),
+    [
+        (("PCM_Lib:A", "PCM_Lib:B"), "", "PCM_"),  # PCM_ links only
+        (("Lib:A", "Lib:B"), "PCM_", ""),  # plain links only, whatever the default says
+        (("PCM_Lib:A", "PCM_Lib:B", "PCM_Lib:C", "Lib:D"), "", "PCM_"),  # 3 PCM_ and 1 plain
+        (("Lib:A", "Lib:B", "Lib:C", "PCM_Lib:D"), "PCM_", ""),  # 3 plain and 1 PCM_
+        (("PCM_Lib:A", "Lib:B"), "", ""),  # a tie gives the default: a web address
+        (("PCM_Lib:A", "Lib:B"), "PCM_", "PCM_"),  # a tie gives the default: KiCad's add-on list
+        (("Resistor_SMD:R_0603", "Other:X"), "", ""),  # links to KiCad's or other libraries decide nothing
+        (("Resistor_SMD:R_0603", "Other:X"), "PCM_", "PCM_"),
+        ((), "PCM_", "PCM_"),  # a symbol file without any link
+    ],
+)
+def test_name_rule_cases(tmp_path, links, default, expected):
+    report = _rule(tmp_path, _download(*links), default_prefix=default)
+    assert report.nickname_prefix == expected
+    assert report.symbol_libs == (expected + "Lib",) and report.footprint_libs == (expected + "Lib",)
+
+
+def test_name_rule_with_footprints_only_gives_the_default(tmp_path):
+    files = {"footprints/Lib.pretty/A.kicad_mod": MOD}
+    assert _rule(tmp_path, files).nickname_prefix == ""
+    other = _rule(tmp_path / "x", files, default_prefix="PCM_")
+    assert other.nickname_prefix == "PCM_" and other.footprint_libs == ("PCM_Lib",) and other.symbol_libs == ()
+
+
+def test_a_fixed_rule_ignores_the_links(tmp_path):
+    assert _rule(tmp_path, _download("PCM_Lib:A", "PCM_Lib:B"), prefix="").nickname_prefix == ""
+    fixed = _rule(tmp_path / "x", _download("Lib:A", "Lib:B"), prefix="PCM_")
+    assert fixed.nickname_prefix == "PCM_" and fixed.symbol_libs == ("PCM_Lib",)
+
+
+def test_links_are_counted_per_symbol_file_and_only_to_the_downloads_own_libraries(tmp_path):
+    files = {
+        "symbols/One.kicad_sym": _links("PCM_Lib:A", "PCM_Lib:B", "Lib:C"),
+        "symbols/Two.kicad_sym": _links("PCM_Lib:A", "Other:Z", "PCM_Other:Z"),
+        "footprints/Lib.pretty/A.kicad_mod": MOD,
+    }
+    report = _rule(tmp_path, files)
+    assert report.nickname_prefix == "PCM_"  # 3 PCM_ links to Lib against 1 plain; links to Other are not counted
+    assert report.symbol_libs == ("PCM_One", "PCM_Two")
+
+
+def test_collisions_are_found_on_the_prefixed_names(tmp_path):
+    report = _rule(
+        tmp_path, _download("PCM_Lib:A", "PCM_Lib:B"),
+        own={"Lib": "your Custom libraries"}, other_catalog={"PCM_Lib": "OtherCatalog"},
+    )
+    assert report.nickname_prefix == "PCM_"
+    assert [(c.nickname, c.kind, c.clashes_with) for c in report.collisions] == [
+        ("PCM_Lib", "Symbol", "OtherCatalog"), ("PCM_Lib", "Footprint", "OtherCatalog"),
+    ]
+    plain = _rule(tmp_path / "x", _download("Lib:A", "Lib:B"), own={"Lib": "your Custom libraries"})
+    assert [c.nickname for c in plain.collisions] == ["Lib", "Lib"]
+
+
+# -- 3D models that point into KiCad's add-on folder (plan 17-24, D-33, CAT-10) --------------------
+
+
+def _models(**counts: int) -> dict[str, str]:
+    """A download with one footprint file per model; counts maps a variable to the number of models using it."""
+    files = {"symbols/Lib.kicad_sym": SYM}
+    number = 0
+    for variable, count in counts.items():
+        for _ in range(count):
+            number += 1
+            files[f"footprints/Lib.pretty/F{number}.kicad_mod"] = f'(footprint "F{number}" (model "${{{variable}}}/m/x{number}.step"))\n'
+    return files
+
+
+ADDON_TEXT = (
+    "{n} 3D models point into the add-on folder of KiCad's Plugin and Content Manager; "
+    "they show only when that manager has installed this library too."
+)
+ADDON_ONE = (
+    "1 3D model points into the add-on folder of KiCad's Plugin and Content Manager; "
+    "it shows only when that manager has installed this library too."
+)
+
+
+def test_addon_folder_models_are_reported(tmp_path):
+    report = _rule(tmp_path, _models(KICAD8_3RD_PARTY=39, KICAD9_3RD_PARTY=3))
+    assert [w.text for w in report.warnings] == [ADDON_TEXT.format(n=42)]
+    assert report.warnings[0].code == "catalog.addon_folder_models"
+    assert report.addon_folder_models == 42 and report.kicad_var_models == 0
+    assert report.vars == {}  # no variable of KiCad's manager is ever mapped
+
+
+def test_one_addon_folder_model_reads_in_the_singular(tmp_path):
+    report = _rule(tmp_path, _models(KICAD8_3RD_PARTY=1))
+    assert [w.text for w in report.warnings] == [ADDON_ONE]
+
+
+def test_kicads_other_own_variables_keep_their_own_warning(tmp_path):
+    report = _rule(tmp_path, _models(KICAD10_3DMODEL_DIR=2))
+    assert [w.text for w in report.warnings] == [
+        "2 3D models use KiCad's own path variables; they show only in a matching KiCad version."
+    ]
+    assert report.kicad_var_models == 2 and report.addon_folder_models == 0 and report.vars == {}
+
+
+def test_both_kinds_are_reported_each_with_its_own_count(tmp_path):
+    report = _rule(tmp_path, _models(KICAD10_3DMODEL_DIR=1, ESPRESSIF_3RD_PARTY=2, KICAD9_3RD_PARTY=1))
+    assert [w.code for w in report.warnings] == ["catalog.kicad_vars", "catalog.addon_folder_models"]
+    assert report.warnings[0].text == "1 3D model uses KiCad's own path variables; it shows only in a matching KiCad version."
+    assert report.warnings[1].text == ADDON_TEXT.format(n=3)  # any name ending in _3RD_PARTY counts
+    assert report.vars == {}

@@ -39,7 +39,7 @@ def test_detect_vars_sparkfun_layout(tmp_path):
             "3dmodels/Lib.3dshapes/x.step": "solid",
         },
     )
-    assert validate.detect_vars(folder, _mods(folder)) == ({"SPARKFUN_KICAD_LIBRARY": ""}, 0)
+    assert validate.detect_vars(folder, _mods(folder)) == ({"SPARKFUN_KICAD_LIBRARY": ""}, 0, 0)
 
 
 def test_detect_vars_wurth_layout(tmp_path):
@@ -50,7 +50,7 @@ def test_detect_vars_wurth_layout(tmp_path):
             "3dmodels/Lib.3dshapes/x.step": "solid",
         },
     )
-    assert validate.detect_vars(folder, _mods(folder)) == ({"WE_3DMODEL_DIR": "3dmodels"}, 0)
+    assert validate.detect_vars(folder, _mods(folder)) == ({"WE_3DMODEL_DIR": "3dmodels"}, 0, 0)
 
 
 def test_detect_vars_four_ms_layout(tmp_path):
@@ -61,7 +61,7 @@ def test_detect_vars_four_ms_layout(tmp_path):
             "3dmodels/Lib.3dshapes/x.step": "solid",
         },
     )
-    assert validate.detect_vars(folder, _mods(folder)) == ({"KICAD_4MS_LIBS": ""}, 0)
+    assert validate.detect_vars(folder, _mods(folder)) == ({"KICAD_4MS_LIBS": ""}, 0, 0)
 
 
 def test_detect_vars_with_a_model_directly_in_the_folder(tmp_path):
@@ -69,7 +69,7 @@ def test_detect_vars_with_a_model_directly_in_the_folder(tmp_path):
         tmp_path / "d",
         {"fp/Lib.pretty/a.kicad_mod": _mod("${MY_MODELS}/x.step"), "shapes/x.step": "solid"},
     )
-    assert validate.detect_vars(folder, _mods(folder)) == ({"MY_MODELS": "shapes"}, 0)
+    assert validate.detect_vars(folder, _mods(folder)) == ({"MY_MODELS": "shapes"}, 0, 0)
 
 
 def test_detect_vars_keeps_variables_apart(tmp_path):
@@ -81,7 +81,7 @@ def test_detect_vars_keeps_variables_apart(tmp_path):
             "two/deeper/L.3dshapes/b.step": "solid",
         },
     )
-    assert validate.detect_vars(folder, _mods(folder)) == ({"AAA_DIR": "one", "BBB_DIR": "two/deeper"}, 0)
+    assert validate.detect_vars(folder, _mods(folder)) == ({"AAA_DIR": "one", "BBB_DIR": "two/deeper"}, 0, 0)
 
 
 def test_kicad_and_pcm_variables_are_never_mapped(tmp_path):
@@ -94,7 +94,7 @@ def test_kicad_and_pcm_variables_are_never_mapped(tmp_path):
             "Lib.3dshapes/y.step": "solid",
         },
     )
-    assert validate.detect_vars(folder, _mods(folder)) == ({}, 2)
+    assert validate.detect_vars(folder, _mods(folder)) == ({}, 1, 1)
 
 
 def test_validate_staging_reports_the_variables_and_names_the_count(tmp_path):
@@ -110,9 +110,10 @@ def test_validate_staging_reports_the_variables_and_names_the_count(tmp_path):
     report = validate.validate_staging(folder, stock_fp=set(), stock_sym=set(), own={}, other_catalog={})
     assert isinstance(report, validate.StagingReport)
     assert report.vars == {"WE_3DMODEL_DIR": "3dmodels"}
-    assert report.kicad_var_models == 2
+    assert (report.kicad_var_models, report.addon_folder_models) == (1, 1)
     lines = [w.text for w in report.warnings]
-    assert "2 3D models use KiCad's own path variables; they show only in a matching KiCad version." in lines
+    assert "1 3D model uses KiCad's own path variables; it shows only in a matching KiCad version." in lines
+    assert any("points into the add-on folder of KiCad's Plugin and Content Manager" in line for line in lines)
 
 
 def test_validate_staging_says_one_model_in_the_singular(tmp_path):
@@ -122,14 +123,15 @@ def test_validate_staging_says_one_model_in_the_singular(tmp_path):
     )
     report = validate.validate_staging(folder, stock_fp=set(), stock_sym=set(), own={}, other_catalog={})
     assert [w.text for w in report.warnings] == [
-        "1 3D model uses KiCad's own path variables; it shows only in a matching KiCad version."
+        "1 3D model points into the add-on folder of KiCad's Plugin and Content Manager; "
+        "it shows only when that manager has installed this library too."
     ]
 
 
 def test_validate_staging_without_variables_has_no_variable_warning(tmp_path):
     folder = _write(tmp_path / "d", {"a.kicad_sym": SYM, "fp/Lib.pretty/a.kicad_mod": _mod()})
     report = validate.validate_staging(folder, stock_fp=set(), stock_sym=set(), own={}, other_catalog={})
-    assert (report.vars, report.kicad_var_models, report.warnings) == ({}, 0, ())
+    assert (report.vars, report.kicad_var_models, report.addon_folder_models, report.warnings) == ({}, 0, 0, ())
 
 
 def _share_tree(tmp_path, present: int, total: int) -> Path:
@@ -142,17 +144,17 @@ def _share_tree(tmp_path, present: int, total: int) -> Path:
 
 def test_below_eighty_percent_is_not_mapped(tmp_path):
     folder = _share_tree(tmp_path, 7, 10)
-    assert validate.detect_vars(folder, _mods(folder)) == ({}, 0)
+    assert validate.detect_vars(folder, _mods(folder)) == ({}, 0, 0)
 
 
 def test_eighty_percent_is_mapped(tmp_path):
     folder = _share_tree(tmp_path, 8, 10)
-    assert validate.detect_vars(folder, _mods(folder)) == ({"SHARE_DIR": "shapes"}, 0)
+    assert validate.detect_vars(folder, _mods(folder)) == ({"SHARE_DIR": "shapes"}, 0, 0)
 
 
 def test_a_variable_whose_models_are_nowhere_is_not_mapped(tmp_path):
     folder = _write(tmp_path / "d", {"fp/Lib.pretty/a.kicad_mod": _mod("${GONE_DIR}/L.3dshapes/x.step")})
-    assert validate.detect_vars(folder, _mods(folder)) == ({}, 0)
+    assert validate.detect_vars(folder, _mods(folder)) == ({}, 0, 0)
 
 
 def test_a_model_found_in_two_places_maps_to_the_shorter_folder(tmp_path):
@@ -164,14 +166,14 @@ def test_a_model_found_in_two_places_maps_to_the_shorter_folder(tmp_path):
             "L.3dshapes/x.step": "solid",
         },
     )
-    assert validate.detect_vars(folder, _mods(folder)) == ({"TWIN_DIR": ""}, 0)
+    assert validate.detect_vars(folder, _mods(folder)) == ({"TWIN_DIR": ""}, 0, 0)
 
 
 def test_sampling_stays_at_200_paths_and_still_maps_a_big_library(tmp_path):
     assert validate.SAMPLE_LIMIT == 200
     assert validate.MIN_SHARE_PERCENT == 80
     folder = _share_tree(tmp_path, 450, 450)
-    assert validate.detect_vars(folder, _mods(folder)) == ({"SHARE_DIR": "shapes"}, 0)
+    assert validate.detect_vars(folder, _mods(folder)) == ({"SHARE_DIR": "shapes"}, 0, 0)
 
 
 def test_models_inside_dot_git_are_not_looked_at(tmp_path):
@@ -179,7 +181,7 @@ def test_models_inside_dot_git_are_not_looked_at(tmp_path):
         tmp_path / "d",
         {"fp/Lib.pretty/a.kicad_mod": _mod("${GIT_DIR_VAR}/L.3dshapes/x.step"), ".git/L.3dshapes/x.step": "solid"},
     )
-    assert validate.detect_vars(folder, _mods(folder)) == ({}, 0)
+    assert validate.detect_vars(folder, _mods(folder)) == ({}, 0, 0)
 
 
 def test_an_unreadable_footprint_is_skipped(tmp_path):
@@ -191,7 +193,7 @@ def test_an_unreadable_footprint_is_skipped(tmp_path):
             "L.3dshapes/x.step": "solid",
         },
     )
-    assert validate.detect_vars(folder, _mods(folder)) == ({"OK_DIR": ""}, 0)
+    assert validate.detect_vars(folder, _mods(folder)) == ({"OK_DIR": ""}, 0, 0)
 
 
 # -- the exact-case model check shared with the scanner --------------------------------------------

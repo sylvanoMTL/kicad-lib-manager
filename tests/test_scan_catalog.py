@@ -14,7 +14,7 @@ from kicad_lib_manager.library_scanner import (
     find_symbol_libs,
     scan_all,
 )
-from kicad_lib_manager.models import Severity
+from kicad_lib_manager.models import Issue, Severity
 
 SYM = '(kicad_symbol_lib (symbol "S" (property "Reference" "U")))\n'
 MODEL_CODES = ("scan.model_missing", "scan.model_absolute", "scan.model_var", "scan.unreadable")
@@ -246,3 +246,75 @@ def test_walk_does_not_follow_into_staging_with_a_relative_root(tmp_path, monkey
 
     assert find_symbol_libs(Path("repo")) == []
     assert os.path.isdir(staging)
+
+
+# ── the catalog's name rule in the scans (plan 17-24, D-33, D-34) ────────
+
+PCM_LINK_SYM = '(kicad_symbol_lib (symbol "S" (property "Footprint" "PCM_Lib:A" (at 0 0 0))))\n'
+PCM_ROWS = '(lib (name "PCM_Demo")(type "KiCad")(uri "${KICAD10_3RD_PARTY}/symbols/com_example_demo/Demo.kicad_sym")(options "")(descr "Added by Plugin and Content Manager"))'
+
+
+def _two_sources(tmp_path):
+    root = make_collection(tmp_path / "repo")
+    make_third_party(root, "Lib", {"symbols/Lib.kicad_sym": PCM_LINK_SYM, "footprints/Lib.pretty/A.kicad_mod": _mod()})
+    make_third_party(root, "Other", {"symbols/Other.kicad_sym": SYM, "footprints/Other.pretty/B.kicad_mod": _mod()})
+    return root
+
+
+def _names(result, source):
+    return (
+        sorted(lib.nickname for lib in result.symbol_libs if lib.source == source),
+        sorted(lib.nickname for lib in result.footprint_libs if lib.source == source),
+    )
+
+
+def test_prefixes_apply_to_their_source_only(tmp_path, nokicad):
+    root = _two_sources(tmp_path)
+    prefixes = {"Lib": "PCM_"}
+
+    full = scan_all(root, kicad_fp_dir=nokicad, prefixes=prefixes)
+
+    assert _names(full, "Lib") == (["PCM_Lib"], ["PCM_Lib"])
+    assert _names(full, "Other") == (["Other"], ["Other"])  # another catalog source keeps its stems
+    assert _names(full, "Custom")[1] == ["Atomic_Footprints"]  # Custom is never prefixed
+    # a symbol link to PCM_Lib resolves against the prefixed footprint library
+    assert not [i for i in full.issues if i.code == "scan.footprint_lib_missing"]
+    plain = scan_all(root, kicad_fp_dir=nokicad)
+    assert _names(plain, "Lib") == (["Lib"], ["Lib"])
+    assert [i for i in plain.issues if i.code == "scan.footprint_lib_missing"]  # the link needs the prefix
+
+    one = library_scanner.scan_source(root, plain, "ThirdParty/Lib", nokicad, prefixes=prefixes)
+    assert not isinstance(one, Issue)
+    assert _names(one, "Lib") == (["PCM_Lib"], ["PCM_Lib"]) and _names(one, "Other") == (["Other"], ["Other"])
+    assert not [i for i in one.issues if i.code == "scan.footprint_lib_missing"]
+    assert _names(library_scanner.scan_source(root, plain, "ThirdParty/Lib", nokicad), "Lib") == (["Lib"], ["Lib"])
+
+    for kind, rel in (("footprint", "ThirdParty/Lib/footprints/Lib.pretty"), ("symbol", "ThirdParty/Lib/symbols/Lib.kicad_sym")):
+        again = library_scanner.rescan_library(root, plain, kind, rel, nokicad, prefixes=prefixes)
+        assert not isinstance(again, Issue), again
+        libs = again.result.footprint_libs if kind == "footprint" else again.result.symbol_libs
+        assert [lib.nickname for lib in libs if lib.rel_path == rel] == ["PCM_Lib"]
+        assert [lib.nickname for lib in libs if lib.source == "Other"] == ["Other"]
+        unchanged = library_scanner.rescan_library(root, plain, kind, rel, nokicad)  # no rule given: the name it had
+        assert [lib.nickname for lib in (unchanged.result.footprint_libs if kind == "footprint" else unchanged.result.symbol_libs) if lib.rel_path == rel] == ["Lib"]
+
+
+def test_kicad_manager_row_is_kept(tmp_path, nokicad):
+    from kicad_lib_manager import kicad_files, table_generator
+
+    root = make_collection(tmp_path / "repo")
+    make_third_party(root, "Demo", {"symbols/Demo.kicad_sym": SYM})
+    scan = scan_all(root, kicad_fp_dir=nokicad, prefixes={"Demo": "PCM_"})
+    (lib,) = [lib for lib in scan.symbol_libs if lib.source == "Demo"]
+    assert lib.nickname == "PCM_Demo"
+    lib.selected = True
+    table = f"(sym_lib_table\n  (version 7)\n  {PCM_ROWS}\n)\n"
+    loaded = kicad_files.parse_bytes(table.encode("utf-8"), "sym-lib-table")
+
+    result = table_generator.generate_sym_lib_table([lib], loaded)
+
+    assert not isinstance(result, Issue), result
+    assert result.content == table  # KiCad's own row, byte for byte; the catalog's entry is not added
+    assert "${KICAD_LIB_GITHUB}" not in result.content and result.added == 0
+    clash = [i for i in result.issues if i.code == "table.external_clash"]
+    assert len(clash) == 1 and "PCM_Demo" in clash[0].text and clash[0].severity is Severity.WARNING

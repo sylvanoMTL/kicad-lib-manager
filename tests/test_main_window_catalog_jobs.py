@@ -96,6 +96,7 @@ def harness(qtbot, monkeypatch, tmp_path):
     h.tmp_path = tmp_path
     h.first_scan = ScanResult  # a factory: every full scan builds a fresh result
     h.scan_calls = []
+    h.scan_prefixes = []  # the name rule every full scan was asked for
     h.source_calls = []  # (function name, thread id) of every scan_source / remove_source call
     h.source_gate = None  # scan_source and remove_source wait on this event while it is set
     h.synced = []  # extra_vars of every sync_kicad_path_vars call
@@ -108,8 +109,9 @@ def harness(qtbot, monkeypatch, tmp_path):
     fp_dir = tmp_path / "kicad_fp"
     fp_dir.mkdir()
 
-    def fake_scan(root, progress=None, kicad_fp_dir=None, *, skip=None, checking=None, model_vars=None):
+    def fake_scan(root, progress=None, kicad_fp_dir=None, *, skip=None, checking=None, model_vars=None, prefixes=None):
         h.scan_calls.append(Path(root))
+        h.scan_prefixes.append(prefixes)
         return h.first_scan()
 
     real_scan_source, real_remove_source = library_scanner.scan_source, library_scanner.remove_source
@@ -841,3 +843,79 @@ def test_trees_show_catalog_names(harness):
         f"{base}/footprints/Four_FP.pretty": True,
         "Custom/Footprints/Mine_FP.pretty": False,
     }
+
+
+# -- the name rule reaches every scan (plan 17-24, D-33, D-34) ------------------------------------
+
+
+def record_with_rule(root: Path, id="Acme", prefix="PCM_") -> None:
+    entry = CatalogEntry(
+        id=id, url=f"https://github.com/acme/{id.lower()}.git", branch="main", commit="a" * 40,
+        licence_spdx="MIT", added_on="2026-11-20", nickname_prefix=prefix,
+    )
+    assert manifest.save(root, Manifest((entry,))) is None
+
+
+def acme_names(window) -> tuple[list[str], list[str]]:
+    result = window._scan_result
+    return (
+        sorted(lib.nickname for lib in result.symbol_libs if lib.source == "Acme"),
+        sorted(lib.nickname for lib in result.footprint_libs if lib.source == "Acme"),
+    )
+
+
+def unprefixed_scan() -> ScanResult:
+    return ScanResult(
+        symbol_libs=[old_sym("Plain", f"{FOLDER}/symbols/Plain.kicad_sym", source="Acme")],
+        footprint_libs=[old_fp("Land", f"{FOLDER}/footprints/Land.pretty", source="Acme")],
+    )
+
+
+def test_catalog_prefixes_reads_the_record(tmp_path):
+    root = make_collection(tmp_path / "lib")
+    assert main_window.catalog_prefixes(root) == {}  # no record
+    record_with_rule(root)
+    assert main_window.catalog_prefixes(root) == {"Acme": "PCM_"}
+    record(root)  # an entry with no rule
+    assert main_window.catalog_prefixes(root) == {}
+    (root / "catalog.json").write_text("{ not json", encoding="utf-8")
+    assert main_window.catalog_prefixes(root) == {}  # unreadable: no prefix and no exception
+
+
+def test_workers_pass_the_name_rule(harness):
+    h = harness.h
+    root = make_collection(h.tmp_path / "lib")
+    acme(root, symbols=("Plain",), footprints=("Land",))
+    record_with_rule(root)
+    h.first_scan = unprefixed_scan
+    window = harness(root)
+
+    # the full scan is asked for the rule
+    assert h.scan_prefixes == [{"Acme": "PCM_"}]
+
+    # the catalog's one-source read applies it
+    harness.run(window, outcome("update"))
+    assert acme_names(window) == (["PCM_Plain"], ["PCM_Land"])
+    assert "PCM_Land" in tree_text(window)
+
+    # Rescan this library applies it
+    window._scan_result = unprefixed_scan()
+    window._on_library_rescan_requested("footprint", f"{FOLDER}/footprints/Land.pretty")
+    harness.wait(lambda: window._worker is None)
+    assert acme_names(window)[1] == ["PCM_Land"]
+
+
+def test_an_unreadable_record_means_no_prefix_in_any_worker(harness):
+    h = harness.h
+    root = make_collection(h.tmp_path / "lib")
+    acme(root, symbols=("Plain",), footprints=("Land",))
+    (root / "catalog.json").write_text("{ not json", encoding="utf-8")
+    h.first_scan = unprefixed_scan
+    window = harness(root)
+    assert h.scan_prefixes == [{}]
+    assert window._scan_result is not None
+    window._scan_result = unprefixed_scan()
+    window._on_library_rescan_requested("footprint", f"{FOLDER}/footprints/Land.pretty")
+    harness.wait(lambda: window._worker is None)
+    assert acme_names(window)[1] == ["Land"]
+    assert not any(line.startswith("Scan error") for line in log_lines(window))
