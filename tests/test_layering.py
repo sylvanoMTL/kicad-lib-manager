@@ -16,7 +16,8 @@ ALLOWED = {
     "sexpr": set(),
     "fsutil": {"models"},
     "kicad_files": {"sexpr", "fsutil", "models"},
-    "table_generator": {"fsutil", "kicad_files", "models", "sexpr"},
+    # collection: library_description keys a catalog library by its id (Phase 17)
+    "table_generator": {"collection", "fsutil", "kicad_files", "models", "sexpr"},
     # kicad_files is used from plan 02-05 on
     "library_scanner": {"atomic_check", "changes", "collection", "fsutil", "kicad_files", "kicad_process", "models"},
     "kicad_process": {"procs"},

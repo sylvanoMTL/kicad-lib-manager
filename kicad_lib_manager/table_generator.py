@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import fsutil, kicad_files
+from .collection import source_of
 from .kicad_files import LoadedFile
 from .models import FootprintLibrary, Issue, Severity, SymbolLibrary
 from .sexpr import Edit, Node, apply_edits, quote
@@ -55,7 +56,8 @@ def library_description(nickname: str, rel_path: str, stock: Mapping[str, str]) 
     if nickname.startswith("Atomic_"):
         stem = nickname[len("Atomic_"):]
         return ATOMIC_DESCRIPTION_PREFIX + stock.get(stem, stem.replace("_", " "))
-    source = rel_path.split("/", 1)[0]
+    # A catalog library under ThirdParty/<id>/ is described by its id, not by the shared folder
+    source = source_of(rel_path)
     return f"{source}: {nickname.replace('_', ' ')}"
 
 

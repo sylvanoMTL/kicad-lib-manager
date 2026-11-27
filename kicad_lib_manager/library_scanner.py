@@ -217,17 +217,46 @@ def _as_answer(value) -> ConfirmAnswer:
     return ConfirmAnswer.WRITE if value is True else ConfirmAnswer.DECLINE
 
 
-def _desired_path_vars(repo_root: Path) -> dict[str, str]:
-    """The two KiCad path variables this library folder would give."""
+def _desired_path_vars(repo_root: Path, extra_vars: Mapping[str, str] | None = None) -> dict[str, str]:
+    """The KiCad path variables this library folder would give: the app's two, then the extras sorted by name.
+
+    An extra named like one of the app's two never replaces it (CAT-06); a name or value that is not
+    text, or an empty name or value, is left out.
+    """
     repo_str = str(repo_root).replace("\\", "/")
-    return {
+    desired = {
         "KICAD_LIB_GITHUB": repo_str,
         "CUSTOM_3DMODEL_DIR": f"{repo_str}/{OWN_DIR}/{MODELS_DIR}",
     }
+    for name in sorted(extra_vars or {}):
+        value = extra_vars[name]
+        if isinstance(name, str) and isinstance(value, str) and name and value and name not in desired:
+            desired[name] = value
+    return desired
 
 
-def would_change_path_vars(repo_root: Path, *, config_base: Path | None = None) -> bool:
-    """True when the newest kicad_common.json differs from the values repo_root would give.
+def current_path_vars(*, config_base: Path | None = None) -> dict[str, str] | None:
+    """environment.vars of the newest kicad_common.json, or None when KiCad's settings cannot be read.
+
+    Read-only: nothing is written or logged. None means there is no KiCad config folder or file, or the
+    file is not usable; an empty dict means the file has no variables. The catalog window shows set / not
+    set / set to a different folder from this.
+    """
+    config_dir = find_kicad_config_dir(config_base)
+    if not config_dir:
+        return None
+    config_file = config_dir / "kicad_common.json"
+    if not config_file.exists():
+        return None
+    read = _read_config(config_file)
+    if isinstance(read, Issue):
+        return None
+    return dict(read[2])
+
+
+def would_change_path_vars(repo_root: Path, *, config_base: Path | None = None,
+                           extra_vars: Mapping[str, str] | None = None) -> bool:
+    """True when the newest kicad_common.json differs from the values repo_root (and extra_vars) would give.
 
     Read-only: nothing is written, logged or asked. A missing KiCad config folder or
     file, or one that cannot be read, gives False.
@@ -242,7 +271,7 @@ def would_change_path_vars(repo_root: Path, *, config_base: Path | None = None) 
     if isinstance(read, Issue):
         return False
     _src, _config, old_vars = read
-    return bool(_plan_changes(old_vars, _desired_path_vars(repo_root))[0])
+    return bool(_plan_changes(old_vars, _desired_path_vars(repo_root, extra_vars))[0])
 
 
 def sync_kicad_path_vars(
@@ -252,16 +281,19 @@ def sync_kicad_path_vars(
     backup_root: Path | None = None,
     running: Callable[[], list[str]] | None = None,
     confirm: Callable[[list[tuple[str, str | None, str]]], bool | ConfirmAnswer] | None = None,
+    extra_vars: Mapping[str, str] | None = None,
 ) -> list[Issue]:
-    """Set KICAD_LIB_GITHUB and CUSTOM_3DMODEL_DIR in the newest kicad_common.json.
+    """Set KICAD_LIB_GITHUB and CUSTOM_3DMODEL_DIR, and the catalog libraries' variables, in the newest kicad_common.json.
 
-    Nothing is written unless the values would change and confirm(changes) answers
+    extra_vars (variable -> value, CAT-06) are the catalog libraries' variables: they join the app's two
+    in one confirmation after one backup, listed after them sorted by name; one named like an app variable
+    never replaces it. Nothing is written unless the values would change and confirm(changes) answers
     True or ConfirmAnswer.WRITE. changes lists only the variables that would change,
     as (variable, old value or None, new value). A missing confirm writes nothing.
     running() is called once, right before confirm, so the confirm can tell the owner
     that KiCad is open; ConfirmAnswer.RETRY returns a config.retry note and writes nothing.
 
-    After a yes the file is read again and only the two variables are set on top of its
+    After a yes the file is read again and only these variables are set on top of its
     current content, so settings KiCad saved while the owner was asked survive. A different
     change list asks again (at most _PATH_VAR_PASSES times). The file is backed up first,
     re-parsed to prove only environment.vars changed, then replaced atomically. Older KiCad
@@ -290,7 +322,7 @@ def sync_kicad_path_vars(
     src, config, old_vars = read
 
     repo_str = str(repo_root).replace("\\", "/")
-    desired = _desired_path_vars(repo_root)
+    desired = _desired_path_vars(repo_root, extra_vars)
 
     changes, issues, set_issues = _plan_changes(old_vars, desired)
     if not set_issues:
