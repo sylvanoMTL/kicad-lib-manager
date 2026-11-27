@@ -522,13 +522,15 @@ def stage_add(
     own: Mapping[str, str] | None = None,
     other_catalog: Mapping[str, str] | None = None,
     free_space: Callable = shutil.disk_usage,
+    check_progress: Callable[[int, int], None] | None = None,
 ) -> Staged | Issue:
     """Download plan.source into ThirdParty/.staging/<id>.<hex>/ and check it; any refusal or failure deletes it.
 
     A plan with refusals is returned as its first refusal without starting git. The free space is read after
     every progress line; below the plan's margin (500 MB when the size is unknown) the download is stopped with
     the same refusal as the plan. The check is catalog.validate; own and other_catalog name the libraries whose
-    nicknames the download may clash with (they only fill the report).
+    nicknames the download may clash with (they only fill the report). check_progress(done, total) counts the
+    footprint files the check has read; it runs on the thread that called stage_add, after the download.
     """
     if isinstance(plan, AddSource):
         plan = _bare_plan(root, plan)
@@ -565,7 +567,12 @@ def stage_add(
     if isinstance(run, Issue):
         return fail(run)
     report = validate.validate_staging(
-        folder, stock_fp=stock_fp, stock_sym=stock_sym, own=own or {}, other_catalog=other_catalog or {}
+        folder,
+        stock_fp=stock_fp,
+        stock_sym=stock_sym,
+        own=own or {},
+        other_catalog=other_catalog or {},
+        progress=check_progress,
     )
     if isinstance(report, Issue):
         return fail(report)

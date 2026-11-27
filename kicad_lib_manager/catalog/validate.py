@@ -12,7 +12,7 @@ UI contract.
 import json
 import os
 import re
-from collections.abc import Collection, Mapping
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -325,25 +325,39 @@ def _folders_of(rest: str, index: dict[str, list[str]]) -> set[str]:
     return {folder for folder in found if _safe_folder(folder)}
 
 
-def detect_vars(folder: Path, footprint_files: list[Path]) -> tuple[dict[str, str], int]:
+def _model_paths(mod_file: Path) -> list[str]:
+    """The 3D model paths a footprint file names; none for a file that cannot be read or has no footprint."""
+    loaded = kicad_files.load(mod_file)
+    if isinstance(loaded, Issue):
+        return []
+    name = kicad_files.footprint_name(loaded.root)
+    if name is None:
+        return []
+    return [model.path for model in kicad_files.find_models(name.node)]
+
+
+def detect_vars(
+    folder: Path,
+    footprint_files: list[Path],
+    *,
+    progress: Callable[[int, int], None] | None = None,
+) -> tuple[dict[str, str], int]:
     """The path variables the footprint models need, and how many models use KiCad's own variables (CAT-10).
 
     For each non-KiCad ${VAR}/rest model path, looks for `rest` in the clone and takes the folder that holds
     at least MIN_SHARE_PERCENT % of up to SAMPLE_LIMIT sampled paths of that variable (the shorter folder when two
     tie). The result maps VAR to that clone-relative folder ('' is the clone itself). Variables of KiCad and of
     the Plugin and Content Manager are counted, never mapped. A variable with no such folder is left out.
+
+    progress(done, total) is called once after each footprint file is read (the slow step of the check: a large
+    library has over ten thousand), so the caller can show how far the check is.
     """
     wanted: dict[str, set[str]] = {}
     kicad_models = 0
-    for mod_file in footprint_files:
-        loaded = kicad_files.load(mod_file)
-        if isinstance(loaded, Issue):
-            continue
-        name = kicad_files.footprint_name(loaded.root)
-        if name is None:
-            continue
-        for model in kicad_files.find_models(name.node):
-            match = _VAR_MODEL_RE.match(model.path)
+    total = len(footprint_files)
+    for done, mod_file in enumerate(footprint_files, 1):
+        for model_path in _model_paths(mod_file):
+            match = _VAR_MODEL_RE.match(model_path)
             if match is None:
                 continue
             var, rest = match.groups()
@@ -351,6 +365,8 @@ def detect_vars(folder: Path, footprint_files: list[Path]) -> tuple[dict[str, st
                 kicad_models += 1
             elif _mappable(var):
                 wanted.setdefault(var, set()).add(rest)
+        if progress is not None:
+            progress(done, total)
     if not wanted:
         return {}, kicad_models
     index = _index(_clone_files(Path(folder)))
@@ -414,12 +430,14 @@ def validate_staging(
     stock_sym: Collection[str],
     own: Mapping[str, str],
     other_catalog: Mapping[str, str],
+    progress: Callable[[int, int], None] | None = None,
 ) -> "StagingReport | Issue":
     """Check a downloaded folder: an Issue (the first refusal) or the report the Add preview shows.
 
     Reads files only. own maps a nickname of the collection's own libraries to the wording of the clash
     ("your Atomic_ libraries", "your Custom libraries"); other_catalog maps a nickname to the catalog
-    library that has it.
+    library that has it. progress(done, total) counts the footprint files read (see detect_vars); it is not
+    called for a refusal or a download with no footprint file.
     """
     folder = Path(folder)
     tree = _walk(folder)
@@ -440,7 +458,7 @@ def validate_staging(
     warnings: list[Issue] = []
     if tree.gitmodules:
         warnings.append(Issue(Severity.WARNING, "catalog.submodules", SUBMODULES_TEXT))
-    needed_vars, kicad_var_models = detect_vars(folder, tree.mod_files)
+    needed_vars, kicad_var_models = detect_vars(folder, tree.mod_files, progress=progress)
     if kicad_var_models == 1:
         warnings.append(Issue(Severity.WARNING, "catalog.kicad_vars", KICAD_VARS_ONE_TEXT))
     elif kicad_var_models:

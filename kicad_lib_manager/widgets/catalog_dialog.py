@@ -150,6 +150,7 @@ DOWNLOADING_PERCENT_TEXT = "Downloading {name}... {percent}%"
 DOWNLOADING_AGAIN_TEXT = "Downloading {name} again..."
 DOWNLOADING_AGAIN_PERCENT_TEXT = "Downloading {name} again... {percent}%"
 CHECKING_NAME_TEXT = "Checking {name}..."
+CHECKING_FILES_TEXT = "Checking {name}... {percent}% ({done} of {total} files)"
 ADDING_NAME_TEXT = "Adding {name}..."
 CANCEL_CHECK_TEXT = "Cancel Check"
 CANCEL_ADDING_TEXT = "Cancel Adding"
@@ -239,6 +240,7 @@ class _Job:
     worker: object = None
     stopping: bool = False
     dropped: bool = False
+    checking: bool = False  # a file count of the check was shown; a later git line never resets the strip
 
 
 @dataclass
@@ -253,6 +255,7 @@ class _Flow:
 
 
 _STOPPED = object()  # what a stage job returns when the user pressed Cancel
+_FILES_STEP = "check-files"  # the text of a progress emission that carries the check's file count: (marker, files done, files in all)
 _STOPPABLE = ("check", "stage", "look", "apply")  # the phases a Cancel button or a close question can stop
 
 # ── Sizes (UI-SPEC "Spacing Scale"; px at 96 DPI) ───────────────────────────────────────────────────
@@ -1500,14 +1503,14 @@ class CatalogDialog(QDialog):
         job = _Job(phase, flow, name, threading.Event(), self._gen, on_done)
 
         def run(emit):
-            def progress(text, percent):
-                emit(text, -1 if percent is None else int(percent), 0)
+            def progress(text, percent, total=0):
+                emit(text, -1 if percent is None else int(percent), int(total))
 
             return fn(progress, job.cancel)
 
         worker = self._spawn(run, tag=job)
         job.worker = worker
-        worker.progress.connect(lambda text, percent, _total, j=job: self._on_job_progress(j, percent))
+        worker.progress.connect(lambda text, percent, total, j=job: self._on_job_progress(j, percent, total, text))
         worker.result.connect(lambda value, j=job: self._on_job_result(j, value))
         worker.failed.connect(lambda text, j=job: self._on_job_failed(j, text))
         self._job = job
@@ -1551,8 +1554,19 @@ class CatalogDialog(QDialog):
     def _set_job_text(self, text: str) -> None:
         self._job_label.set_full_text(text)
 
-    def _on_job_progress(self, job: _Job, percent: int) -> None:
+    def _on_job_progress(self, job: _Job, percent: int, total: int = 0, text: str = "") -> None:
         if job is not self._job or job.phase != "stage" or job.stopping:
+            return
+        if text == _FILES_STEP:  # the check of the downloaded files: percent carries the files done
+            if total <= 0:
+                return
+            job.checking = True
+            whole = min(100, percent * 100 // total)
+            self._job_bar.setRange(0, 100)
+            self._job_bar.setValue(whole)
+            self._set_job_text(CHECKING_FILES_TEXT.format(name=job.name, percent=whole, done=f"{percent:,}", total=f"{total:,}"))
+            return
+        if job.checking:
             return
         again = job.flow == "reinstall"
         if percent < 0:
@@ -1828,9 +1842,18 @@ class CatalogDialog(QDialog):
         def stage(progress, cancel):
             stock_fp = frozenset(services.stock_fp(fp_dir))
             stock_sym = frozenset(services.stock_sym(fp_dir))
+            sent = [-1]
+
+            def check_progress(done: int, total: int) -> None:
+                """Forward one count per whole percent, and the last: a large library has over ten thousand files."""
+                whole = done * 100 // total if total > 0 else 0
+                if whole != sent[0] or done >= total:
+                    sent[0] = whole
+                    progress(_FILES_STEP, done, total)
+
             result = services.stage_add(
                 root, plan, git, progress=progress, cancel=cancel, stock_fp=stock_fp, stock_sym=stock_sym,
-                own=own, other_catalog=other, free_space=services.free_space,
+                own=own, other_catalog=other, free_space=services.free_space, check_progress=check_progress,
             )
             if cancel.is_set():  # a download that finished as the user pressed Cancel is deleted, never shown
                 if isinstance(result, ops.Staged):
