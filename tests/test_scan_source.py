@@ -195,3 +195,16 @@ def test_a_skipped_source_is_checked_again_by_scan_source(root, nokicad):
     _same_as_full_scan(got, scan_all(root, kicad_fp_dir=nokicad, model_vars=MODEL_VARS))
     assert got.skipped_sources == []
     assert not any(i.code == "scan.models_skipped" for i in got.issues)
+
+
+def test_an_atomic_named_library_of_a_source_is_judged_and_dropped_like_in_a_full_scan(root, nokicad):
+    previous = scan_all(root, kicad_fp_dir=nokicad)
+    make_third_party(root, "Lib", {"symbols/Atomic_Thing.kicad_sym": _sym("Lib_FP:Z")})
+    full = scan_all(root, kicad_fp_dir=nokicad)
+    assert any(i.code.startswith("atomic.") for i in full.issues)
+
+    added = library_scanner.scan_source(root, previous, "ThirdParty/Lib", nokicad)
+    _same_as_full_scan(added, full)
+
+    shutil.rmtree(root / "ThirdParty" / "Lib")
+    _same_as_full_scan(library_scanner.remove_source(added, "ThirdParty/Lib", nokicad), scan_all(root, kicad_fp_dir=nokicad))

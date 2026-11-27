@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Callable
 
 from . import fsutil, kicad_files
-from .atomic_check import check_libraries, summary_line
+from .atomic_check import check_libraries, is_atomic, summary_line
 from .collection import MODELS_DIR, OWN_DIR, STAGING_DIR, THIRD_PARTY_DIR, source_of
 from .changes import mark_changes
 from .kicad_process import kicad_running
@@ -478,7 +478,12 @@ def find_symbol_libs(root: Path, progress: Callable | None = None, *,
     checking is told each source as its first file is reached. It only reports: every file is still
     parsed, so a skip requested meanwhile never drops a library or a link.
     """
-    sym_files = _collect_files(root, "*.kicad_sym")
+    return _symbol_libs_from(root, _collect_files(root, "*.kicad_sym"), progress, checking)
+
+
+def _symbol_libs_from(root: Path, sym_files: list[Path], progress: Callable | None = None,
+                      checking: Callable[[str | None], None] | None = None) -> list[SymbolLibrary]:
+    """The symbol libraries of the given files, each with its rel_path taken against root."""
     libs = []
     previous: str | None = None
     for i, f in enumerate(sym_files):
@@ -501,7 +506,12 @@ def find_symbol_libs(root: Path, progress: Callable | None = None, *,
 
 
 def find_footprint_libs(root: Path, progress: Callable | None = None) -> list[FootprintLibrary]:
-    pretty_dirs = _walk_matches(root, "*.pretty", dirs=True)
+    return _footprint_libs_from(root, _walk_matches(root, "*.pretty", dirs=True), progress)
+
+
+def _footprint_libs_from(root: Path, pretty_dirs: list[Path],
+                         progress: Callable | None = None) -> list[FootprintLibrary]:
+    """The footprint libraries of the given .pretty folders, each with its rel_path taken against root."""
     libs = []
     for i, d in enumerate(pretty_dirs):
         if progress:
@@ -1145,3 +1155,144 @@ def rescan_library(
         issues=own_lines,
         rechecked=[lib.nickname for lib in refreshed_symbols if lib.rel_path != rel_path],
     )
+
+
+# ── Rescan or drop one library source ────────────────────────────────
+
+def _source_prefix(source_dir: str) -> str | None:
+    """'ThirdParty/<id>/' for exactly one catalog source folder (never the staging folder), else None."""
+    parts = source_dir.split("/") if isinstance(source_dir, str) else []
+    if len(parts) != 2 or parts[0] != THIRD_PARTY_DIR or not parts[1] or parts[1] == STAGING_DIR:
+        return None
+    return f"{source_dir}/"
+
+
+def _path_order(lib) -> Path:
+    """The order a full scan lists libraries in (sorted paths)."""
+    return Path(lib.rel_path)
+
+
+def _replace_source(merged: ScanResult, source_dir: str, fresh_sym: list[SymbolLibrary],
+                    fresh_fp: list[FootprintLibrary], fresh_lines: list[Issue],
+                    kicad_fp_dir: Path | None, repo_root: Path | None) -> None:
+    """Swap one source's libraries and lines in merged for the fresh ones and recompute what spans sources.
+
+    The one helper scan_source and remove_source share. merged is changed in place (it is the caller's copy).
+    Nickname collisions, footprint links and the atomic summary are recomputed over every library; the
+    atomic and change lines of the other sources are kept as they were (they concern Custom).
+    """
+    prefix = f"{source_dir}/"
+    source_id = source_dir.split("/", 1)[1]
+    kept_names = {lib.nickname for lib in merged.symbol_libs if not lib.rel_path.startswith(prefix)}
+    # An Atomic_ library of the source whose name another library shares: its lines cannot be told apart
+    owned = [
+        lib for lib in merged.symbol_libs
+        if lib.rel_path.startswith(prefix) and lib.atomic and lib.nickname not in kept_names
+    ]
+    merged.symbol_libs = sorted(
+        [lib for lib in merged.symbol_libs if not lib.rel_path.startswith(prefix)] + fresh_sym, key=_path_order
+    )
+    merged.footprint_libs = sorted(
+        [lib for lib in merged.footprint_libs if not lib.rel_path.startswith(prefix)] + fresh_fp, key=_path_order
+    )
+
+    lines = list(fresh_lines)
+    if repo_root is not None and any(is_atomic(lib.nickname) for lib in fresh_sym):
+        lines.extend(
+            issue for issue in check_libraries(repo_root, fresh_sym, merged.footprint_libs, kicad_fp_dir)
+            if issue.code != "atomic.summary"
+        )
+
+    skip_line: Issue | None = None
+    kept: list[Issue] = []
+    for issue in merged.issues:
+        if issue.code == _SKIP_CODE:
+            skip_line = issue
+            continue
+        if issue.code in _GLOBAL_CODES:
+            continue
+        if issue.code in _MODEL_CODES and issue.text.startswith(f"[{prefix}"):
+            continue
+        if any(_owns_symbol_issue(lib, issue) for lib in owned):
+            continue
+        kept.append(issue)
+    kept.extend(lines)
+
+    # The source is read again with its 3D paths checked, so it no longer counts as skipped
+    if source_id in merged.skipped_sources:
+        merged.models_unchecked = [path for path in merged.models_unchecked if not path.startswith(prefix)]
+        if not any(_determine_source(path) == source_id for path in merged.models_unchecked):
+            merged.skipped_sources.remove(source_id)
+        skip_line = (
+            models_skipped_issue(merged.skipped_sources, models_rechecked(merged))
+            if merged.skipped_sources else None
+        )
+    if skip_line is not None:
+        kept.append(skip_line)
+
+    collisions = find_nickname_collisions(merged.symbol_libs, merged.footprint_libs)
+    cross = cross_reference(merged.symbol_libs, merged.footprint_libs, kicad_fp_dir)
+    summary = summary_line(merged.symbol_libs)
+    if summary is not None:
+        kept.append(summary)
+    kept.sort(key=_rank)
+    merged.issues = collisions + cross + kept
+
+
+def scan_source(
+    repo_root: Path,
+    previous: ScanResult | None,
+    source_dir: str,
+    kicad_fp_dir: Path | None = None,
+    *,
+    model_vars: Mapping[str, Mapping[str, str]] | None = None,
+) -> ScanResult | Issue:
+    """Read one catalog source (ThirdParty/<id>) again and merge it into a copy of the last scan (D-18).
+
+    The result has the libraries and lines a full scan_all of the same tree would give (line order
+    aside), without reading any other source. previous is never mutated; the selected flags of the
+    result are a snapshot the GUI re-applies. model_vars maps a catalog id to {variable: clone folder}.
+
+    Returns a rescan.full_needed Issue instead when only a full scan is right: there is no earlier scan,
+    source_dir is not exactly one ThirdParty/<id> folder, or that folder is not on disk.
+    """
+    if _source_prefix(source_dir) is None:
+        return _full_needed(
+            f"{source_dir or 'That folder'} is not one library source folder; running a full rescan instead."
+        )
+    if previous is None:
+        return _full_needed("There is no earlier scan to update; running a full rescan instead.")
+    repo_root = Path(repo_root)
+    folder = repo_root / source_dir
+    if not folder.is_dir():
+        return _full_needed(f"{source_dir} is not on disk; running a full rescan instead.")
+    if kicad_fp_dir is None:
+        kicad_fp_dir = find_kicad_footprint_dir()
+
+    merged = copy.deepcopy(previous)
+    sym_files = _walk_matches(folder, "*.kicad_sym", skip_top=False)
+    pretty_dirs = _walk_matches(folder, "*.pretty", dirs=True, skip_top=False)
+    mod_files = _walk_matches(folder, "*.kicad_mod", skip_top=False)
+    # The custom model names are only read for a Custom footprint, never for a catalog source
+    lines = _check_model_files(repo_root, mod_files, set(), model_vars=model_vars)
+    _replace_source(
+        merged, source_dir, _symbol_libs_from(repo_root, sym_files),
+        _footprint_libs_from(repo_root, pretty_dirs), lines, kicad_fp_dir, repo_root,
+    )
+    return merged
+
+
+def remove_source(previous: ScanResult, source_dir: str, kicad_fp_dir: Path | None = None) -> ScanResult:
+    """The last scan without one catalog source (D-21): what scan_all gives once ThirdParty/<id> is deleted.
+
+    Its libraries and lines leave; nickname collisions and footprint links are recomputed for the rest.
+    Nothing is read from disk. previous is never mutated. A source_dir that is not exactly one
+    ThirdParty/<id> folder drops nothing: a copy of previous comes back.
+    """
+    merged = copy.deepcopy(previous)
+    if _source_prefix(source_dir) is None:
+        return merged
+    if kicad_fp_dir is None:
+        kicad_fp_dir = find_kicad_footprint_dir()
+    _replace_source(merged, source_dir, [], [], [], kicad_fp_dir, None)
+    return merged
