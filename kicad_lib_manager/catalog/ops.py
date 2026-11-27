@@ -55,7 +55,8 @@ class AddSource:
     """What to download: the library's id (its ThirdParty folder), name, address, branch and licence.
 
     vars is the path-variable map to record; detect_vars asks for the map found in the download instead (an
-    Add by URL). proprietary and licence_known decide the licence class together with licence_spdx.
+    Add by URL). proprietary and licence_known decide the licence class together with licence_spdx. licence_url is
+    the page that holds the licence terms (from the curated entry); "" makes the licence page link to the repository.
     """
 
     id: str
@@ -67,6 +68,7 @@ class AddSource:
     proprietary: bool = False
     licence_known: bool = True
     detect_vars: bool = False
+    licence_url: str = ""
 
 
 @dataclass(frozen=True)
@@ -336,7 +338,8 @@ def check_repository(
 
 def _curated_source(entry: CuratedEntry) -> AddSource:
     return AddSource(
-        entry.id, entry.name, entry.url, entry.branch, dict(entry.vars), entry.licence_spdx, proprietary=entry.proprietary
+        entry.id, entry.name, entry.url, entry.branch, dict(entry.vars), entry.licence_spdx, proprietary=entry.proprietary,
+        licence_url=entry.licence_url,
     )
 
 
@@ -460,6 +463,7 @@ def plan_reinstall(
         dict(entry.vars),
         entry.licence_spdx,
         proprietary=known.proprietary if known is not None else False,
+        licence_url=known.licence_url if known is not None else "",
     )
     return _plan(
         root, mf, source,

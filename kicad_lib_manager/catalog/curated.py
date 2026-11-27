@@ -14,6 +14,8 @@ the clone, and the variables are the ones the libraries' own 3D model paths use.
 one its README states ("released under the Creative Commons Attribution 4.0 International license"); GitHub
 reports none. Wurth's terms are proprietary and are not in GitHub's licence field. legacy_prefix is the
 folder the Wurth library used to sit in, so a later conversion can find the old table entries (D-28).
+licence_url is the page that holds the licence terms (checked on GitHub on 2026-11-27, 17-17 check); it is empty
+when there is none (Espressif), and the licence page then links to the repository page instead.
 
 A curated variable never names a KiCad or Plugin and Content Manager variable (CAT-10); the manifest rules
 refuse those. Imports models and licences only. Qt-free.
@@ -39,6 +41,7 @@ class CuratedEntry:
     symbol_libs: int = 0
     footprint_libs: int = 0
     legacy_prefix: str | None = None
+    licence_url: str = ""  # the page that holds the licence terms; "" opens the repository page instead
 
     @property
     def licence(self) -> LicenceClass:
@@ -55,6 +58,7 @@ class Candidate:
     size_mb: int
     vars: dict[str, str] = field(default_factory=dict)
     research: str = ""
+    licence_url: str = ""  # the page that holds the licence terms; "" opens the repository page instead
 
 
 CURATED: tuple[CuratedEntry, ...] = (
@@ -72,6 +76,7 @@ CURATED: tuple[CuratedEntry, ...] = (
         symbol_libs=402,
         footprint_libs=43,
         legacy_prefix="WurthElektronik/KiCad-Library/",
+        licence_url="https://github.com/WurthElektronik/KiCad-Library/blob/master/License_Terms_WE_KiCad_library.pdf",
     ),
     CuratedEntry(
         id="SparkFun",
@@ -86,6 +91,7 @@ CURATED: tuple[CuratedEntry, ...] = (
         vars={"SPARKFUN_KICAD_LIBRARY": ""},
         symbol_libs=30,
         footprint_libs=21,
+        licence_url="https://github.com/sparkfun/SparkFun-KiCad-Libraries#license",
     ),
 )
 
@@ -99,6 +105,7 @@ CANDIDATES: tuple[Candidate, ...] = (
         size_mb=58,
         vars={"KICAD_4MS_LIBS": ""},
         research="Passed the research clone: 25 symbol and 29 footprint libraries, no 3D model missing.",
+        licence_url="https://github.com/4ms/4ms-kicad-lib/blob/master/UNLICENSE",
     ),
     Candidate(
         id="Alternate-KiCad-Library",
@@ -111,6 +118,7 @@ CANDIDATES: tuple[Candidate, ...] = (
             "Not downloaded yet: it is larger than the research limit. It has no 3D models of its own and "
             "about 11,000 footprints, so the first scan is long. GitHub states no licence for it."
         ),
+        licence_url="https://github.com/DawidCislo/Alternate-KiCad-Library#readme",
     ),
     Candidate(
         id="Espressif",

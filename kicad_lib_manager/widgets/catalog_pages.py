@@ -50,7 +50,18 @@ URL_EMPTY_TIP = "Paste a web address first."
 
 ADD_HEADING = "Add {name}"
 REINSTALL_HEADING = "Reinstall {name}"
-LICENCE_BODY = "Read the licence before you download. Nothing is added to your collection yet."
+# The opening line of the licence page (owner-approved 2026-11-27, 17-17 check): it names the buttons of the next
+# page, which are Add Library for an Add and Reinstall Library for a Reinstall (both with Discard Download).
+LICENCE_BODY_TEMPLATE = (
+    "Step 1 of 2. {download} copies the library to a temporary folder and checks it. "
+    "Nothing is added yet: on the next page you choose {confirm} or {discard}."
+)
+LICENCE_BODY = LICENCE_BODY_TEMPLATE.format(download=DOWNLOAD_TEXT, confirm=ADD_LIBRARY_TEXT, discard=DISCARD_TEXT)
+LICENCE_BODY_REINSTALL = LICENCE_BODY_TEMPLATE.format(
+    download=DOWNLOAD_TEXT, confirm=REINSTALL_LIBRARY_TEXT, discard=DISCARD_TEXT
+)
+LICENCE_LINK_TEXT = "Read the licence"
+LICENCE_LINK_FALLBACK_TEXT = "Read the licence on the repository page"
 REPOSITORY_LABEL = "Repository"
 BRANCH_LABEL = "Branch"
 LICENCE_LABEL = "Licence"
@@ -194,6 +205,16 @@ def destructive_button_qss() -> str:
     ])
 
 
+def size_phrase(size_mb: int | None) -> str:
+    """The size as the licence page's Size row and its Download and Check button say it: `about 69 MB`, or `Unknown`."""
+    return UNKNOWN_TEXT if size_mb is None else f"about {status.size_text(size_mb)}"
+
+
+def download_text(size_mb: int | None) -> str:
+    """`Download and Check (about 69 MB)` when the size is known, plain `Download and Check` when it is not."""
+    return DOWNLOAD_TEXT if size_mb is None else f"{DOWNLOAD_TEXT} ({size_phrase(size_mb)})"
+
+
 def licence_display(source) -> str:
     """The licence of an AddSource as the pages name it (the UI-SPEC table of licence labels, with its detail forms)."""
     cls = licences.licence_class(source.licence_spdx, proprietary=source.proprietary, known=source.licence_known)
@@ -208,7 +229,8 @@ class LinkLabel(QLabel):
     """The Repository link: one rich-text line elided in the middle to its width; the whole address is the tooltip.
 
     A web address has no place a line may break, so it is elided instead of wrapped and never widens the window.
-    Only an https address becomes a link (opens in the browser).
+    Only an https address becomes a link (opens in the browser). set_url(url, text) shows the words text (such as
+    "Read the licence") as the link instead of the address; the address stays the target and the tooltip.
     """
 
     def __init__(self):
@@ -222,14 +244,20 @@ class LinkLabel(QLabel):
         palette.setColor(palette.ColorRole.Link, QColor(theme.LINK))
         self.setPalette(palette)
         self._url = ""
+        self._text = ""
 
-    def set_url(self, url: str) -> None:
+    def set_url(self, url: str, text: str | None = None) -> None:
         self._url = url
+        self._text = text or url
         self.setToolTip(url)
         self._refresh()
 
     def url(self) -> str:
         return self._url
+
+    def link_text(self) -> str:
+        """The text the link shows before it is elided: the address itself, or the words given to set_url."""
+        return self._text
 
     def minimumSizeHint(self) -> QSize:
         return QSize(0, super().minimumSizeHint().height())
@@ -243,7 +271,7 @@ class LinkLabel(QLabel):
             shown = ""
         else:
             width = self.contentsRect().width()
-            text = self._url if width < 40 else self.fontMetrics().elidedText(self._url, Qt.TextElideMode.ElideMiddle, width)
+            text = self._text if width < 40 else self.fontMetrics().elidedText(self._text, Qt.TextElideMode.ElideMiddle, width)
             if self._url.startswith("https://"):
                 shown = f'<a href="{html.escape(self._url, quote=True)}">{html.escape(text)}</a>'
             else:
@@ -595,7 +623,11 @@ class AddByUrlPage(ReviewPage):
 # ── The licence page ────────────────────────────────────────────────────────────────────────────────────
 
 class LicencePage(ReviewPage):
-    """The page before anything is downloaded: repository, licence, size, the install folder, notes, refusals and the tick."""
+    """The page before anything is downloaded (step 1 of 2).
+
+    It shows the opening line, the repository, the licence with its link, note and tick directly under it, the size,
+    the install folder, and the refusals. The primary button shows the size when it is known.
+    """
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -613,13 +645,15 @@ class LicencePage(ReviewPage):
         source = plan.source
         shown_name = name or plan.name
         self.set_heading((REINSTALL_HEADING if reinstall else ADD_HEADING).format(name=shown_name))
-        body = plain_label(LICENCE_BODY, wrap=True)
+        self.set_primary(download_text(plan.size_mb))
+        body = plain_label(LICENCE_BODY_REINSTALL if reinstall else LICENCE_BODY, wrap=True)
         muted(body)
         self._add(body)
 
+        repository = address or source.url.removesuffix(".git").rstrip("/")
         link = LinkLabel()
         mono(link)
-        link.set_url(address or source.url.removesuffix(".git").rstrip("/"))
+        link.set_url(repository)
         self._add(_row(REPOSITORY_LABEL, link))
         if reinstall:
             branch = plain_label(source.branch)
@@ -627,12 +661,17 @@ class LicencePage(ReviewPage):
             self._add(_row(BRANCH_LABEL, branch))
         licence = plain_label(licence_display(source), wrap=True)
         self._add(_row(LICENCE_LABEL, licence))
-        size = UNKNOWN_TEXT if plan.size_mb is None else f"about {status.size_text(plan.size_mb)}"
-        self._add(_row(SIZE_LABEL, plain_label(size)))
-        where = ElidedLabel("", mode=Qt.TextElideMode.ElideMiddle, full_tooltip=True)
-        mono(where)
-        where.set_full_text(plan.folder.as_posix())
-        self._add(_row(INSTALLED_IN_LABEL, where))
+
+        # The licence link, the note and the tick sit together right under the Licence row, so the tick is under the link
+        licence_link = LinkLabel()
+        licence_link.setObjectName("licenceLink")
+        if source.licence_url:
+            link_text, link_target = LICENCE_LINK_TEXT, source.licence_url
+        else:  # an Add by URL, or a library with no licence page of its own
+            link_text, link_target = LICENCE_LINK_FALLBACK_TEXT, repository
+        licence_link.set_url(link_target, link_text)
+        licence_link.setAccessibleName(link_text)
+        self._add(_row("", licence_link))
 
         cls = plan.licence
         note = {
@@ -654,6 +693,12 @@ class LicencePage(ReviewPage):
             self._tick.setAccessibleName(TICK_TEXT)
             self._tick.toggled.connect(lambda _on: self.refresh_buttons())
             self._add(self._tick)
+
+        self._add(_row(SIZE_LABEL, plain_label(size_phrase(plan.size_mb))))
+        where = ElidedLabel("", mode=Qt.TextElideMode.ElideMiddle, full_tooltip=True)
+        mono(where)
+        where.set_full_text(plan.folder.as_posix())
+        self._add(_row(INSTALLED_IN_LABEL, where))
 
         for issue in plan.refusals:
             self._add(status_line(ERROR_GLYPH, issue.text, theme.ERROR))

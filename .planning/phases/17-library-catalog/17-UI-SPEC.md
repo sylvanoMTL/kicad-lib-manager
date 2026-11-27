@@ -148,7 +148,7 @@ Qt terms: the 60/30 surfaces come from the platform palette; hex values below ar
 
 Accent reserved for (exhaustive, this phase):
 
-1. **The one primary button of the page currently shown in the catalog window** (`PRIMARY_BUTTON_QSS`): `Add This Library`, `Update This Library` or `Reinstall This Library` on the Details page, `Check Repository` on the Add by URL page, `Download and Check` on the licence page, `Add Library`, `Update Library` or `Reinstall Library` on a review page. Pages are stacked, so exactly one accent button is visible in the catalog window at a time. Remove-related pages use no accent button (see Destructive).
+1. **The one primary button of the page currently shown in the catalog window** (`PRIMARY_BUTTON_QSS`): `Add This Library`, `Update This Library` or `Reinstall This Library` on the Details page, `Check Repository` on the Add by URL page, `Download and Check` on the licence page (with the size when known), `Add Library`, `Update Library` or `Reinstall Library` on a review page. Pages are stacked, so exactly one accent button is visible in the catalog window at a time. Remove-related pages use no accent button (see Destructive).
 2. The determinate chunk of the job strip's `QProgressBar` (and the indeterminate chunk).
 
 Everything else is plain: `Add by URL...`, `Check for Updates`, `Close`, `Back to List`, `Discard Download`, `Keep Library`, `Keep Current Version`, `Try Again`, `Set Path Variables...`, `Generate Tables` (in the result strip; the main window's own `Generate Tables` keeps its accent), `Remove This Library` on the Details page, and the job strip's cancel button (`Cancel Adding`, `Cancel Updating`, `Cancel Reinstalling`, `Cancel Check`, `Cancel Removing`). Links use `LINK`, not the accent. The selected list row uses the platform selection colour. The first accent button in the main window and the one in the catalog window can be on screen together because the windows are separate; each window has at most one.
@@ -316,9 +316,10 @@ Details (not installed)            Licence page                    Add preview
                                                                   runs here, job strip)  writes catalog.json)
 ```
 
-**1. Licence page** (before anything is downloaded). Heading `Add {name}`. MUTED body `Read the licence before you download. Nothing is added to your collection yet.` Rows: Repository (link), Licence (display name), Size, `Will be installed in` (ElidedLabel, Mono, `{collection}/ThirdParty/{id}`; the id is the curated id, or `{owner}-{repo}`).
+**1. Licence page** (before anything is downloaded). Heading `Add {name}`. MUTED body (owner-approved 2026-11-27, 17-17 check; it replaces `Read the licence before you download. Nothing is added to your collection yet.`): `Step 1 of 2. Download and Check copies the library to a temporary folder and checks it. Nothing is added yet: on the next page you choose Add Library or Discard Download.` A Reinstall page names the buttons its own preview shows: `Step 1 of 2. Download and Check copies the library to a temporary folder and checks it. Nothing is added yet: on the next page you choose Reinstall Library or Discard Download.` Rows, in this order (owner-approved 2026-11-27, 17-17 check): Repository (link), Branch (Reinstall only), Licence (display name), the licence link row, the licence note and the tick (below), Size, `Will be installed in` (ElidedLabel, Mono, `{collection}/ThirdParty/{id}`; the id is the curated id, or `{owner}-{repo}`).
 
-- Licence note by class (below the Licence row, one line, wraps):
+- Licence link row (owner-approved 2026-11-27, 17-17 check), directly under the Licence row, in the value column: a `LinkLabel` (`LINK`, opens in the browser, tooltip is its address) with the text `Read the licence`, opening the library's own licence page (`licence_url` of the curated entry: Würth `License_Terms_WE_KiCad_library.pdf` in its repository, SparkFun the License heading of its README, 4ms its `UNLICENSE` file, Alternate-KiCad-Library its README). When the library has no `licence_url` (an Add by URL, Espressif) the text is `Read the licence on the repository page` and it opens the repository address of the Repository row. The licence note and the tick follow it, so the tick sits directly under the link; the page's first focus stays on the tick.
+- Licence note by class (below the licence link row, one line, wraps):
   - Open: no note.
   - Share-alike: `⚠ Share-alike licence: if you share changed copies of these files, you must share them under the same terms.`
   - Proprietary: `⚠ Proprietary licence: the owner sets the terms of use. Read them on the repository page before you continue.`
@@ -329,7 +330,7 @@ Details (not installed)            Licence page                    Add preview
   - Already in the catalog (Add by URL): `✖ This library is already in your catalog as {name}. Select it in the list.`
   - Folder exists but is not in the catalog (D-06): `✖ The folder {folder} already exists in ThirdParty but is not in the catalog. Remove it first (it is listed as "Problem: not in the catalog"), then add the library again.`
 - KiCad-open line (D-14, `⚠` AMBER, not a refusal): `⚠ KiCad is open ({names}). Restart it after the library is added to see the changes.` Detected off the GUI thread; shown when the page opens, never blocks.
-- Buttons (right, bottom): `Back to List` (plain), `Download and Check` (primary; `Ctrl+Return`). On press the page stays, the buttons disable and the job strip starts (`Downloading {name}...`).
+- Buttons (right, bottom): `Back to List` (plain), `Download and Check` (primary; `Ctrl+Return`). The primary shows the size when the plan knows it, with the text of the Size row: `Download and Check (about 69 MB)`, and the plain `Download and Check` when the size is unknown (owner-approved 2026-11-27, 17-17 check); the busy and blocked states do not change the text. On press the page stays, the buttons disable and the job strip starts (`Downloading {name}...`).
 
 **2. Add preview** (after the staging download and its checks). Heading `Add {name}`. A `✓` line: `✓ Downloaded and checked: {s} symbol libraries and {f} footprint libraries.` Then sections 16 px apart (each section is a bold-free label row in Body; there is no sub-heading style):
 
@@ -408,7 +409,7 @@ During the delete the job strip reads `Removing {name}...` (indeterminate) with 
 
 ### Reinstall flow (D-05, D-18)
 
-`Reinstall This Library` (primary, on a `Problem: folder missing` row) follows the Add flow with these differences: the licence page heading is `Reinstall {name}`, shows the recorded repository and branch, shows `You confirmed the licence terms on {date}.` instead of the tick, and its primary is `Download and Check`; the preview heading is `Reinstall {name}` and its primary is `Reinstall Library`. The preview's `What will be added` row lists only the folder (the record already exists; it is updated with the new commit). After success the same three follow-ups as an Add run (rescan of the source, path variable question, `Generate Tables` offer).
+`Reinstall This Library` (primary, on a `Problem: folder missing` row) follows the Add flow with these differences: the licence page heading is `Reinstall {name}`, shows the recorded repository and branch, shows `You confirmed the licence terms on {date}.` instead of the tick, its opening line names `Reinstall Library` instead of `Add Library` (owner-approved 2026-11-27, 17-17 check), and its primary is `Download and Check` (with the size when known, as on an Add); the preview heading is `Reinstall {name}` and its primary is `Reinstall Library`. The preview's `What will be added` row lists only the folder (the record already exists; it is updated with the new commit). After success the same three follow-ups as an Add run (rescan of the source, path variable question, `Generate Tables` offer).
 
 ### Job strip (D-16)
 
@@ -483,7 +484,7 @@ Style (from CLAUDE.md and the owner's plain-language rule): short sentences, the
 | Primary CTA (Details, update available) | `Update This Library` |
 | Primary CTA (Details, folder missing) | `Reinstall This Library` |
 | Primary CTA (Add by URL page) | `Check Repository` |
-| Primary CTA (licence page) | `Download and Check` |
+| Primary CTA (licence page) | `Download and Check` (owner-approved 2026-11-27, 17-17 check: `Download and Check (about 69 MB)` when the size is known, the Size row's text) |
 | Primary CTA (Add preview / Update preview / Reinstall preview) | `Add Library` / `Update Library` / `Reinstall Library` |
 | Destructive confirm | `Remove Library` |
 | Plain buttons | `Add by URL...` · `Check for Updates` (`Checking...`) · `Close` · `Help` · `Back to List` · `Discard Download` · `Keep Library` · `Keep Current Version` · `Try Again` · `Set Path Variables...` · `Generate Tables` · `Remove This Library` (Details page) |
@@ -497,7 +498,8 @@ Style (from CLAUDE.md and the owner's plain-language rule): short sentences, the
 | Empty detail pane | `Select a library to see its details.` |
 | Add by URL page heading and body | `Add a library from GitHub` / `Paste the web address of a public GitHub repository that holds KiCad symbol and footprint libraries.` |
 | Add by URL, empty field (tooltip of `Check Repository`) | `Paste a web address first.` |
-| Licence page body | `Read the licence before you download. Nothing is added to your collection yet.` |
+| Licence page body (owner-approved 2026-11-27, 17-17 check; it replaces `Read the licence before you download. Nothing is added to your collection yet.`) | `Step 1 of 2. Download and Check copies the library to a temporary folder and checks it. Nothing is added yet: on the next page you choose Add Library or Discard Download.` (Reinstall: `Reinstall Library` in place of `Add Library`) |
+| Licence link (owner-approved 2026-11-27, 17-17 check) | `Read the licence` / `Read the licence on the repository page` (no `licence_url`) |
 | Tick | `I have read the licence terms` |
 | Download button tooltip when the tick is missing | `Tick the box to confirm you have read the licence terms.` |
 | Add preview `✓` line | `✓ Downloaded and checked: {s} symbol libraries and {f} footprint libraries.` |
