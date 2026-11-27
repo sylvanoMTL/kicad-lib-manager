@@ -502,3 +502,479 @@ def test_close_is_the_default_button_on_the_idle_list(qtbot, tmp_path):
     assert dialog._close_btn.text() == "Close"
     assert dialog._close_btn.isDefault()
     assert not dialog._check_btn.autoDefault() and not dialog._add_url_btn.autoDefault()
+
+
+# -- the Details page (Task 2) -------------------------------------------------------------------
+
+CLOCK = lambda: NOW  # noqa: E731
+EARLIER = datetime(2026, 11, 27, 9, 14)
+
+
+def scan_of(*paths):
+    from kicad_lib_manager.models import FootprintLibrary, ScanResult, SymbolLibrary
+
+    symbols = [SymbolLibrary(Path(p).stem, p, "ThirdParty") for p in paths if p.endswith(".kicad_sym")]
+    footprints = [FootprintLibrary(Path(p).stem, p, "ThirdParty") for p in paths if p.endswith(".pretty")]
+    return ScanResult(symbol_libs=symbols, footprint_libs=footprints)
+
+
+def select(dialog, name):
+    item = by_name(dialog)[name]
+    dialog._tree.setCurrentItem(item)
+    item.setSelected(True)
+    return item
+
+
+def value(dialog, key):
+    """The text of a Details value; a container (path variables, version) gives its labels joined by a space."""
+    widget = dialog._field_rows[key][1]
+    if isinstance(widget, ElidedLabel):
+        return widget.full_text()
+    if isinstance(widget, QLabel):
+        return widget.text()
+    return " ".join(label.text() for label in widget.findChildren(QLabel))
+
+
+def shown(dialog, key):
+    return not dialog._field_rows[key][0].isHidden()
+
+
+def details(qtbot, tmp_path, name, **kwargs):
+    kwargs.setdefault("clock", CLOCK)
+    kwargs.setdefault("entries", STATUS_FIXTURE["entries"])
+    kwargs.setdefault("folders", STATUS_FIXTURE["folders"])
+    dialog = build(qtbot, tmp_path, **kwargs)
+    select(dialog, name)
+    return dialog
+
+
+def test_details_for_a_curated_library_that_is_not_installed(qtbot, tmp_path):
+    dialog = details(qtbot, tmp_path, "Third One")
+    assert dialog._pages.currentWidget() is dialog._details_page
+    assert dialog._detail_heading.text() == "Third One"
+    assert dialog._detail_description.text() == SPARKFUN.description
+    assert not dialog._detail_description.isHidden()
+    assert "https://github.com/x/third" in value(dialog, "repository")
+    assert value(dialog, "licence") == "CC BY 4.0"
+    assert value(dialog, "size") == "about 69 MB"
+    assert value(dialog, "libraries") == "30 symbol libraries, 21 footprint libraries"
+    assert not shown(dialog, "version") and not shown(dialog, "updates") and not shown(dialog, "folder")
+    assert dialog._problem_strip.isHidden()
+
+
+def test_details_for_an_installed_library(qtbot, tmp_path):
+    dialog = details(qtbot, tmp_path, "SparkFun")
+    dialog.set_scan(
+        scan_of(
+            "ThirdParty/SparkFun/symbols/a.kicad_sym",
+            "ThirdParty/SparkFun/symbols/b.kicad_sym",
+            "ThirdParty/SparkFun/footprints/c.pretty",
+            "ThirdParty/Other/symbols/z.kicad_sym",
+            "Custom/Symbols/mine.kicad_sym",
+        )
+    )
+    assert value(dialog, "libraries") == "2 symbol libraries, 1 footprint libraries"
+    qtbot.waitUntil(lambda: value(dialog, "size") == "69 MB on disk", timeout=5000)
+    assert value(dialog, "version") == "aaaaaaa (added 2026-11-20)"
+    assert value(dialog, "updates") == "Not checked yet"
+    folder = dialog._field_rows["folder"][1]
+    assert isinstance(folder, ElidedLabel) and folder.font().family() == theme.MONO_FAMILY
+    assert folder.full_text() == (dialog._root / "ThirdParty" / "SparkFun").as_posix()
+    assert folder.toolTip() == folder.full_text()
+    assert not dialog._detail_description.isHidden()  # curated: the one-line description
+
+
+def test_libraries_row_without_a_scan_or_curated_counts(qtbot, tmp_path):
+    dialog = details(qtbot, tmp_path, "acme/demo-lib")
+    assert dialog._detail_description.isHidden()
+    assert value(dialog, "libraries") == "Known after it is added"
+    dialog.set_scan(scan_of())
+    assert value(dialog, "libraries") == "0 symbol libraries, 0 footprint libraries"
+
+
+def test_size_is_read_off_the_gui_thread(qtbot, tmp_path):
+    gate = threading.Event()
+    seen = []
+
+    def size(folder):
+        seen.append(threading.current_thread())
+        gate.wait(10)
+        return 2_000_000_000
+
+    dialog = details(qtbot, tmp_path, "SparkFun", size_on_disk=size)
+    assert value(dialog, "size") == "Calculating..."
+    gate.set()
+    qtbot.waitUntil(lambda: value(dialog, "size") == "2.0 GB on disk", timeout=5000)
+    assert seen and seen[0] is not threading.current_thread()
+
+
+def test_updates_row_texts(qtbot, tmp_path):
+    dialog = details(qtbot, tmp_path, "SparkFun")
+    expectations = [
+        (status.UpdateState("SparkFun", status.Check.CURRENT, SHA, EARLIER), "Checked today at 09:14: up to date"),
+        (
+            status.UpdateState("SparkFun", status.Check.AVAILABLE, OTHER, datetime(2026, 11, 26, 18, 30)),
+            "Checked yesterday at 18:30: an update is available",
+        ),
+        (
+            status.UpdateState("SparkFun", status.Check.UNKNOWN, None, EARLIER),
+            "Could not check for updates (GitHub could not be reached)",
+        ),
+        (status.UpdateState("SparkFun", status.Check.NOT_CHECKED, None, None), "Not checked yet"),
+    ]
+    for state, text in expectations:
+        dialog.apply_update_states({"SparkFun": state})
+        assert value(dialog, "updates") == text
+    dialog.set_check_running(True)
+    assert value(dialog, "updates") == "Checking for updates..."
+    dialog.set_check_running(False)
+    assert value(dialog, "updates") == "Not checked yet"
+
+
+def test_update_available_strip(qtbot, tmp_path):
+    dialog = details(qtbot, tmp_path, "acme/alpha")
+    dialog.apply_update_states({"alpha": status.UpdateState("alpha", status.Check.AVAILABLE, OTHER, EARLIER)})
+    assert not dialog._problem_strip.isHidden()
+    assert dialog._problem_label.text() == "⚠ A newer version is available (aaaaaaa -> ddddddd)."
+
+
+def test_problem_strips_read_as_the_spec(qtbot, tmp_path):
+    dialog = details(qtbot, tmp_path, "Würth Elektronik")
+    folder = (dialog._root / "ThirdParty" / "WurthElektronik").as_posix()
+    assert dialog._problem_label.text() == (
+        f"✖ The folder {folder} is missing. It may have been deleted, or this collection was copied from another "
+        "computer without it. Reinstall This Library downloads it again from "
+        "https://github.com/WurthElektronik/KiCad-Library."
+    )
+    assert not dialog._problem_strip.isHidden()
+    assert theme.ERROR in dialog._problem_label.styleSheet()
+    select(dialog, "Stray")
+    assert dialog._problem_label.text() == (
+        "⚠ This folder is in ThirdParty but is not in the catalog, so the app does not know where it came from. "
+        "Its libraries are still scanned like any other. The app never deletes it by itself; Remove This Library "
+        "deletes it after you confirm."
+    )
+    assert theme.AMBER in dialog._problem_label.styleSheet()
+    assert not shown(dialog, "repository")  # a folder the record does not list has no repository
+    assert shown(dialog, "folder")
+    select(dialog, "SparkFun")
+    assert dialog._problem_strip.isHidden()
+
+
+def test_licence_row_with_acknowledgement(qtbot, tmp_path):
+    entries = [
+        entry("gplone", url="https://github.com/acme/gplone.git", spdx="GPL-3.0", ack=True, ack_on="2026-11-20"),
+        entry("blank", url="https://github.com/acme/blank.git", spdx=None),
+    ]
+    dialog = details(qtbot, tmp_path, "acme/gplone", entries=entries, folders=["gplone", "blank", "Stray"])
+    assert value(dialog, "licence") == "GPL 3.0 (you confirmed you read the terms on 2026-11-20)"
+    select(dialog, "acme/blank")
+    assert value(dialog, "licence") == "Not stated by the repository"
+    select(dialog, "Stray")
+    assert value(dialog, "licence") == "Could not be read from GitHub"
+
+
+def test_proprietary_licence_row(qtbot, tmp_path):
+    dialog = details(qtbot, tmp_path, "Würth Elektronik")
+    assert value(dialog, "licence") == "Proprietary"
+
+
+def test_no_details_row_is_ever_blank(qtbot, tmp_path):
+    dialog = build(qtbot, tmp_path, clock=CLOCK, **STATUS_FIXTURE)
+    for name in list(by_name(dialog)):
+        select(dialog, name)
+        for key, (label, widget) in dialog._field_rows.items():
+            if not label.isHidden():
+                assert value(dialog, key).strip() != "", f"{name}: {key}"
+
+
+def test_empty_pane_text_when_nothing_is_selected(qtbot, tmp_path):
+    dialog = build(qtbot, tmp_path)
+    assert dialog._pages.currentWidget() is dialog._empty_page
+    assert dialog._empty_label.text() == "Select a library to see its details."
+    assert not dialog._result_strip.isVisibleTo(dialog)
+
+
+def test_details_heading_shows_markup_as_typed(qtbot, tmp_path):
+    name = "R&D <Parts>"
+    dialog = build(qtbot, tmp_path, curated=(replace(SPARKFUN, name=name),))
+    select(dialog, name)
+    assert dialog._detail_heading.text() == name
+    for label in dialog.findChildren(QLabel):
+        if label.objectName() != "repositoryLink":
+            assert label.textFormat() == Qt.TextFormat.PlainText, label.objectName() or label.text()
+    link = dialog._field_rows["repository"][1]
+    assert link.objectName() == "repositoryLink" and link.openExternalLinks()
+    assert link.textFormat() == Qt.TextFormat.RichText
+
+
+# -- path variables -----------------------------------------------------------------------------
+
+
+PATH_ENTRIES = [
+    entry("SparkFun", url=SPARKFUN.url, vars={"SPARKFUN_KICAD_LIBRARY": ""}),
+    entry("demo", url="https://github.com/acme/demo-lib.git"),
+]
+
+
+def path_dialog(qtbot, tmp_path, current):
+    return details(qtbot, tmp_path, "SparkFun", entries=PATH_ENTRIES, folders=["SparkFun", "demo"], current_path_vars=lambda **kw: current)
+
+
+def test_path_variable_states(qtbot, tmp_path):
+    dialog = path_dialog(qtbot, tmp_path / "a", {})
+    assert value(dialog, "vars") == "SPARKFUN_KICAD_LIBRARY ⚠ not set"
+    mono = [label.text() for label in dialog._field_rows["vars"][1].findChildren(QLabel) if label.font().family() == theme.MONO_FAMILY]
+    assert mono == ["SPARKFUN_KICAD_LIBRARY"]
+
+    good = manifest.path_vars(dialog._root, [PATH_ENTRIES[0]])["SPARKFUN_KICAD_LIBRARY"]
+    dialog = path_dialog(qtbot, tmp_path / "b", {"SPARKFUN_KICAD_LIBRARY": good})
+    assert value(dialog, "vars") == "SPARKFUN_KICAD_LIBRARY ✓ set"
+
+    dialog = path_dialog(qtbot, tmp_path / "c", {"SPARKFUN_KICAD_LIBRARY": "C:/elsewhere"})
+    assert value(dialog, "vars") == "SPARKFUN_KICAD_LIBRARY ⚠ set to a different folder"
+
+    dialog = path_dialog(qtbot, tmp_path / "d", None)
+    assert value(dialog, "vars") == "SPARKFUN_KICAD_LIBRARY KiCad settings were not found"
+
+    select(dialog, "acme/demo-lib")
+    assert value(dialog, "vars") == "This library needs none."
+
+
+def test_path_variables_are_read_off_the_gui_thread(qtbot, tmp_path):
+    threads = []
+
+    def read(**kw):
+        threads.append(threading.current_thread())
+        return {}
+
+    build(qtbot, tmp_path, current_path_vars=read)
+    assert threads and threads[0] is not threading.current_thread()
+
+
+# -- time wording ---------------------------------------------------------------------------------
+
+
+def test_time_wording():
+    now = datetime(2026, 11, 27, 12, 0)
+    assert cd.time_wording(datetime(2026, 11, 27, 9, 14), now) == "today at 09:14"
+    assert cd.time_wording(datetime(2026, 11, 26, 23, 59), now) == "yesterday at 23:59"
+    assert cd.time_wording(datetime(2026, 11, 25, 7, 5), now) == "2026-11-25 07:05"
+    assert cd.time_wording(datetime(2025, 12, 31, 7, 5), datetime(2026, 1, 1, 0, 30)) == "yesterday at 07:05"
+
+
+# -- Check for Updates ---------------------------------------------------------------------------
+
+
+def checker(result, gate=None, calls=None):
+    def check(root, mf, net, *, cancel=None, on_one=None, now=None):
+        if calls is not None:
+            calls.append({"root": root, "mf": mf, "net": net, "cancel": cancel, "thread": threading.current_thread()})
+        if gate is not None:
+            gate.wait(10)
+        return result
+
+    return check
+
+
+def log_of(dialog):
+    lines = []
+    dialog.log_line.connect(lambda text, level: lines.append((text, level)))
+    return lines
+
+
+def test_check_for_updates_runs_in_background(qtbot, tmp_path):
+    gate, calls = threading.Event(), []
+    states = {"SparkFun": status.UpdateState("SparkFun", status.Check.AVAILABLE, OTHER, EARLIER)}
+    dialog = build(qtbot, tmp_path, clock=CLOCK, check_updates=checker(states, gate, calls), **STATUS_FIXTURE)
+    lines = log_of(dialog)
+    emitted = []
+    dialog.update_states_changed.connect(emitted.append)
+    dialog._check_btn.click()
+    assert dialog._check_btn.text() == "Checking..." and not dialog._check_btn.isEnabled()
+    gate.set()
+    qtbot.waitUntil(lambda: bool(emitted), timeout=5000)
+    assert calls[0]["thread"] is not threading.current_thread()
+    assert calls[0]["root"] == dialog._root and calls[0]["net"] is NET_OK.net
+    assert isinstance(calls[0]["mf"], Manifest)
+    assert emitted == [states]
+    assert lines == [("1 catalog library has an update: SparkFun", "info")]
+    assert by_name(dialog)["SparkFun"].text(1) == "⚠ Update available"
+    assert dialog._check_btn.text() == "Check for Updates" and dialog._check_btn.isEnabled()
+
+
+def test_check_summary_lines(qtbot, tmp_path):
+    current = {
+        "SparkFun": status.UpdateState("SparkFun", status.Check.CURRENT, SHA, EARLIER),
+        "demo": status.UpdateState("demo", status.Check.CURRENT, SHA, EARLIER),
+    }
+    unknown = {
+        "SparkFun": status.UpdateState("SparkFun", status.Check.UNKNOWN, None, EARLIER),
+        "demo": status.UpdateState("demo", status.Check.UNKNOWN, None, EARLIER),
+    }
+    one = {"SparkFun": status.UpdateState("SparkFun", status.Check.CURRENT, SHA, EARLIER)}
+    cases = [
+        (current, [("Checked 2 catalog libraries: all up to date.", "info")]),
+        (one, [("Checked 1 catalog library: all up to date.", "info")]),
+        (unknown, [("Could not check for updates: GitHub could not be reached.", "warning")]),
+    ]
+    for index, (states, expected) in enumerate(cases):
+        dialog = build(qtbot, tmp_path / str(index), check_updates=checker(states), **STATUS_FIXTURE)
+        lines = log_of(dialog)
+        dialog._check_btn.click()
+        qtbot.waitUntil(lambda: bool(lines), timeout=5000)
+        assert lines == expected
+
+
+def test_check_result_after_root_change_is_dropped(qtbot, tmp_path):
+    gate, calls = threading.Event(), []
+    states = {"SparkFun": status.UpdateState("SparkFun", status.Check.AVAILABLE, OTHER, EARLIER)}
+    dialog = build(qtbot, tmp_path, check_updates=checker(states, gate, calls), **STATUS_FIXTURE)
+    lines = log_of(dialog)
+    emitted = []
+    dialog.update_states_changed.connect(emitted.append)
+    dialog._check_btn.click()
+    qtbot.waitUntil(lambda: bool(calls), timeout=5000)
+    dialog.set_root(make_collection(tmp_path / "other"))
+    assert calls[0]["cancel"].is_set()
+    gate.set()
+    qtbot.wait(150)
+    assert emitted == [] and lines == []
+    assert dialog._check_btn.text() == "Check for Updates"
+    assert all(item.text(1) != "⚠ Update available" for item in items(dialog))
+
+
+def test_a_failed_check_is_logged_and_the_button_returns(qtbot, tmp_path):
+    def broken(root, mf, net, **kw):
+        raise RuntimeError("boom")
+
+    dialog = build(qtbot, tmp_path, check_updates=broken, **STATUS_FIXTURE)
+    lines = log_of(dialog)
+    dialog._check_btn.click()
+    qtbot.waitUntil(lambda: bool(lines), timeout=5000)
+    assert lines == [("Library catalog step failed: RuntimeError: boom", "error")]
+    assert dialog._check_btn.isEnabled() and dialog._check_btn.text() == "Check for Updates"
+
+
+def test_set_check_running_shows_checking(qtbot, tmp_path):
+    dialog = build(qtbot, tmp_path)
+    dialog.set_check_running(True)
+    assert dialog._check_btn.text() == "Checking..." and not dialog._check_btn.isEnabled()
+    dialog.set_check_running(False)
+    assert dialog._check_btn.text() == "Check for Updates" and dialog._check_btn.isEnabled()
+
+
+# -- the result strip ----------------------------------------------------------------------------
+
+
+def result_lines(dialog):
+    return [label.text() for label in dialog._result_strip.findChildren(QLabel) if label.objectName() == "resultLine"]
+
+
+def test_show_result_strip(qtbot, tmp_path):
+    dialog = details(qtbot, tmp_path, "SparkFun")
+    assert dialog._result_strip.isHidden()
+    lines = [
+        ("Added SparkFun: 30 symbol libraries and 21 footprint libraries are in your scan.", "success"),
+        ("2 of them share a name with a library you already have and are unticked.", "warning"),
+    ]
+    dialog.show_result(lines, generate=True, manifest_note=True)
+    assert not dialog._result_strip.isHidden()
+    assert result_lines(dialog) == [
+        "✓ Added SparkFun: 30 symbol libraries and 21 footprint libraries are in your scan.",
+        "⚠ 2 of them share a name with a library you already have and are unticked.",
+    ]
+    assert dialog._result_note.isHidden()  # the collection root is a plain folder, not a git repository
+    assert not dialog._result_generate_btn.isHidden()
+    with qtbot.waitSignal(dialog.generate_requested, timeout=1000):
+        dialog._result_generate_btn.click()
+    select(dialog, "acme/demo-lib")  # another row clears it
+    assert dialog._result_strip.isHidden()
+
+
+def test_result_strip_note_only_for_a_git_root(qtbot, tmp_path):
+    dialog = details(qtbot, tmp_path, "SparkFun")
+    (dialog._root / ".git").mkdir()
+    dialog.show_result([("Removed SparkFun.", "success")], generate=False, manifest_note=True)
+    assert not dialog._result_note.isHidden()
+    assert dialog._result_note.text() == f"catalog.json in {dialog._root.as_posix()} changed. The app does not commit it for you."
+    assert dialog._result_generate_btn.isHidden()
+    dialog.show_result([("Removed SparkFun.", "success")], generate=False, manifest_note=False)
+    assert dialog._result_note.isHidden()
+
+
+# -- closing, reopening and switching collection ----------------------------------------------------
+
+
+def test_close_hides_and_reopen_clears_search(qtbot, tmp_path):
+    dialog = build(qtbot, tmp_path, clock=CLOCK, **STATUS_FIXTURE)
+    with_updates(dialog)
+    dialog.show()
+    dialog._search.setText("alpha")
+    assert shown_names(dialog) == ["acme/alpha"]
+    dialog.close()
+    assert dialog.isHidden() and not dialog.isVisible()
+    make_third_party(dialog._root, "Fresh", {"a.kicad_sym": "(kicad_symbol_lib)"})
+    dialog.show()
+    assert dialog._search.text() == ""
+    assert "Fresh" in by_name(dialog) and len(shown_names(dialog)) == 7
+    assert by_name(dialog)["SparkFun"].text(1) == "✓ Installed"  # the same statuses
+    assert dialog.focusWidget() is dialog._search
+
+
+def test_reopen_reads_the_git_check_again(qtbot, tmp_path):
+    answers = [NetStatus(None, None, gitnet.version_issues(None)[0], None), NET_OK]
+    dialog = build(qtbot, tmp_path, net_status=lambda root: answers.pop(0))
+    assert not dialog._git_missing_strip.isHidden()
+    dialog.show()
+    dialog.close()
+    dialog.show()
+    qtbot.waitUntil(lambda: dialog._git_missing_strip.isHidden(), timeout=5000)
+    assert dialog._check_btn.isEnabled()
+
+
+def test_set_root_reloads_everything(qtbot, tmp_path):
+    other = make_collection(tmp_path / "other")
+    make_third_party(other, "Lonely", {"a.kicad_sym": "(kicad_symbol_lib)"})
+    issue = Issue(Severity.ERROR, "catalog.unreadable", "The library list is damaged.")
+
+    def load(root):
+        return issue if Path(root) == other else manifest.load(root)
+
+    dialog = details(qtbot, tmp_path, "SparkFun", load_manifest=load)
+    with_updates(dialog)
+    assert dialog._pages.currentWidget() is dialog._details_page
+    dialog.set_root(other)
+    assert dialog._root == other
+    assert dialog._path_label.full_text() == f"{other.as_posix()}/ThirdParty"
+    assert dialog._pages.currentWidget() is dialog._empty_page and dialog.selected_id() is None
+    assert not dialog._record_strip.isHidden()
+    assert "Lonely" in by_name(dialog)
+    assert all(item.text(1) == "Unknown" for item in items(dialog))
+    qtbot.waitUntil(lambda: dialog._net_status is not None and dialog._vars_read, timeout=5000)
+
+
+def test_done_stops_timers_and_ignores_late_results(qtbot, tmp_path):
+    gate = threading.Event()
+
+    def vars_read(**kw):
+        gate.wait(10)
+        return {"X": "y"}
+
+    dialog = build(qtbot, tmp_path, settled=False, current_path_vars=vars_read)
+    dialog.show()
+    dialog._show_page(dialog._details_page)  # starts the 0 ms re-fit timer
+    dialog.close()
+    assert all(not timer.isActive() for timer in dialog.findChildren(type(dialog._fit_timer)))
+    gate.set()
+    qtbot.wait(150)
+    assert dialog._vars_read is False and dialog._kicad_vars is None  # the late answer was dropped
+
+
+def test_hidden_window_stays_alive_and_reusable(qtbot, tmp_path):
+    dialog = build(qtbot, tmp_path)
+    dialog.show()
+    dialog.reject()
+    assert dialog.isHidden()
+    dialog.show()
+    assert dialog.isVisible()
