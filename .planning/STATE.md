@@ -5,16 +5,16 @@ milestone_name: Public Library Manager
 current_phase: 17
 current_phase_name: Library Catalog
 status: executing
-stopped_at: Completed 17-16-PLAN.md
-last_updated: "2026-11-27T15:13:00.542Z"
+stopped_at: Completed 17-21-PLAN.md
+last_updated: "2026-11-27T16:27:35.822Z"
 last_activity: 2026-11-27
 last_activity_desc: Phase 17 execution started
-state_head: f4135396311722a525f1cb58dfa9d1748f2a16fc
+state_head: 0d8f37bcd66bc8e2bde8b50aca1cbfeab655fe43
 progress:
   total_phases: 8
   completed_phases: 3
-  total_plans: 60
-  completed_plans: 57
+  total_plans: 67
+  completed_plans: 58
   percent: 38
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-26)
 ## Current Position
 
 Phase: 17 (Library Catalog) — EXECUTING
-Plan: 18 of 20
+Plan: 19 of 20
 Status: Ready to execute
 Last activity: 2026-11-27 — Phase 17 execution started
 
@@ -97,6 +97,7 @@ Progress: [████░░░░░░] 38%
 | Phase 17 P14 | 12 min | 2 tasks | 4 files |
 | Phase 17 P15 | 35 min | 2 tasks | 3 files |
 | Phase 17 P16 | 6 min | 2 tasks | 6 files |
+| Phase 17 P21 | 62 min | 3 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -150,6 +151,8 @@ The full decision log is in the PROJECT.md Key Decisions table. The v1.0 per-pha
 - [Phase 17]: 17-15: a Remove that makes the row leave the list shows its result strip on the empty pane; a failed Remove keeps the entry and the row and offers Back to List
 - [Phase 17]: 17-16: the catalog guide page describes the built window (Würth carry-over, Keep Library default with Esc, silent start check, manual check logs offline) and uses no deny-list word
 - [Phase 17]: D-33: catalog lists KiCad's official add-on index libraries by their git links, PCM_ nicknames; fix plan before 17-18 (17-17 findings)
+- [Phase 17]: 17-21: the check's file count rides the worker progress signal as (check-files, done, total), throttled to one count per whole percent; folder sizes are measured one at a time and survive a reload
+- [Phase 17]: 17-21: catalog/names.py is the one name rule; an address-added library is owner/repo in every catalog line, its id stays the folder name
 
 ### Pending Todos
 
@@ -195,8 +198,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-27T12:27:13.760Z
-Stopped at: Completed 17-16-PLAN.md
+Last session: 2026-11-27T16:27:33.073Z
+Stopped at: Completed 17-21-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
