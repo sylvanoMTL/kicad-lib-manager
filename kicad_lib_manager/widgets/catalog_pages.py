@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QSizePolicy, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
-from ..catalog import licences, status
+from ..catalog import licences, manifest, status
 from ..catalog.licences import LicenceClass
 from ..models import Issue
 from . import theme
@@ -102,6 +102,13 @@ VARS_HEADING = "Path variables"
 VAR_TEXT = (
     "This library needs the KiCad path variable {var} to point to {folder}. After you press Add Library, the app "
     "asks before it changes KiCad's settings."
+)
+NAMES_HEADING = "Names in KiCad"
+NAMES_ADDON_TEXT = (
+    "These libraries get the names KiCad gives add-on libraries, such as {example}, so links between add-on libraries work."
+)
+NAMES_OWN_TEXT = (
+    "These libraries keep their own names, such as {example}, because their symbols link their footprints by those names."
 )
 CLASH_HEADING = "Libraries with the same name"
 NO_CLASH_TEXT = "No library has the same name as one you already have."
@@ -844,6 +851,14 @@ class AddPreviewPage(ReviewPage):
                 lay.addWidget(row)
             self._add(section)
 
+        # Names in KiCad: only for a library that gets KiCad's add-on names, or one of KiCad's list that keeps its own
+        names_text = self._names_text(report, plan.source)
+        if names_text:
+            section, lay = _section()
+            lay.addWidget(plain_label(NAMES_HEADING))
+            lay.addWidget(plain_label(names_text, wrap=True))
+            self._add(section)
+
         # Libraries with the same name
         collisions = list(report.collisions) if report is not None else []
         section = QWidget()
@@ -901,6 +916,20 @@ class AddPreviewPage(ReviewPage):
         if plan.kicad_open:
             self._add(status_line(WARNING_GLYPH, KICAD_OPEN_TEXT.format(names=", ".join(plan.kicad_open)), theme.AMBER))
         self.refresh_buttons()
+
+    @staticmethod
+    def _names_text(report, source) -> str:
+        """The Names in KiCad sentence, or '' when the library keeps its own names and does not come from KiCad's list (D-33, D-34)."""
+        if report is None:
+            return ""
+        if report.nickname_prefix == manifest.PCM_PREFIX:
+            template = NAMES_ADDON_TEXT
+        elif source.addon_id:
+            template = NAMES_OWN_TEXT
+        else:
+            return ""
+        example = (report.footprint_libs or report.symbol_libs or ("",))[0]
+        return template.format(example=example) if example else ""
 
     def show_refusal(self, issue, *, can_retry: bool, heading: str = "") -> None:
         """A download that was refused or failed: the ✖ row, the line saying nothing was added, Back to List (and Try Again)."""

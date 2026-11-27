@@ -45,6 +45,7 @@ MB = 1024 * 1024
 SPACE_FLOOR_MB = 500  # the smallest safety margin (D-15)
 SPACE_MARGIN_PERCENT = 25  # the margin is the larger of the floor and this share of the space the library needs
 SPACE_FACTOR = 6  # an Add by URL needs this many times GitHub's packed size plus the floor (RESEARCH C9)
+LISTING_SPACE_FACTOR = 2  # a library of KiCad's list needs this many times the install size KiCad gives, plus the floor (GitHub not answering)
 _RENAME_TRIES = 10
 _RENAME_DELAY = 0.1
 _LICENCE_SETTLED = (LicenceClass.OPEN, LicenceClass.SHARE_ALIKE, LicenceClass.PROPRIETARY)
@@ -324,6 +325,8 @@ def check_repository(
         if urls.repo_key(known.url) == key:
             return _already_listed(known.name)
     listing = next((item for item in listings if key in _listing_keys(item)), None)
+    if listing is not None and not listing.addable:  # KiCad's list holds it, but the catalog cannot add it yet (D-33)
+        return Issue(Severity.ERROR, "catalog.not_addable", listing.reason)
     info: RepoInfo | None = None
     info_issue: Issue | None = None
     if ref.owner:  # a file:// address (tests) has no GitHub page to ask
@@ -458,16 +461,21 @@ def plan_add(
     """The plan for adding a curated library or a checked repository; refusals stop it before any download.
 
     The space a library needs is its measured install size when curated, else 6 x GitHub's size (rounded up to
-    whole MB) + 500 MB; the margin kept free is the larger of 500 MB and 25 % of that (D-15). An unknown size
-    makes no space check. KiCad running only fills kicad_open (D-14).
+    whole MB) + 500 MB; for a library of KiCad's list with no answer from GitHub it is 2 x KiCad's install size +
+    500 MB. The margin kept free is the larger of 500 MB and 25 % of that (D-15). An unknown size makes no space check. KiCad running only fills kicad_open (D-14).
     """
     if isinstance(source, CheckedRepo):
-        info = source.info
+        info, listing = source.info, source.listing
         size = math.ceil(info.size_kb / 1024) if info is not None else None
+        needs = None if size is None else SPACE_FACTOR * size + SPACE_FLOOR_MB
+        if listing is not None:  # the size shown is KiCad's; the room needed is GitHub's size when it answered, else KiCad's, doubled (D-15, D-33)
+            listed = listing.install_mb
+            if size is None and listed is not None:
+                needs = LISTING_SPACE_FACTOR * listed + SPACE_FLOOR_MB
+            size = listed if listed is not None else size
         return _plan(
             root, mf, _checked_source(source),
-            size_mb=size,
-            needs_mb=None if size is None else SPACE_FACTOR * size + SPACE_FLOOR_MB,
+            size_mb=size, needs_mb=needs,
             legacy_prefix=None, reinstall=False, entry=None, free_space=free_space, running=running,
         )  # fmt: skip
     return _plan(
