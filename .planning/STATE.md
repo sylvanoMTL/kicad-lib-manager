@@ -5,16 +5,16 @@ milestone_name: Public Library Manager
 current_phase: 17
 current_phase_name: Library Catalog
 status: executing
-stopped_at: Completed 17-25-PLAN.md
-last_updated: "2026-11-27T17:48:14.804Z"
+stopped_at: Completed 17-27-PLAN.md
+last_updated: "2026-11-27T18:02:50.986Z"
 last_activity: 2026-11-27
 last_activity_desc: Phase 17 execution started
-state_head: 2e2beb9dab4b0abfe694cca21b8555a67a4601b7
+state_head: 3f16b2f52c8e7138854f67657b4668ce16652daa
 progress:
   total_phases: 8
   completed_phases: 3
   total_plans: 67
-  completed_plans: 62
+  completed_plans: 63
   percent: 38
 ---
 
@@ -102,6 +102,7 @@ Progress: [████░░░░░░] 38%
 | Phase 17 P23 | 25 min | 3 tasks | 9 files |
 | Phase 17 P24 | 17 min | 3 tasks | 21 files |
 | Phase 17 P25 | 19 min | 3 tasks | 10 files |
+| Phase 17 P27 | 17 min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -165,6 +166,7 @@ The full decision log is in the PROJECT.md Key Decisions table. The v1.0 per-pha
 - [Phase 17]: catalog.json records name, nickname_prefix and addon_id per library; display_name uses the recorded name first; Update, Remove and the scan name libraries with the prefix
 - [Phase 17]: 3D models on a *_3RD_PARTY variable are counted apart from KiCad's other own variables and reported; the catalog never sets, reads or lists KiCad's add-on folder, installed_packages.json or settings
 - [Phase 17]: 17-25: a library of KiCad's add-on list is one row (curated wins on repository key; a recorded library takes its listing by add-on id, else repository); Add from the list runs the same GitHub check, licence page, download check and preview; the line about KiCad's list is hidden on review pages
+- [Phase 17]: 17-27: scratch switch --scratch-root / KICAD_LIBMGR_SCRATCH_ROOT (command line wins) puts settings, backups and KiCad's settings under PATH/settings, PATH/backups, PATH/kicad; bad value exits 2 with a reason, no fallback
 
 ### Pending Todos
 
@@ -210,8 +212,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-27T17:48:13.641Z
-Stopped at: Completed 17-25-PLAN.md
+Last session: 2026-11-27T18:02:49.683Z
+Stopped at: Completed 17-27-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
