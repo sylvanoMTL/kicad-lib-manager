@@ -57,6 +57,9 @@ Out of this phase: project-local tables (Phase 18; catalog Add and Remove change
 - **D-31:** **A few missing 3D models are warnings, not a Problem state.** A library whose model paths partly miss upstream (SparkFun: 6 of 429) stays Installed; the missing models are reported as warnings in the scan and the log, like the existing 3D model path check.
 - **D-32:** **The last update-check time is kept in memory only** (no new `catalog.json` field, no new QSettings key): the startup check runs on every start, so the detail pane shows the time of this session's last check, or "Not checked yet". `[informational]` — reversible, decided by Claude.
 
+### Decided during the 17-17 owner check (2026-11-27)
+- **D-33:** **The catalog lists KiCad's reviewed libraries live from KiCad's official add-on index** (`repository.kicad.org/repository.json` -> its packages file, the same list KiCad's Plugin and Content Manager shows, 17 libraries today). Each library's name, description and licence come from the index; the catalog clones the **git repository named in the package's Resources** (never the package zip), checks updates by commit and updates into `ThirdParty/`, exactly as for the curated list. It works without KiCad's manager and never reads, changes or blocks what that manager installed (owner: "we do not interfere with KiCad"; a library installed through both shows twice, which is the owner's choice). KiCad's review counts as the D-22 check for these libraries. Cases where the Resources link is not the library itself are listed but marked not addable yet: a whole program's repository (KiKit, Kikakuka), a repository that stores the libraries as zips (franzee GitLab add-ons), and hosts other than GitHub (GitLab, git.jaseg.de; still deferred). Offline or when the index cannot be read, the built-in curated list is shown. A new plan before 17-18 builds it; supersedes the deferred "remote-updatable curated list". `[owner decision]`
+
 ### Locked from earlier phases (not re-asked)
 - Plain shallow clones plus a manifest, never submodules; the update check runs automatically at startup (owner, 2026-11-22).
 - Catalog Add and Remove change only the collection and its manifest; tables are written by Generate Tables.
@@ -144,7 +147,7 @@ Out of this phase: project-local tables (Phase 18; catalog Add and Remove change
 ## Deferred Ideas
 
 - Update all (one preview for every library with an update): declined for now (D-09).
-- Pin a library to a tag or commit; remote-updatable curated list; GitLab hosts; atomic-rule quality report on a third-party clone: from research, not in this phase.
+- Pin a library to a tag or commit; GitLab hosts (the remote list itself is D-33); atomic-rule quality report on a third-party clone: from research, not in this phase.
 - Unsetting a removed library's path variables: declined (D-21).
 
 </deferred>
