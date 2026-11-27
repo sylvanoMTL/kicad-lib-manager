@@ -17,8 +17,10 @@ from catalogfixtures import FOOTPRINT_TEXT, SYMBOL_TEXT, make_third_party
 from collectionfixtures import make_collection
 
 from kicad_lib_manager import library_scanner, main_window
+from kicad_lib_manager.catalog import manifest
 from kicad_lib_manager.catalog import ops as catalog_ops
 from kicad_lib_manager.catalog import status as catalog_status
+from kicad_lib_manager.catalog.manifest import CatalogEntry, Manifest
 from kicad_lib_manager.catalog.ops import NetStatus
 from kicad_lib_manager.collection import Source
 from kicad_lib_manager.models import FootprintLibrary, Issue, ScanResult, Severity, SymbolLibrary
@@ -40,6 +42,15 @@ def acme(root: Path, symbols=("Plain",), footprints=("Land",), id="Acme") -> Pat
     files = {f"symbols/{name}.kicad_sym": sym_file(name) for name in symbols}
     files.update({f"footprints/{name}.pretty/R_0603.kicad_mod": FOOTPRINT_TEXT for name in footprints})
     return make_third_party(root, id, files)
+
+
+def record(root: Path, id="Acme", **vars) -> None:
+    """catalog.json with one entry whose KiCad path variables are vars (variable -> folder in the clone)."""
+    entry = CatalogEntry(
+        id=id, url=f"https://github.com/acme/{id.lower()}.git", branch="main", commit="a" * 40,
+        vars=dict(vars), licence_spdx="MIT", added_on="2026-11-20",
+    )
+    assert manifest.save(root, Manifest((entry,))) is None
 
 
 def old_sym(nickname, rel_path, *, selected=False, source="Custom") -> SymbolLibrary:
@@ -175,15 +186,15 @@ def harness(qtbot, monkeypatch, tmp_path):
 def test_add_rescans_the_source_and_ticks(harness):
     h = harness.h
     root = make_collection(h.tmp_path / "lib")
-    acme(root, symbols=("Plain", "Clash"))
     h.first_scan = lambda: ScanResult(symbol_libs=[
         old_sym("Clash", "Custom/Symbols/Clash.kicad_sym", selected=True),
     ])
     window = harness(root)
     h.scan_calls.clear()
     cache = main_window.scan_cache_file(root)
-    before = cache.read_text(encoding="utf-8") if cache.exists() else ""
-    assert FOLDER not in before
+    assert FOLDER not in cache.read_text(encoding="utf-8")
+    acme(root, symbols=("Plain", "Clash"))  # the Add has just written the folder
+    progress_before = window._progress
 
     harness.run(window, outcome("add"))
 
@@ -191,7 +202,7 @@ def test_add_rescans_the_source_and_ticks(harness):
     assert [(name, folder) for name, _thread, folder in h.source_calls] == [("scan_source", FOLDER)]
     assert h.source_calls[0][1] != threading.get_ident()
     assert h.scan_calls == []
-    assert window._progress is None
+    assert window._progress is progress_before  # no new Loading Libraries window
     # the new libraries are ticked except the one that shares a nickname with another; nothing renamed
     assert ticked(window) == {
         "Custom/Symbols/Clash.kicad_sym": True,
@@ -203,8 +214,7 @@ def test_add_rescans_the_source_and_ticks(harness):
     assert "Plain" in tree_text(window)
     # the catalog window got the new scan, the saved scan was rewritten
     assert window._catalog._scan is window._scan_result
-    after = cache.read_text(encoding="utf-8")
-    assert FOLDER in after
+    assert FOLDER in cache.read_text(encoding="utf-8")
     # the clash line is the catalog window's (ops writes it once); the main window adds none of its own
     assert not [line for line in log_lines(window) if "same name as libraries you already have" in line]
     # the one-source rescan ends with one line
@@ -322,15 +332,16 @@ def test_path_variable_question_after_add(harness):
     h = harness.h
     root = make_collection(h.tmp_path / "lib")
     acme(root)
+    record(root, ACME_3D="3dmodels")
     window = harness(root)
 
-    harness.run(window, outcome("add", vars={"ACME_3D": ""}))
+    harness.run(window, outcome("add", vars={"ACME_3D": "3dmodels"}))
 
     # the existing question, with the catalog variables as extra_vars; No writes nothing
     assert [title for title, _text in h.questions] == ["Change KiCad path variables?"]
     assert "ACME_3D" in h.questions[0][1]
     assert len(h.synced) == 1 and set(h.synced[0]) == {"ACME_3D"}
-    assert any(line.startswith("KiCad ") and "will offer the change again" in line for line in log_lines(window))
+    assert any(line.startswith("KiCad") and "will offer the change again" in line for line in log_lines(window))
     assert not window._path_var_busy
 
 
@@ -338,13 +349,14 @@ def test_no_question_when_nothing_would_change_or_no_variable_is_needed(harness)
     h = harness.h
     root = make_collection(h.tmp_path / "lib")
     acme(root)
+    record(root, ACME_3D="3dmodels")
     window = harness(root)
 
     h.would_change = False
-    harness.run(window, outcome("add", vars={"ACME_3D": ""}))
+    harness.run(window, outcome("add", vars={"ACME_3D": "3dmodels"}))  # KiCad already holds the right folder
     h.would_change = True
-    harness.run(window, outcome("reinstall", vars={}))
-    harness.run(window, outcome("update", vars={"ACME_3D": ""}))
+    harness.run(window, outcome("reinstall", vars={}))  # the library needs no variable
+    harness.run(window, outcome("update", vars={"ACME_3D": "3dmodels"}))  # an update asks nothing
 
     assert h.questions == []
     assert h.synced == []
@@ -357,6 +369,7 @@ def test_finishing_state_spans_rescan_and_question(harness, monkeypatch):
     h = harness.h
     root = make_collection(h.tmp_path / "lib")
     acme(root)
+    record(root, ACME_3D="3dmodels")
     window = harness(root)
     dialog = window._catalog
     seen = []
@@ -372,7 +385,7 @@ def test_finishing_state_spans_rescan_and_question(harness, monkeypatch):
     monkeypatch.setattr(window, "_question", question)
     h.source_gate = threading.Event()
 
-    dialog.job_finished.emit(outcome("add", vars={"ACME_3D": ""}))
+    dialog.job_finished.emit(outcome("add", vars={"ACME_3D": "3dmodels"}))
     # while the source is read: finishing, a folder switch is refused
     assert dialog.is_finishing()
     assert window._switch_refusal() is not None

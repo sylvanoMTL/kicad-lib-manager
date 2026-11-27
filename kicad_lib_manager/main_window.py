@@ -14,10 +14,14 @@ from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices, QFont, QKeySeq
 
 from . import scan_cache
 from .atomic_check import is_atomic
+from .catalog import curated as catalog_curated
 from .catalog import manifest as catalog_manifest
 from .catalog import ops as catalog_ops
+from .catalog import selection as catalog_selection
 from .catalog import status as catalog_status
-from .collection import OWN_DIR, PATH_LENGTH_WARNING, Source, absolute_folder, check_folder, same_spelling
+from .collection import (
+    OWN_DIR, PATH_LENGTH_WARNING, THIRD_PARTY_DIR, Source, absolute_folder, check_folder, same_spelling,
+)
 from .importer.layout import RepoLayout
 from .importer.migration.inventory import migration_reason
 from .kicad_process import kicad_running
@@ -26,7 +30,7 @@ from .kicad_setup import (
     sync_kicad_chooser, wrong_checkout_warning,
 )
 from .library_scanner import (
-    ConfirmAnswer, LibraryRescan, find_kicad_footprint_dir, rescan_library, scan_all,
+    ConfirmAnswer, LibraryRescan, find_kicad_footprint_dir, remove_source, rescan_library, scan_all, scan_source,
     sync_kicad_path_vars, would_change_path_vars,
 )
 from .table_generator import (
@@ -219,6 +223,40 @@ class _PostInstall:
         return self.new_symbol_lib or self.new_footprint_lib
 
 
+# The catalog job kinds whose finish the main window follows up (an update and a remove come from plan 17-15)
+_CATALOG_FOLLOWUP_KINDS = ("add", "reinstall", "update", "remove")
+_CLASH_NAMES_SHOWN = 5  # names in a log line about clashes or dropped selections (UI-SPEC C14)
+_MOVED_LINE = (
+    "Moved {n} selected {noun} from {old} to {new}. Generate Tables rewrites their entries."
+)
+_CLASH_LINE = (
+    "{n} libraries of {name} have the same name as libraries you already have and start unticked: {names}."
+)
+
+
+def _capped_names(names: list[str], limit: int) -> str:
+    """The first limit names, then 'and {n} more', so a log line stays readable."""
+    shown = ", ".join(names[:limit])
+    if len(names) > limit:
+        shown += f" and {len(names) - limit} more"
+    return shown
+
+
+@dataclass
+class _CatalogFollowup:
+    """What the main window still owes a finished catalog job: the source rescan, the selection, the path variables."""
+
+    kind: str
+    id: str
+    name: str
+    folder: str
+    legacy_prefix: str | None
+    vars: dict
+    previous: ScanResult | None = None
+    scan_started: bool = False  # a full scan replaced the source rescan; _on_scan_finished applies the selection
+    applied: bool = False       # the selection was applied (a failed scan leaves it False)
+
+
 class ScanWorker(QThread):
     progress = Signal(str, int)  # message, percentage
     finished = Signal(object)    # ScanResult
@@ -354,6 +392,57 @@ class LibraryRescanWorker(QThread):
             self.error.emit(str(e))
 
 
+class CatalogRescanWorker(QThread):
+    """Read one catalog source again (or drop it) off the GUI thread and rewrite the saved scan (D-18, D-20, D-21).
+
+    result carries (merged ScanResult, Issue about the saved scan or None), or an Issue when only a full scan is right.
+    """
+    result = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, repo_root: Path, kicad_fp_dir: Path | None, previous: ScanResult | None,
+                 kind: str, folder: str, *, cache_file: Path | None = None):
+        super().__init__()
+        self._repo_root = repo_root
+        self._kicad_fp_dir = kicad_fp_dir
+        self._previous = previous
+        self._kind = kind
+        self._folder = folder
+        self._cache_file = cache_file
+
+    def run(self):
+        try:
+            # Taken before the source is read, so a change during the read shows as stale at the next start
+            try:
+                fingerprint = scan_cache.fingerprint(self._repo_root, self._kicad_fp_dir)
+            except Exception:
+                fingerprint = None
+            if self._kind == "remove" and self._previous is not None:
+                merged = remove_source(self._previous, self._folder, self._kicad_fp_dir)
+            else:
+                merged = scan_source(
+                    self._repo_root, self._previous, self._folder, self._kicad_fp_dir,
+                    model_vars=catalog_model_vars(self._repo_root),
+                )
+            if isinstance(merged, Issue):
+                self.result.emit(merged)
+                return
+            failure = None
+            if self._cache_file is not None:
+                try:
+                    failure = scan_cache.save(
+                        self._cache_file, self._repo_root, self._kicad_fp_dir, fingerprint, merged
+                    )
+                except Exception as e:
+                    failure = Issue(
+                        Severity.WARNING, "cache.save_failed",
+                        f"Could not save this scan for the next start: {e}",
+                    )
+            self.result.emit((merged, failure))
+        except Exception as e:  # thread boundary only
+            self.failed.emit(f"{type(e).__name__}: {e}")
+
+
 class MainWindow(QMainWindow):
     def __init__(
         self,
@@ -449,6 +538,11 @@ class MainWindow(QMainWindow):
         self._close_after_catalog = False  # the catalog keeps a job running: close this window when it ends
         self._scan_running = False  # set by _set_scan_running
         self._catalog_block_sent = _NOT_SENT  # the reason last given to the catalog window's set_blocked
+        # After a finished catalog job (D-18): the one follow-up in progress, its worker, and whether the catalog
+        # window keeps its finishing state until the path-variable question ends
+        self._catalog_followup: _CatalogFollowup | None = None
+        self._catalog_workers: list[CatalogRescanWorker] = []
+        self._catalog_finish_after_vars = False
         self._saved_tips: dict = {}  # control -> (tooltip, status tip) while the catalog replaces them
         self.setAcceptDrops(True)
         self._build_menu()
@@ -1429,6 +1523,8 @@ class MainWindow(QMainWindow):
             self._refresh_migrate_action()
             self._offer_path_vars_after_switch()
             self._check_catalog_when_due()
+            if self._catalog_followup is not None and self._catalog_followup.scan_started:
+                self._finish_catalog_followup()
             # After the offer step: while its question is pending the focus waits (_on_path_var_check)
             if self._focus_after_scan and self._worker is None and not self._offer_from_switch:
                 self._focus_after_scan = False
@@ -1473,6 +1569,11 @@ class MainWindow(QMainWindow):
                 self._apply_existing_selection(result)
             else:
                 self._reapply_selection(previous, result)
+            followup = self._catalog_followup
+            if followup is not None and followup.scan_started and not followup.applied:
+                # The ticks were carried over above; the finished catalog job's libraries are ticked now
+                self._select_catalog_source(result, previous, followup, copy_ticks=False)
+                followup.applied = True
             self._log_issues(self._trim_collided_selection(result))
             if startup:
                 # Peers are settled, so linked footprints can be added safely
@@ -2241,6 +2342,8 @@ class MainWindow(QMainWindow):
     def _on_path_var_check(self, names):
         if self._close_after_check:
             self._path_var_busy = False
+            if self._catalog_finish_after_vars:
+                self._end_catalog_finishing()
             return
         names = list(names)
         issues = sync_kicad_path_vars(
@@ -2269,6 +2372,8 @@ class MainWindow(QMainWindow):
         # KiCad's settings may have changed: the amber note and Use KiCad's Folder follow them
         self._refresh_root_tag()
         self._refresh_library_actions()
+        if self._catalog_finish_after_vars:
+            self._end_catalog_finishing()
         if self._focus_after_scan and self._worker is None and not self._offer_from_switch:
             self._focus_after_scan = False
             self._apply_focus()
@@ -2514,6 +2619,8 @@ class MainWindow(QMainWindow):
             self._log.log(
                 f"KiCad footprints set to: {self._kicad_fp_dir}", "success"
             )
+            if self._catalog is not None:
+                self._catalog.set_kicad_fp_dir(self._kicad_fp_dir)
             self._log.log("Rescanning with updated KiCad path...", "info")
             self._start_scan()
 
@@ -2554,6 +2661,7 @@ class MainWindow(QMainWindow):
             dialog.path_vars_requested.connect(lambda _id: self._sync_path_vars())
             self._catalog = dialog
             centre_window(dialog, self)
+            dialog.set_kicad_fp_dir(self._kicad_fp_dir)
             if self._scan_result is not None:
                 dialog.set_scan(self._scan_result)
             if self._catalog_states:
@@ -2727,9 +2835,185 @@ class MainWindow(QMainWindow):
         dialog = self._catalog
         return dialog is not None and (dialog.is_job_running() or dialog.is_finishing())
 
-    def _on_catalog_job_finished(self, _outcome):
-        """An Add, Update, Remove or Reinstall ended: recount the updates (plan 17-14 adds the rescan after it)."""
+    def _on_catalog_job_finished(self, outcome):
+        """An Add, Update, Remove or Reinstall ended: recount the updates, then follow up a change (D-18).
+
+        A failed job (a stop, a refusal, an error) only recounts: the catalog window logged it and nothing on disk
+        changed. A change rescans just its source, ticks the new libraries, offers the path variables and leaves
+        Generate Tables to the owner; the catalog window shows its finishing state meanwhile.
+        """
         self._refresh_catalog_action()
+        self._refresh_busy_controls()
+        self._refresh_library_actions()
+        if self._begin_catalog_followup(outcome):
+            return
+        self._maybe_close_after_catalog()
+
+    def _begin_catalog_followup(self, outcome) -> bool:
+        kind = getattr(outcome, "kind", None)
+        if (
+            not getattr(outcome, "ok", False) or kind not in _CATALOG_FOLLOWUP_KINDS or self._catalog is None
+            or self._catalog_followup is not None or self._closing
+        ):
+            return False
+        legacy = None
+        if kind in ("add", "reinstall"):
+            legacy = outcome.legacy_prefix
+            if not legacy:
+                known = catalog_curated.curated_by_id(outcome.id)
+                legacy = known.legacy_prefix if known is not None else None
+        followup = _CatalogFollowup(
+            kind, outcome.id, outcome.name, f"{THIRD_PARTY_DIR}/{outcome.id}", legacy, dict(outcome.vars or {}),
+        )
+        self._catalog_followup = followup
+        self._catalog.set_finishing(True)
+        self._start_catalog_rescan(followup)
+        return True
+
+    def _start_catalog_rescan(self, followup: _CatalogFollowup):
+        """Read just the changed source on a worker and rewrite the saved scan; no Loading Libraries window."""
+        followup.previous = self._scan_result
+        worker = CatalogRescanWorker(
+            self._root, self._kicad_fp_dir, followup.previous, followup.kind, followup.folder,
+            cache_file=scan_cache_file(self._root),
+        )
+        worker.setParent(self)
+        # Finished threads are never deleteLater'd, same rule as the path-variable workers
+        self._catalog_workers.append(worker)
+        worker.result.connect(self._on_catalog_rescanned)
+        worker.failed.connect(self._on_catalog_rescan_failed)
+        worker.finished.connect(self._on_catalog_worker_finished)
+        worker.start()
+
+    def _on_catalog_worker_finished(self):
+        worker = self.sender()
+        if isinstance(worker, CatalogRescanWorker):
+            worker.wait(2000)
+            if worker in self._catalog_workers and worker.isFinished():
+                self._catalog_workers.remove(worker)
+
+    def _on_catalog_rescanned(self, value):
+        followup = self._catalog_followup
+        if followup is None:
+            return
+        if isinstance(value, Issue):
+            # Only a full scan is right (no earlier scan, or the folder is not as expected); the reason says so
+            self._log.log_issue(value)
+            self._catalog_full_scan(followup)
+            return
+        merged, failure = value
+        if failure is not None:
+            self._log.log_issue(failure)
+        previous = self._scan_result
+        self._select_catalog_source(merged, previous, followup, copy_ticks=True)
+        self._scan_result = merged
+        self._share_scan_with_catalog()
+        self._tree.populate(merged)
+        self._show_list_page(merged)
+        self._log_catalog_rescanned(followup, merged, previous)
+        followup.applied = True
+        self._finish_catalog_followup()
+
+    def _on_catalog_rescan_failed(self, text: str):
+        followup = self._catalog_followup
+        if followup is None:
+            return
+        self._log.log(STEP_FAILED.format(text=text), "error")
+        self._catalog_full_scan(followup)
+
+    def _catalog_full_scan(self, followup: _CatalogFollowup):
+        """The one-source rescan cannot do it: run the full scan; its finish applies the same selection rules."""
+        followup.scan_started = True
+        self._start_scan(show_progress=True, reuse_cache=False)
+
+    def _select_catalog_source(self, result: ScanResult, previous: ScanResult | None, followup: _CatalogFollowup,
+                               *, copy_ticks: bool):
+        """The selection after a catalog job (D-18, D-20, D-28): keep the owner's ticks, tick the new libraries.
+
+        copy_ticks is False when a full scan already carried the ticks over. A library that shares its nickname with
+        another starts unticked and is never renamed; the Wurth twins hand their ticks to the new folder.
+        """
+        missing: set[str] = set()
+        if copy_ticks:
+            missing = self._copy_selection(previous, result)
+        if followup.kind != "remove":
+            only = None
+            if followup.kind == "update":
+                had = {lib.rel_path for lib in (*previous.symbol_libs, *previous.footprint_libs)} if previous else set()
+                only = {lib.rel_path for lib in (*result.symbol_libs, *result.footprint_libs)} - had
+            change = catalog_selection.preselect_source(
+                result, followup.folder, legacy_prefix=followup.legacy_prefix, only=only,
+            )
+            if change.moved:
+                self._log.log(
+                    _MOVED_LINE.format(
+                        n=change.moved, noun="library" if change.moved == 1 else "libraries",
+                        old=followup.legacy_prefix.rstrip("/"), new=followup.folder,
+                    ),
+                    "info",
+                )
+            if followup.kind == "update" and change.unticked:
+                # An Add reports its clashes through the catalog window (ops writes the line once)
+                self._log.log(
+                    _CLASH_LINE.format(
+                        n=len(change.unticked), name=followup.name,
+                        names=_capped_names(list(change.unticked), _CLASH_NAMES_SHOWN),
+                    ),
+                    "warning",
+                )
+        self._log_issues(self._trim_collided_selection(result))
+        if followup.kind == "update" and missing:
+            self._log.log(
+                f"Dropped {len(missing)} selections for libraries no longer found: "
+                f"{_capped_names(sorted(missing), _CLASH_NAMES_SHOWN)}",
+                "info",
+            )
+
+    def _log_catalog_rescanned(self, followup: _CatalogFollowup, merged: ScanResult, previous: ScanResult | None):
+        """One line about the source that was read again: the lines it brought, then the warning count."""
+        if followup.kind == "remove":
+            return
+        old = set(previous.issues) if previous is not None else set()
+        new = [issue for issue in merged.issues if issue not in old]
+        self._log_issues(new)
+        warnings = sum(1 for issue in new if issue.severity in (Severity.WARNING, Severity.ERROR))
+        text = f"Rescanned {followup.name}"
+        if warnings == 0:
+            self._log.log(f"{text}: no warnings", "success")
+        else:
+            self._log.log(f"{text}: {warnings} warning{'' if warnings == 1 else 's'}", "warning")
+
+    def _finish_catalog_followup(self):
+        """The selection is done (or the scan failed): offer the path variables, then lift the finishing state."""
+        followup = self._catalog_followup
+        if followup is None:
+            return
+        self._catalog_followup = None
+        if not (followup.applied and self._offer_catalog_path_vars(followup)):
+            self._end_catalog_finishing()
+
+    def _offer_catalog_path_vars(self, followup: _CatalogFollowup) -> bool:
+        """Ask the existing path-variable question for an added or reinstalled library (CAT-06, D-18).
+
+        Only when the library needs a variable and KiCad's settings differ from what it would give; the question
+        is the existing confirm (No by default, the KiCad-open variant), so nothing is written without Yes.
+        Returns True while the question is pending; the finishing state then ends with it.
+        """
+        if followup.kind not in ("add", "reinstall") or not followup.vars or self._path_var_busy:
+            return False
+        if not would_change_path_vars(
+            self._root, config_base=CHECKOUT_CONFIG_BASE, extra_vars=self._catalog_vars()
+        ):
+            return False
+        self._offer_from_switch = True  # a No logs the existing line
+        self._catalog_finish_after_vars = True
+        self._sync_path_vars()
+        return True
+
+    def _end_catalog_finishing(self):
+        self._catalog_finish_after_vars = False
+        if self._catalog is not None:
+            self._catalog.set_finishing(False)
         self._refresh_busy_controls()
         self._refresh_library_actions()
         self._maybe_close_after_catalog()
@@ -2853,6 +3137,8 @@ class MainWindow(QMainWindow):
         # Never destroy a running QThread
         if self._worker is not None:
             self._worker.wait()
+        for worker in self._catalog_workers:
+            worker.wait()
         # A check still blocked on a dead drive is abandoned on its daemon thread, never waited for
         for task in self._root_checks:
             task.cancel()
