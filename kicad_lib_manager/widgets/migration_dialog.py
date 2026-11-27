@@ -1123,6 +1123,8 @@ class MigrationDialog(QDialog):
             self._closing = False
             pending = self._pending_result
             self._pending_result = None
+            self._draft_timer.stop()
+            self._rebuild_timer.stop()
             QDialog.done(self, pending if pending is not None else int(QDialog.DialogCode.Rejected))
 
     def _start_check(self):
@@ -1183,6 +1185,8 @@ class MigrationDialog(QDialog):
     # -- the rebuild coordinator (D-15): latest edit wins ---------------------
 
     def _start_rebuild(self):
+        if self._closing:
+            return  # no worker may start once the window is closing
         gen = self._gen
 
         def task(progress):
@@ -1225,6 +1229,8 @@ class MigrationDialog(QDialog):
         self._draft_timer.start(_DRAFT_DELAY_MS)
 
     def _start_save_draft(self):
+        if self._closing:
+            return  # the one final save is started by done() before _closing is set
         choices = self._choices
         prints = self._prints
 
@@ -1878,6 +1884,13 @@ class MigrationDialog(QDialog):
             return
         if self._closing:
             return
+        # D-16 close rule: stop every timer of the window; a pending draft save still runs once as a
+        # worker (the last edit is kept), and it is started before _closing is set so the guard lets it by
+        draft_pending = self._draft_timer.isActive()
+        self._draft_timer.stop()
+        self._rebuild_timer.stop()
+        if draft_pending:
+            self._start_save_draft()
         if any(w.isRunning() for w in self._workers):
             self._closing = True
             self._pending_result = r
