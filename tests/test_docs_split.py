@@ -259,6 +259,47 @@ def test_readme_names_the_catalog():
         assert token in libraries, f"Libraries and licences is missing {token!r}"
 
 
+def test_docs_name_kicads_add_on_list_and_keep_its_manager_untouched():
+    """Plans 17-22 to 17-25 (CAT-01, CAT-09, CAT-10, D-33, D-34, D-36): the catalog also lists KiCad's add-on list."""
+    text = _read("CLAUDE.md")
+    gui_behavior = _section(text, "### GUI Behavior", "### Menu Shortcuts")
+    for token in (
+        "KiCad's add-on list",
+        "repository.kicad.org",
+        "SHA-256",
+        "Cannot be added yet",
+        "Listed in",
+        "Names in KiCad",
+        "`PCM_`",
+        "KICAD<n>_3RD_PARTY",
+        "Reading KiCad's add-on list...",
+        "Showing KiCad's add-on list from",
+        "Refreshing the library list",
+        "one warning line",
+        "on disk",
+        "Libraries that leave your scan",
+        "KiCad's own Plugin and Content Manager is never touched",
+    ):
+        assert token in gui_behavior, f"GUI Behavior is missing {token!r}"
+    readme = _section(_read("README.md"), "## Libraries and licences", *README_HEADINGS)
+    for token in ("KiCad's add-on list", "own Plugin and Content Manager is left alone"):
+        assert token in readme, f"Libraries and licences is missing {token!r}"
+
+
+def test_docs_name_the_scratch_switch_where_library_root_is():
+    """Plan 17-27 (D-35): the scratch switch is documented beside --library-root, and the owner checks use it."""
+    text = _read("CLAUDE.md")
+    running = _section(text, "## Running the GUI", "### GUI Behavior")
+    for token in ("--scratch-root", "KICAD_LIBMGR_SCRATCH_ROOT", "exit code 2", "first log line"):
+        assert token in running, f"Running the GUI is missing {token!r}"
+    workflow = _section(text, "## Dev Workflow", *CLAUDE_HEADINGS[CLAUDE_HEADINGS.index("## Dev Workflow") + 1:])
+    assert "--scratch-root" in workflow and "$env:APPDATA" in workflow
+    readme = _read("README.md")
+    assert "--scratch-root" in readme and "KICAD_LIBMGR_SCRATCH_ROOT" in readme
+    for relative in ("CLAUDE.md", "README.md"):
+        assert not _WORKSTATION_PATH.search(_read(relative)) and not _GIT_BASH_PATH.search(_read(relative))
+
+
 def test_tests_readme_lists_the_catalog_slow_modules():
     text = _read("tests/README.md")
     command = _section(text, "### Publishing-control tests that CI does not run", "## Timeouts")
