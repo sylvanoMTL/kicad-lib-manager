@@ -139,7 +139,7 @@ def harness(qtbot, monkeypatch, tmp_path):
 
     make.h = h
     make.settle = settle
-    make.wait = lambda predicate: qtbot.waitUntil(predicate, timeout=10000)
+    make.wait = lambda predicate: qtbot.waitUntil(lambda: bool(predicate()), timeout=10000)
     return make
 
 

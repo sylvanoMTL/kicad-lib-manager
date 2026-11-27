@@ -14,6 +14,9 @@ from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices, QFont, QKeySeq
 
 from . import scan_cache
 from .atomic_check import is_atomic
+from .catalog import manifest as catalog_manifest
+from .catalog import ops as catalog_ops
+from .catalog import status as catalog_status
 from .collection import OWN_DIR, PATH_LENGTH_WARNING, Source, absolute_folder, check_folder, same_spelling
 from .importer.layout import RepoLayout
 from .importer.migration.inventory import migration_reason
@@ -41,6 +44,7 @@ from .widgets.library_table import LibraryTableWidget
 from .widgets.log_panel import LogPanel
 from .widgets.scan_progress import ScanProgressDialog
 from .widgets.atomic_check_dialog import AtomicCheckDialog
+from .widgets.catalog_dialog import STEP_FAILED, CatalogDialog, CatalogServices
 from .widgets.choose_folder_dialog import ChooseLibraryFolderDialog
 from .widgets.new_collection_dialog import NewCollectionDialog, child_is_creating
 from .widgets.backup_dialog import BackupDialog
@@ -89,6 +93,8 @@ CHECKOUT_CONFIG_BASE: Path | None = None
 # None means the real MigrationCore; tests pass a fake core through the (patched)
 # MigrationDialog class instead, so this seam mirrors IMPORT_CORE but usually stays None
 MIGRATION_CORE: MigrationCore | None = None
+# None means the real catalog functions; tests pass a CatalogServices of fakes to the catalog window
+CATALOG_SERVICES: CatalogServices | None = None
 
 # Shown when the Destination box is blank: Path("") would be the working directory (REV-02)
 _NO_DEST_TEXT = "No destination folder set; library tables not changed"
@@ -102,6 +108,11 @@ MIGRATE_TEXT = "&Migrate to Atomic Libraries..."
 _MIGRATE_TOOLTIP = "Move every Custom part into Atomic_ libraries, previewed first"
 _NOTHING_TO_MIGRATE = "Nothing to migrate: every library in Custom already uses the Atomic_ names"
 _MIGRATION_TOPIC = "migrating"
+# File > Library Catalog... (D-17, D-19): its text and tip, plain and with the number of libraries that have an update
+CATALOG_TEXT = "Library &Catalog..."
+_CATALOG_TIP = "Add, update or remove third-party KiCad libraries from GitHub"
+_CATALOG_UPDATE_TIP_ONE = "1 catalog library has an update. Open the catalog to see it."
+_CATALOG_UPDATE_TIP_MANY = "{count} catalog libraries have updates. Open the catalog to see them."
 # File menu items that create, open or switch the library collection (Phase 15, ROOT-03, ROOT-04, ROOT-11, ROOT-12;
 # the New / Open wording is the owner's, 2026-11-23)
 NEW_COLLECTION_TEXT = "&New Library Collection..."
@@ -395,6 +406,16 @@ class MainWindow(QMainWindow):
         # Keyboard focus goes to the next step once the first scan of a folder (and the path-variable
         # question after it) is over; later rescans never move focus (ROOT-03 step 7)
         self._focus_after_scan = True
+        # The library catalog (Phase 17): the one window, the startup update check (CAT-07) and its answers. The check
+        # runs on a daemon thread (widgets/background) with its own cancel event; only the newest one may answer
+        # (_catalog_check_seq). The states live in memory only (D-32).
+        self._catalog: CatalogDialog | None = None
+        self._catalog_states: dict[str, catalog_status.UpdateState] = {}
+        self._catalog_cancel = threading.Event()
+        self._catalog_check: BackgroundTask | None = None
+        self._catalog_check_seq = 0
+        self._catalog_check_due = True  # armed by a start and by a folder switch, consumed after that folder's scan
+        self._close_after_catalog = False  # the catalog keeps a job running: close this window when it ends
         self.setAcceptDrops(True)
         self._build_menu()
         self._build_ui()
@@ -429,6 +450,7 @@ class MainWindow(QMainWindow):
         menubar = self.menuBar()
 
         file_menu = menubar.addMenu("&File")
+        self._file_menu = file_menu
         self._add_library_menu_items(file_menu)
 
         # Kept as attributes: _set_scan_running toggles them while a scan runs
@@ -438,6 +460,14 @@ class MainWindow(QMainWindow):
         self._act_import.setStatusTip("Import a vendor package (.zip or folder) into Custom/")
         self._act_import.triggered.connect(lambda: self._open_import())
         file_menu.addAction(self._act_import)
+
+        # Always enabled: the window can be opened to browse while a scan runs (its actions wait, D-17)
+        self._act_catalog = QAction(CATALOG_TEXT, self)
+        self._act_catalog.setShortcut(QKeySequence("Ctrl+Shift+L"))
+        self._act_catalog.setToolTip(_CATALOG_TIP)
+        self._act_catalog.setStatusTip(_CATALOG_TIP)
+        self._act_catalog.triggered.connect(lambda: self._open_catalog())
+        file_menu.addAction(self._act_catalog)
         file_menu.addSeparator()
 
         self._act_generate = QAction("&Generate Tables", self)
@@ -947,6 +977,7 @@ class MainWindow(QMainWindow):
         self._tree.populate(ScanResult())
         self._show_list_page(None)
         self._scan_result = None
+        self._reset_catalog_for_switch()
         self._startup_pending = True
         self._focus_after_scan = True
         self._offer_vars_after_scan = source is not Source.KICAD
@@ -1278,6 +1309,7 @@ class MainWindow(QMainWindow):
                 self._copy_selection(self._scan_result, outcome.result)
                 self._log_issues(self._trim_collided_selection(outcome.result))
                 self._scan_result = outcome.result
+                self._share_scan_with_catalog()
                 self._tree.populate(outcome.result)
                 self._show_list_page(outcome.result)
                 self._log_library_rescanned(outcome)
@@ -1323,6 +1355,7 @@ class MainWindow(QMainWindow):
             # already disabled the action again and this would wrongly re-enable it
             self._refresh_migrate_action()
             self._offer_path_vars_after_switch()
+            self._start_catalog_check_when_due()
             # After the offer step: while its question is pending the focus waits (_on_path_var_check)
             if self._focus_after_scan and self._worker is None and not self._offer_from_switch:
                 self._focus_after_scan = False
@@ -1351,6 +1384,7 @@ class MainWindow(QMainWindow):
             startup = self._startup_pending
             previous = self._scan_result
             self._scan_result = result
+            self._share_scan_with_catalog()
 
             sym_count = len(result.symbol_libs)
             fp_count = len(result.footprint_libs)
@@ -2417,6 +2451,184 @@ class MainWindow(QMainWindow):
 
     def _on_deselect_all(self):
         self._tree.deselect_all()
+
+    # ── Library catalog (Phase 17) ───────────────────────────────────────────────────────────
+
+    def _catalog_window(self) -> CatalogDialog:
+        """The one catalog window: built on first use, parentless, centred over this window before its first show."""
+        if self._catalog is None:
+            # No parent: a parent would let a window-modal question of this window block it (like the User Guide)
+            dialog = CatalogDialog(self._root, services=CATALOG_SERVICES, show_guide=self.show_guide)
+            dialog.log_line.connect(self._log.log)
+            dialog.update_states_changed.connect(self._on_catalog_manual_check)
+            dialog.job_finished.connect(self._on_catalog_job_finished)
+            dialog.busy_changed.connect(self._on_catalog_busy_changed)
+            dialog.generate_requested.connect(lambda: self._on_generate())
+            dialog.path_vars_requested.connect(lambda _id: self._sync_path_vars())
+            self._catalog = dialog
+            centre_window(dialog, self)
+            if self._scan_result is not None:
+                dialog.set_scan(self._scan_result)
+            if self._catalog_states:
+                dialog.apply_update_states(self._catalog_states)
+            if self._catalog_check is not None:
+                dialog.set_check_running(True)
+        return self._catalog
+
+    def _open_catalog(self):
+        """File > Library Catalog...: show the one window, or raise and focus it when it is already open (D-17)."""
+        self._close_after_catalog = False  # the owner is using the catalog again
+        first = self._catalog is None
+        dialog = self._catalog_window()
+        dialog.show()
+        if first:
+            # The frame is only known once shown, so centre again (inside the free area)
+            centre_window(dialog, self)
+        dialog.raise_()
+        dialog.activateWindow()
+
+    def _share_scan_with_catalog(self):
+        """The Details page of the catalog counts an installed library's libraries from the last scan."""
+        if self._catalog is not None:
+            self._catalog.set_scan(self._scan_result)
+
+    def _reset_catalog_for_switch(self):
+        """A new library folder: stop the update check, forget its states and hand the folder to the catalog window."""
+        self._stop_catalog_check()
+        self._catalog_states = {}
+        self._catalog_check_due = True  # asked again after the new folder's scan
+        self._refresh_catalog_action()
+        if self._catalog is not None:
+            self._catalog.set_root(self._root)
+
+    def _stop_catalog_check(self):
+        """End the running update check: its git process stops through the cancel event and its answer is dropped."""
+        self._catalog_check_seq += 1
+        self._catalog_cancel.set()
+        if self._catalog_check is not None:
+            self._catalog_check.cancel()
+            self._catalog_check = None
+        if self._catalog is not None:
+            self._catalog.set_check_running(False)
+
+    def _start_catalog_check_when_due(self):
+        if self._catalog_check_due:
+            self._catalog_check_due = False
+            self._start_catalog_check()
+
+    def _start_catalog_check(self):
+        """The background update check of every start (CAT-07, D-12): never blocking, silent when GitHub is out of reach.
+
+        Skipped when nothing is installed, when the record cannot be read, when Git is missing or too old, and while
+        another check runs. It asks each remote for its branch head and writes nothing anywhere (D-32).
+        """
+        running = self._catalog_check
+        if self._closing or (running is not None and not running.is_done()):
+            return
+        root = self._root
+        mf = catalog_manifest.load(root)
+        if isinstance(mf, Issue):
+            return
+        if not any(catalog_manifest.entry_folder(root, e).is_dir() for e in mf.libraries):
+            return
+        self._catalog_check_seq += 1
+        seq = self._catalog_check_seq
+        cancel = threading.Event()
+        self._catalog_cancel = cancel
+
+        def work():
+            # Looked up at call time so tests can replace them; git is found off the GUI thread
+            net = catalog_ops.net_status(root)
+            if net.net is None:
+                return None
+            return catalog_status.check_updates(root, mf, net.net, cancel=cancel)
+
+        self._catalog_check = run_in_background(
+            work,
+            lambda states: self._on_catalog_check_done(seq, states),
+            lambda text: self._on_catalog_check_failed(seq, text),
+            name="catalog-startup-check",
+        )
+        if self._catalog is not None:
+            self._catalog.set_check_running(True)
+
+    def _on_catalog_check_done(self, seq: int, states):
+        if seq != self._catalog_check_seq or self._closing:
+            return
+        self._catalog_check = None
+        if self._catalog is not None:
+            self._catalog.set_check_running(False)
+        if states is None:  # no usable Git: silent
+            return
+        self._apply_catalog_states(states)
+        line = catalog_status.updates_line(self._catalog_update_names(states))
+        if line is not None:
+            self._log.log(line, "info")
+
+    def _on_catalog_check_failed(self, seq: int, text: str):
+        if seq != self._catalog_check_seq or self._closing:
+            return
+        self._catalog_check = None
+        if self._catalog is not None:
+            self._catalog.set_check_running(False)
+        # An unreachable GitHub is not a failure (it gives UNKNOWN states); this is a bug in the check itself
+        self._log.log(STEP_FAILED.format(text=text), "warning")
+
+    def _on_catalog_manual_check(self, states):
+        """The catalog window's own Check for Updates ended: the window already shows the states."""
+        self._apply_catalog_states(states, forward=False)
+
+    def _apply_catalog_states(self, states, *, forward: bool = True):
+        self._catalog_states = dict(states)
+        if forward and self._catalog is not None:
+            self._catalog.apply_update_states(self._catalog_states)
+        self._refresh_catalog_action()
+
+    def _catalog_update_names(self, states) -> list[str]:
+        """The display names of the libraries the states say have an update, in list order."""
+        mf = catalog_manifest.load(self._root)
+        if isinstance(mf, Issue):
+            return []
+        rows = catalog_status.row_statuses(self._root, mf, updates=states)
+        return [row.name for row in rows if row.state is catalog_status.State.UPDATE_AVAILABLE]
+
+    def _refresh_catalog_action(self):
+        """The menu text and tip from the number of libraries confirmed to have an update (D-19); never a popup."""
+        count = 0
+        if self._catalog_states:
+            mf = catalog_manifest.load(self._root)
+            if not isinstance(mf, Issue):
+                count = catalog_status.update_count(self._catalog_states, mf)
+        if count == 0:
+            text, tip = CATALOG_TEXT, _CATALOG_TIP
+        elif count == 1:
+            text, tip = f"{CATALOG_TEXT} (1 update)", _CATALOG_UPDATE_TIP_ONE
+        else:
+            text, tip = f"{CATALOG_TEXT} ({count} updates)", _CATALOG_UPDATE_TIP_MANY.format(count=count)
+        self._act_catalog.setText(text)
+        self._act_catalog.setToolTip(tip)
+        self._act_catalog.setStatusTip(tip)
+
+    def _catalog_busy(self) -> bool:
+        """True while a catalog job runs or its last change is being finished (the folder is not stable)."""
+        dialog = self._catalog
+        return dialog is not None and (dialog.is_job_running() or dialog.is_finishing())
+
+    def _on_catalog_job_finished(self, _outcome):
+        """An Add, Update, Remove or Reinstall ended: recount the updates (plan 17-14 adds the rescan after it)."""
+        self._refresh_catalog_action()
+        self._refresh_library_actions()
+        self._maybe_close_after_catalog()
+
+    def _on_catalog_busy_changed(self):
+        self._refresh_library_actions()
+        self._maybe_close_after_catalog()
+
+    def _maybe_close_after_catalog(self):
+        """The window was closed while the catalog kept a job: close it by itself once the job has ended."""
+        if self._close_after_catalog and not self._catalog_busy():
+            self._close_after_catalog = False
+            QTimer.singleShot(0, self.close)
 
     def _guide_window(self) -> HelpDialog:
         """The one User Guide window, built on first use and centred over this window before its first show."""
