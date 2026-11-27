@@ -207,12 +207,12 @@ Plans:
   5. Würth and SparkFun work end to end (Espressif, 4ms and Alternate-KiCad-Library join the curated list only once verified), and in the owner's collection WurthElektronik is a catalog entry with no missing library or 3D model afterwards.
 **Research flags**: Decide at plan time: D2 (clone location and Würth path: `ThirdParty/<id>/` with a one-time rewrite of about 89 `WurthElektronik/...` URIs, or `<Vendor>/<Repo>` with Würth kept in place; `source_of` handles both), D6 (minimum git: 2.49.1+ for CVE-2025-48384 with a warning below; this machine has 2.49.0), D7 (update by `fetch --depth 1 origin <ref>` + `reset --hard FETCH_HEAD` on a clean tree, recommended, or `merge --ff-only`), D11 (curated list and licence gate: refuse libraries with no licence, or warn and ask for acknowledgement; research leans to the latter). Research: Git LFS pointer detection during staging (`version https://git-lfs`) and the GitHub 304 / ETag cost of the startup check (60 requests per hour unauthenticated). Unverified: Git Credential Manager versus `GIT_TERMINAL_PROMPT=0` (test with a private URL, also set `GCM_INTERACTIVE=Never`); the 3D model paths of Espressif, 4ms and Alternate-KiCad-Library.
 **Notes**: Build order from research: (a) `catalog/gitnet.py` plus a `gitops.launch()` extraction, a layering test that commit-path modules cannot import gitnet, and a threat-model note; (b) manifest, curated list, `scan_source`, `sync_kicad_path_vars(extra_vars=...)`; (c) add / update / remove as plan, preview, apply, tested against local bare repos through `file://` (no network in tests); (d) catalog dialog with progress, Cancel and licence display; (e) the Würth conversion. Catalog Add and Remove change only the collection and its manifest; tables are written by Generate Tables (project-local from Phase 18). The update check runs automatically at startup (owner, 2026-11-22). The Würth conversion is a previewed transaction from the main checkout with a rollback tag: clone, verify the library set, define `WE_3DMODEL_DIR` (7,612 footprint model paths use it), Generate, rescan with zero missing, then remove the submodule (`deinit -f`, `git rm`, delete `.git/modules/...`). PITFALLS.md 6, 15-22.
-**Plans**: 1/20 plans executed in 14 waves (16 code plans, 3 owner checkpoints, 1 curated-list update); executors run sequentially on main this run
+**Plans**: 2/20 plans executed in 14 waves (16 code plans, 3 owner checkpoints, 1 curated-list update); executors run sequentially on main this run
 
 Plans:
 **Wave 1**
 - [x] 17-01-PLAN.md — Tracer: a `file://` library through `procs.StreamedProcess`, hardened `catalog/gitnet`, staging, `ThirdParty/<id>`, `catalog.json`, the scan and the table URIs
-- [ ] 17-02-PLAN.md — Folded todo: the migration window stops its draft and rebuild timers on close
+- [x] 17-02-PLAN.md — Folded todo: the migration window stops its draft and rebuild timers on close
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 17-03-PLAN.md — Full gitnet surface, git version policy (refuse below 2.32, warn below 2.49.1), clone config allow-list, layering rules cutting the commit path off the network
@@ -335,7 +335,7 @@ Phases execute in numeric order: 14 → 15 → 16 → 17 → 18 → 19 → 20 �
 | 14. Test Suite Speed-Up | v3.0 | 6/6 | Complete    | 2026-11-23 |
 | 15. Choose Library Folder and New Collection | v3.0 | 16/16 | Complete    | 2026-11-23 |
 | 16. Repo Split | v3.0 | 18/18 | Complete    | 2026-11-26 |
-| 17. Library Catalog | v3.0 | 1/20 | In Progress | - |
+| 17. Library Catalog | v3.0 | 2/20 | In Progress | - |
 | 18. Project-Local Table Model | v3.0 | 0/TBD | Not started | - |
 | 19. Menu Regroup | v3.0 | 0/TBD | Not started | - |
 | 20. Python 3.14 Minimum | v3.0 | 0/TBD | Not started | - |

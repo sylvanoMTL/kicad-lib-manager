@@ -5,16 +5,16 @@ milestone_name: Public Library Manager
 current_phase: 17
 current_phase_name: Library Catalog
 status: executing
-stopped_at: Completed 17-01-PLAN.md
-last_updated: "2026-11-27T08:45:34.588Z"
+stopped_at: Completed 17-02-PLAN.md
+last_updated: "2026-11-27T08:49:12.558Z"
 last_activity: 2026-11-27
 last_activity_desc: Phase 17 execution started
-state_head: 060987d1f25ef332657569f94b46a366d4845b15
+state_head: 6f2749d2a5befde25cb5161c4afdefe51dc48181
 progress:
   total_phases: 8
   completed_phases: 3
   total_plans: 60
-  completed_plans: 41
+  completed_plans: 42
   percent: 38
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-26)
 ## Current Position
 
 Phase: 17 (Library Catalog) — EXECUTING
-Plan: 2 of 20
+Plan: 3 of 20
 Status: Ready to execute
 Last activity: 2026-11-27 — Phase 17 execution started
 
@@ -82,6 +82,7 @@ Progress: [████░░░░░░] 38%
 | Phase 04 P10 | 7min | 2 tasks | 5 files |
 | Phase 08 P06 | 70 min | 3 tasks | 6 files |
 | Phase 17 P01 | 45 min | 2 tasks | 8 files |
+| Phase 17 P02 | 6 min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -107,6 +108,7 @@ The full decision log is in the PROJECT.md Key Decisions table. The v1.0 per-pha
 - [Phase 16]: After three red CI runs from test timing races on GitHub's runner (not app defects) the owner chose to simplify: a green CI run no longer gates the split; the tool repo stays private until the owner flips it. The 4th run (f8c06b8) went green.
 - [Phase 16]: Split done 2026-11-26: `kicad_libraries` kept as the private collection with its history (code removed in one commit); the public tool repo `kicad-lib-manager` (MIT) started from an allow-listed copy with a fresh history; both library repos private, the tool repo flipped public by the owner. KiCad tables resolve identically (428 entries, 0 missing). Fresh-clone CI 4004 passed, 1 skipped (budget 10); `corpus` / `needs_kicad` deselected with counts. `Source.LEGACY` is gone; the `Kicad_Libraries-importer` worktree is retired.
 - [Phase 17]: 17-01: catalog progress callbacks receive (text, percent) with percent None until 17-03; StreamedProcess.run checks stop() after every stderr line so cancel is deterministic
+- [Phase 17]: 17-02: MigrationDialog stops both timers in done() and _reap; a pending draft save runs once before _closing is set; worker starts refuse while closing (D-16 close rule for the catalog window)
 
 ### Pending Todos
 
@@ -152,8 +154,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-27T08:45:33.782Z
-Stopped at: Completed 17-01-PLAN.md
+Last session: 2026-11-27T08:49:11.747Z
+Stopped at: Completed 17-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
