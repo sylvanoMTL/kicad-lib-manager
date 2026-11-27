@@ -754,18 +754,23 @@ def _name_list(names, limit: int = _MAX_NAMES) -> str:
     return f"{shown} and {len(names) - limit} more" if len(names) > limit else shown
 
 
-def _library_names(paths) -> set[str]:
-    """The library names in a list of file paths: a .kicad_sym file's stem and a .pretty folder that holds a .kicad_mod."""
-    names: set[str] = set()
+def _typed_names(paths) -> set[tuple[str, str]]:
+    """The libraries in a list of file paths as (kind, name): "sym" for a .kicad_sym file's stem, "fp" for a .pretty folder that holds a .kicad_mod."""
+    found: set[tuple[str, str]] = set()
     for path in paths:
         parts = str(path).split("/")
         leaf = parts[-1]
         low = leaf.casefold()
         if low.endswith(".kicad_sym"):
-            names.add(leaf[: -len(".kicad_sym")])
+            found.add(("sym", leaf[: -len(".kicad_sym")]))
         elif low.endswith(".kicad_mod") and len(parts) > 1 and parts[-2].casefold().endswith(".pretty"):
-            names.add(parts[-2][: -len(".pretty")])
-    return names
+            found.add(("fp", parts[-2][: -len(".pretty")]))
+    return found
+
+
+def _library_names(paths) -> set[str]:
+    """The library names in a list of file paths (a symbol library and a footprint library of one name count once)."""
+    return {name for _kind, name in _typed_names(paths)}
 
 
 @dataclass(frozen=True)
@@ -904,12 +909,13 @@ def plan_update(
     after = gitnet.tree_paths(net, folder, new)
     if isinstance(after, Issue):
         return after
-    names_before, names_after = _library_names(before), _library_names(after)
+    # compared as (kind, name): a footprint library that leaves is reported even when a symbol library keeps its name
+    typed_before, typed_after = _typed_names(before), _typed_names(after)
     refusal = _lfs_issue(name) if _uses_lfs(net, folder, new, after) else None
     return UpdatePlan(
         entry, name, folder, old, new, len(changed),
-        tuple(sorted(names_after - names_before, key=str.casefold)),
-        tuple(sorted(names_before - names_after, key=str.casefold)),
+        tuple(sorted({n for _k, n in typed_after - typed_before}, key=str.casefold)),
+        tuple(sorted({n for _k, n in typed_before - typed_after}, key=str.casefold)),
         (), False, open_programs, refusal,
     )  # fmt: skip
 

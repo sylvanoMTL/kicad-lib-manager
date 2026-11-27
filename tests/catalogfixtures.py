@@ -252,3 +252,26 @@ def fake_net(
         return ok()  # fetch, reset
 
     return NetGit(exe=Path("git-under-test"), starter=starter), calls
+
+
+def case_collision_upstream(base: Path) -> tuple[Path, str]:
+    """A bare repository whose tree holds two paths that differ only by case (RESEARCH C8); return (bare folder, commit sha).
+
+    On a case-insensitive file system git reports one of them as changed right after a clone and after every
+    reset, which is what the known_dirty baseline absorbs.
+    """
+    return make_upstream(base, {**LIB_FILES, **COLLIDING_FILES})
+
+
+# the two colliding files of case_collision_upstream (their contents differ so one of them always looks changed)
+COLLIDING_FILES = {
+    "Footprints/Lib.pretty/a.kicad_mod": FOOTPRINT_TEXT,
+    "footprints/Lib.pretty/a.kicad_mod": FOOTPRINT_TEXT + "\n",
+}
+
+
+def delete_branch(bare: Path, branch: str = "main") -> None:
+    """Delete a branch of a bare repository, as a remote that renamed or dropped it would."""
+    gitfixtures._require_slow()
+    env = _env(bare, bare.parent / f"{bare.name}.index")
+    _git(env, "update-ref", "-d", f"refs/heads/{branch}")

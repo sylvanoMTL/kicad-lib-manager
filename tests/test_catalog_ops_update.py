@@ -202,6 +202,15 @@ def test_lfs_in_new_commit_refuses(tmp_path):
     assert "reset" not in _subcommands(calls)
 
 
+def test_library_leaving_with_a_surviving_name_is_still_reported(tmp_path):
+    """Found by the real-git proof: a footprint library Demo that leaves is removed even when a symbol library Demo stays."""
+    root, entry = _installed(tmp_path)
+    before = ["symbols/Demo.kicad_sym", "fp/Demo.pretty/a.kicad_mod"]
+    after = ["symbols/Demo.kicad_sym", "symbols/Extra.kicad_sym", "fp/New.pretty/b.kicad_mod"]
+    plan, _ = _planned(root, entry, tree={"HEAD": before, NEW: after}, diff_tree=[("D", before[1]), ("A", after[1]), ("A", after[2])])
+    assert (plan.added, plan.removed) == (("Extra", "New"), ("Demo",))
+
+
 def test_attributes_without_lfs_do_not_refuse(tmp_path):
     root, entry = _installed(tmp_path)
     plan, _ = _planned(
