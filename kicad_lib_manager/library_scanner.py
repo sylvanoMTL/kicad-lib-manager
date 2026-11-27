@@ -1278,12 +1278,15 @@ def scan_source(
     kicad_fp_dir: Path | None = None,
     *,
     model_vars: Mapping[str, Mapping[str, str]] | None = None,
+    progress: Callable[[int, int], None] | None = None,
 ) -> ScanResult | Issue:
     """Read one catalog source (ThirdParty/<id>) again and merge it into a copy of the last scan (D-18).
 
     The result has the libraries and lines a full scan_all of the same tree would give (line order
     aside), without reading any other source. previous is never mutated; the selected flags of the
     result are a snapshot the GUI re-applies. model_vars maps a catalog id to {variable: clone folder}.
+    progress(done, total) counts the symbol files read and the footprint files checked (total is both together);
+    it never goes down and ends with (total, total).
 
     Returns a rescan.full_needed Issue instead when only a full scan is right: there is no earlier scan,
     source_dir is not exactly one ThirdParty/<id> folder, or that folder is not on disk.
@@ -1305,10 +1308,22 @@ def scan_source(
     sym_files = _walk_matches(folder, "*.kicad_sym", skip_top=False)
     pretty_dirs = _walk_matches(folder, "*.pretty", dirs=True, skip_top=False)
     mod_files = _walk_matches(folder, "*.kicad_mod", skip_top=False)
+    total = len(sym_files) + len(mod_files)
+    sym_progress = mod_progress = None
+    if progress is not None:
+        def sym_progress(_text, done, _count):
+            progress(done, total)
+
+        def mod_progress(_text, done, _count):
+            progress(len(sym_files) + done, total)
+    # The symbols first, then the footprints, so the count only goes up
+    fresh_sym = _symbol_libs_from(repo_root, sym_files, sym_progress)
     # The custom model names are only read for a Custom footprint, never for a catalog source
-    lines = _check_model_files(repo_root, mod_files, set(), model_vars=model_vars)
+    lines = _check_model_files(repo_root, mod_files, set(), mod_progress, model_vars=model_vars)
+    if progress is not None and total:
+        progress(total, total)
     _replace_source(
-        merged, source_dir, _symbol_libs_from(repo_root, sym_files),
+        merged, source_dir, fresh_sym,
         _footprint_libs_from(repo_root, pretty_dirs), lines, kicad_fp_dir, repo_root,
     )
     return merged

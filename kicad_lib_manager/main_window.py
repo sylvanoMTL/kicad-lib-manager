@@ -46,6 +46,7 @@ from .settings import (
 )
 from .widgets.library_table import LibraryTableWidget
 from .widgets.log_panel import LogPanel
+from .widgets.refresh_overlay import RefreshOverlay
 from .widgets.scan_progress import ScanProgressDialog
 from .widgets.atomic_check_dialog import AtomicCheckDialog
 from .widgets.catalog_dialog import STEP_FAILED, CatalogDialog, CatalogServices
@@ -399,6 +400,7 @@ class CatalogRescanWorker(QThread):
     """
     result = Signal(object)
     failed = Signal(str)
+    progress = Signal(int, int)  # files read so far, files in all; at most one per whole percent and the last
 
     def __init__(self, repo_root: Path, kicad_fp_dir: Path | None, previous: ScanResult | None,
                  kind: str, folder: str, *, cache_file: Path | None = None):
@@ -409,6 +411,14 @@ class CatalogRescanWorker(QThread):
         self._kind = kind
         self._folder = folder
         self._cache_file = cache_file
+        self._last_percent = -1
+
+    def _report(self, done: int, total: int):
+        """Send a count to the window when its whole percent changed, and always the last one."""
+        percent = done * 100 // total if total > 0 else 0
+        if percent != self._last_percent or done >= total:
+            self._last_percent = percent
+            self.progress.emit(done, total)
 
     def run(self):
         try:
@@ -422,7 +432,7 @@ class CatalogRescanWorker(QThread):
             else:
                 merged = scan_source(
                     self._repo_root, self._previous, self._folder, self._kicad_fp_dir,
-                    model_vars=catalog_model_vars(self._repo_root),
+                    model_vars=catalog_model_vars(self._repo_root), progress=self._report,
                 )
             if isinstance(merged, Issue):
                 self.result.emit(merged)
@@ -543,6 +553,7 @@ class MainWindow(QMainWindow):
         self._catalog_followup: _CatalogFollowup | None = None
         self._catalog_workers: list[CatalogRescanWorker] = []
         self._catalog_finish_after_vars = False
+        self._refreshing = False  # the refreshing overlay covers the trees while a catalog change is read again
         self._saved_tips: dict = {}  # control -> (tooltip, status tip) while the catalog replaces them
         self.setAcceptDrops(True)
         self._build_menu()
@@ -966,6 +977,7 @@ class MainWindow(QMainWindow):
         self._list_stack.setContentsMargins(0, 0, 0, 0)
         self._list_stack.addWidget(self._tree)
         self._list_stack.addWidget(self._empty_page)
+        self._refresh_overlay = RefreshOverlay(list_area)
         layout.addWidget(list_area, stretch=1)
 
         # Log panel
@@ -1339,6 +1351,11 @@ class MainWindow(QMainWindow):
         ):
             waiting = catalog and any(control is gated for gated in catalog_gated)
             control.setEnabled(not scan and not waiting)
+        # While the refreshing overlay covers the lists, nothing in them may be ticked
+        if self._refreshing:
+            self._select_all_btn.setEnabled(False)
+            self._deselect_all_btn.setEnabled(False)
+        self._tree.setEnabled(not self._refreshing)
         self._tree.set_library_rescan_enabled(not scan and not catalog)
         for control in catalog_gated:
             if catalog:
@@ -2868,7 +2885,21 @@ class MainWindow(QMainWindow):
         self._catalog_followup = followup
         self._catalog.set_finishing(True)
         self._start_catalog_rescan(followup)
+        self._begin_refreshing(followup)
         return True
+
+    def _begin_refreshing(self, followup: _CatalogFollowup):
+        """Cover both trees with the refreshing state until the source is read again (owner finding 2 of 17-17)."""
+        self._refreshing = True
+        self._refresh_overlay.show_for(followup.kind, followup.name)
+        self._refresh_busy_controls()
+
+    def _end_refreshing(self):
+        """Uncover the trees and give the controls back (a running scan keeps its own rules)."""
+        self._refresh_overlay.finish()
+        if self._refreshing:
+            self._refreshing = False
+            self._refresh_busy_controls()
 
     def _start_catalog_rescan(self, followup: _CatalogFollowup):
         """Read just the changed source on a worker and rewrite the saved scan; no Loading Libraries window."""
@@ -2882,6 +2913,7 @@ class MainWindow(QMainWindow):
         self._catalog_workers.append(worker)
         worker.result.connect(self._on_catalog_rescanned)
         worker.failed.connect(self._on_catalog_rescan_failed)
+        worker.progress.connect(self._refresh_overlay.set_progress)
         worker.finished.connect(self._on_catalog_worker_finished)
         worker.start()
 
@@ -2905,11 +2937,14 @@ class MainWindow(QMainWindow):
         if failure is not None:
             self._log.log_issue(failure)
         previous = self._scan_result
-        self._select_catalog_source(merged, previous, followup, copy_ticks=True)
-        self._scan_result = merged
-        self._share_scan_with_catalog()
-        self._tree.populate(merged)
-        self._show_list_page(merged)
+        try:
+            self._select_catalog_source(merged, previous, followup, copy_ticks=True)
+            self._scan_result = merged
+            self._share_scan_with_catalog()
+            self._tree.populate(merged)
+            self._show_list_page(merged)
+        finally:
+            self._end_refreshing()
         self._log_catalog_rescanned(followup, merged, previous)
         followup.applied = True
         self._finish_catalog_followup()
@@ -2923,6 +2958,7 @@ class MainWindow(QMainWindow):
 
     def _catalog_full_scan(self, followup: _CatalogFollowup):
         """The one-source rescan cannot do it: run the full scan; its finish applies the same selection rules."""
+        self._end_refreshing()  # the Loading Libraries window takes over
         followup.scan_started = True
         self._start_scan(show_progress=True, reuse_cache=False)
 
@@ -3127,6 +3163,7 @@ class MainWindow(QMainWindow):
             return
         # From here the window closes: a folder check that answers late must not save or switch anything
         self._closing = True
+        self._refresh_overlay.finish()  # the wheel's timer never outlives the window
         # The check dialog only holds the last scan result, so closing it loses nothing
         if self._atomic_dialog is not None:
             self._atomic_dialog.reject()

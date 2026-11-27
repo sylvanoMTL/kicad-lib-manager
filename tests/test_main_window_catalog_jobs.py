@@ -592,11 +592,11 @@ def test_refresh_overlay_during_the_source_read(harness):
     window = harness(root)
     h.source_gate = threading.Event()
     overlay = window._refresh_overlay
-    assert not overlay.isVisible()
+    assert not overlay.isVisibleTo(window)
 
     window._catalog.job_finished.emit(outcome("add"))
 
-    assert overlay.isVisible()
+    assert overlay.isVisibleTo(window)
     assert overlay.text() == "Refreshing the library list after adding Acme. Large libraries can take a minute."
     assert not window._tree.isEnabled()
     assert not window._generate_btn.isEnabled()
@@ -608,5 +608,5 @@ def test_refresh_overlay_during_the_source_read(harness):
     h.source_gate.set()
     harness.finish(window)
 
-    assert not overlay.isVisible()
+    assert not overlay.isVisibleTo(window)
     assert window._tree.isEnabled()
