@@ -372,7 +372,8 @@ FOUR_MS_URL = "https://github.com/4ms/4ms-kicad-lib.git"
 
 def test_listing_rows(tmp_path):
     root = _collection(tmp_path)
-    rows = status.row_statuses(root, Manifest(()), curated=(SPARKFUN, WURTH), listings=LISTINGS)
+    shown_curated = (SPARKFUN, WURTH)
+    rows = status.row_statuses(root, Manifest(()), curated=shown_curated, listings=LISTINGS)
     by_id = _by_id(rows)
     # SparkFun is listed once, as the curated row
     assert [row.name for row in rows].count("SparkFun KiCad Libraries") == 0
@@ -391,7 +392,7 @@ def test_listing_rows(tmp_path):
     # a listing with no size has an unknown one
     assert by_id["circuitbreakersrobotics-CB_KiCAD_Libraries"].size_text == "Unknown"
     # every addable listing and every not addable one has a row, the plugin and the theme have none
-    assert len(rows) == 2 + sum(1 for item in LISTINGS if item.identifier != "com.github.sparkfun.SparkFun-KiCad-Libraries")
+    assert len(rows) == len(shown_curated) + sum(1 for item in LISTINGS if item.identifier != "com.github.sparkfun.SparkFun-KiCad-Libraries")
     assert [row.name.casefold() for row in rows] == sorted(row.name.casefold() for row in rows)
 
 
