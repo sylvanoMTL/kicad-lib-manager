@@ -38,7 +38,7 @@ from ..catalog.status import Check, State
 from ..models import Issue, Severity
 from . import catalog_pages, theme
 from .background import BackgroundTask, run_in_background
-from .catalog_pages import AddByUrlPage, AddPreviewPage, LicencePage, ReviewPage
+from .catalog_pages import AddByUrlPage, AddPreviewPage, LicencePage, RemovePage, ReviewPage, UpdatePreviewPage
 from .catalog_pages import LinkLabel as _LinkLabel
 from .catalog_pages import heading_font as _heading_font
 from .catalog_pages import mono as _mono
@@ -133,6 +133,11 @@ STEP_FAILED = "Library catalog step failed: {text}"
 # The Add, Add by URL and Reinstall flows (UI-SPEC "Add flow", "Job strip", "Close rules", "Busy rules", "Log lines")
 ADD_THIS_TEXT = "Add This Library"
 REINSTALL_THIS_TEXT = "Reinstall This Library"
+UPDATE_THIS_TEXT = "Update This Library"
+REMOVE_THIS_TEXT = "Remove This Library"
+SET_VARS_TEXT = "Set Path Variables..."
+UPDATE_CURRENT_TIP = "Already up to date."
+UPDATE_UNKNOWN_TIP = "No update is known. Press Check for Updates."
 PAGE_OPEN_TIP = "Go back to the list first."
 WAIT_TIP = "Wait for {job} to finish."
 STOPPING_TEXT = "Stopping..."
@@ -166,6 +171,19 @@ LOG_STOPPED_REINSTALLING = "Stopped reinstalling {name}. Nothing was added."
 LOG_DISCARDED = "Discarded the download of {name}. Nothing was added."
 LOG_DISCARD_FAILED = "Could not delete the downloaded copy of {name}: {text}"
 LOG_COULD_NOT = "Could not {verb} {name}: {text}"
+LOOKING_TEXT = "Looking for changes in {name}..."
+UPDATING_NAME_TEXT = "Updating {name}..."
+REMOVING_NAME_TEXT = "Removing {name}..."
+CANCEL_UPDATING_TEXT = "Cancel Updating"
+CANCEL_REMOVING_TEXT = "Cancel Removing"
+REMOVE_CANCEL_TIP = "Removing cannot be stopped halfway. It ends in a moment."
+REMOVE_CLOSE_TEXT = "Removing cannot be stopped halfway. Close this window after it ends."
+CONSEQUENCE_UPDATE = "{name} stays on the version it has now."
+RESULT_UPDATED = "Updated {name} to {commit}: {a} libraries added, {r} removed."
+RESULT_REMOVED = "Removed {name}. Press Generate Tables to drop its libraries from your KiCad library tables."
+LOG_STOPPED_UPDATING = "Stopped updating {name}. It stays on its current version."
+UPDATE_CRASHED_TEXT = "The update failed because something unexpected went wrong. See the log for details."
+REMOVE_CRASHED_TEXT = "Removing failed because something unexpected went wrong. See the log for details."
 CHECK_CRASHED_TEXT = "Something went wrong while checking the repository. See the log for details."
 STAGE_CRASHED_TEXT = "The download failed because something unexpected went wrong. See the log for details."
 REGISTER_CRASHED_TEXT = "Adding failed because something unexpected went wrong. See the log for details."
@@ -180,17 +198,18 @@ RETRY_CODES = frozenset({
 
 
 def job_label(flow: str, name: str) -> str:
-    """How a job is named in a tooltip or a question: `the repository check`, `adding {name}`, `reinstalling {name}`."""
+    """How a job is named in a tooltip or a question: `the repository check`, `adding {name}`, `updating {name}`, ..."""
     if flow == "check":
         return "the repository check"
-    return f"{'reinstalling' if flow == 'reinstall' else 'adding'} {name}"
+    verb = {"reinstall": "reinstalling", "update": "updating", "remove": "removing"}.get(flow, "adding")
+    return f"{verb} {name}"
 
 
 @dataclass(frozen=True)
 class CatalogOutcome:
     """What a catalog job left behind, handed to the main window with job_finished.
 
-    kind is "add" or "reinstall"; ok is False for a stop, a refusal and a failure (the window logged it). The counts,
+    kind is "add", "reinstall", "update" or "remove"; ok is False for a stop, a refusal and a failure (the window logged it). The counts,
     collisions (validate.Collision rows), vars (path variable -> folder inside the clone), legacy_prefix (the old
     folder of a curated library, for the selection carry-over) and root_is_repo are filled when ok is True.
     """
@@ -209,7 +228,7 @@ class CatalogOutcome:
 
 @dataclass
 class _Job:
-    """One job on a worker: phase is plan, check, stage, register or discard; flow is check, add or reinstall."""
+    """One job on a worker: phase is plan, check, stage, register, discard, look, apply or remove; flow is check, add, reinstall, update or remove."""
 
     phase: str
     flow: str
@@ -224,7 +243,7 @@ class _Job:
 
 @dataclass
 class _Flow:
-    """The Add, Reinstall or Add by URL in progress: kind is add, reinstall or url (the address page)."""
+    """The Add, Reinstall, Update, Remove or Add by URL in progress: kind is add, reinstall, update, remove or url (the address page)."""
 
     kind: str
     id: str = ""
@@ -234,6 +253,7 @@ class _Flow:
 
 
 _STOPPED = object()  # what a stage job returns when the user pressed Cancel
+_STOPPABLE = ("check", "stage", "look", "apply")  # the phases a Cancel button or a close question can stop
 
 # ── Sizes (UI-SPEC "Spacing Scale"; px at 96 DPI) ───────────────────────────────────────────────────
 
@@ -358,6 +378,7 @@ class CatalogDialog(QDialog):
         self._pending_close: int | None = None  # a close waits for the job to end
         self._asking = False
         self._busy_sent = (False, False)
+        self._vars_differ = False  # the shown row has a path variable that is not set or set to another folder
 
         self.setWindowTitle(CATALOG_TITLE)
         self.setWindowModality(Qt.WindowModality.NonModal)
@@ -560,6 +581,12 @@ class CatalogDialog(QDialog):
         self._empty_page = QWidget()
         empty = QVBoxLayout(self._empty_page)
         empty.setContentsMargins(0, 0, 0, 0)
+        empty.setSpacing(theme.SP_SM)
+        # the result of a Remove whose row left the list has no Details page to sit on: it shows here
+        self._gone_result_strip, self._gone_lines_box, self._gone_note, self._gone_generate_btn = self._make_result_strip(
+            "goneResultStrip"
+        )
+        empty.addWidget(self._gone_result_strip)
         self._empty_label = _plain_label(EMPTY_PANE_TEXT, wrap=True)
         _muted(self._empty_label)
         empty.addWidget(self._empty_label)
@@ -571,7 +598,9 @@ class CatalogDialog(QDialog):
         self._url_page = AddByUrlPage()
         self._licence_page = LicencePage()
         self._preview_page = AddPreviewPage()
-        for page in (self._url_page, self._licence_page, self._preview_page):
+        self._update_page = UpdatePreviewPage()
+        self._remove_page = RemovePage()
+        for page in (self._url_page, self._licence_page, self._preview_page, self._update_page, self._remove_page):
             self._pages.addWidget(page)
         self._url_page.primary_pressed.connect(self._on_url_primary)
         self._url_page.back_pressed.connect(self._on_page_back)
@@ -579,6 +608,10 @@ class CatalogDialog(QDialog):
         self._licence_page.back_pressed.connect(self._on_page_back)
         self._preview_page.primary_pressed.connect(self._on_preview_primary)
         self._preview_page.back_pressed.connect(self._on_preview_back)
+        self._update_page.primary_pressed.connect(self._on_update_primary)
+        self._update_page.back_pressed.connect(self._on_page_back)
+        self._remove_page.primary_pressed.connect(self._on_remove_primary)
+        self._remove_page.back_pressed.connect(self._on_page_back)
         self._show_page(self._empty_page)
         layout.addWidget(self._scroll, 1)
         return pane
@@ -597,29 +630,9 @@ class CatalogDialog(QDialog):
         layout.addWidget(self._detail_description)
 
         # The result strip: shown after a job ends, kept until another row is selected (D-03, D-18)
-        self._result_strip = QFrame()
-        self._result_strip.setObjectName("resultStrip")
-        self._result_strip.setStyleSheet(
-            f"QFrame#resultStrip {{ background-color: {theme.SURFACE_HEADER}; border: 1px solid {theme.BORDER}; }}"
+        self._result_strip, self._result_lines_box, self._result_note, self._result_generate_btn = self._make_result_strip(
+            "resultStrip"
         )
-        strip = QHBoxLayout(self._result_strip)
-        strip.setContentsMargins(theme.SP_SM, theme.SP_SM, theme.SP_SM, theme.SP_SM)
-        strip.setSpacing(theme.SP_SM)
-        text = QVBoxLayout()
-        text.setSpacing(theme.SP_XS)
-        self._result_lines_box = QVBoxLayout()
-        self._result_lines_box.setSpacing(theme.SP_XS)
-        text.addLayout(self._result_lines_box)
-        self._result_note = _plain_label(wrap=True)
-        _muted(self._result_note)
-        text.addWidget(self._result_note)
-        strip.addLayout(text, 1)
-        self._result_generate_btn = QPushButton(GENERATE_TEXT)
-        self._result_generate_btn.setAutoDefault(False)
-        self._result_generate_btn.setMinimumHeight(CONTROL_HEIGHT)
-        self._result_generate_btn.clicked.connect(self.generate_requested)
-        strip.addWidget(self._result_generate_btn, 0, Qt.AlignmentFlag.AlignTop)
-        self._result_strip.hide()
         layout.addWidget(self._result_strip)
         self._result: tuple[list[tuple[str, str]], bool, bool] | None = None
 
@@ -649,15 +662,56 @@ class CatalogDialog(QDialog):
             self._field_rows[key] = (label, value)
         layout.addLayout(grid)
 
-        # The buttons of the page sit here (Add, Update, Remove, Reinstall attach in plans 17-13 and 17-15)
+        # The buttons of the page, left to right: the plain ones, then the one primary of the row's status
         self._button_row = QHBoxLayout()
         self._button_row.setSpacing(theme.SP_SM)
         self._button_row.addStretch(1)
+        self._vars_btn = self._details_plain_button(SET_VARS_TEXT, self._on_vars_clicked)
+        self._remove_btn = self._details_plain_button(REMOVE_THIS_TEXT, self._on_remove_clicked)
+        self._update_btn = self._details_plain_button(UPDATE_THIS_TEXT, self._on_update_clicked)
         self._add_btn = self._details_primary_button(ADD_THIS_TEXT, self._on_add_clicked)
         self._reinstall_btn = self._details_primary_button(REINSTALL_THIS_TEXT, self._on_reinstall_clicked)
         layout.addLayout(self._button_row)
         layout.addStretch(1)
         return page
+
+    def _make_result_strip(self, name: str) -> tuple[QFrame, QVBoxLayout, QLabel, QPushButton]:
+        """A hidden result strip: the lines, the catalog.json note and the Generate Tables button."""
+        frame = QFrame()
+        frame.setObjectName(name)
+        frame.setStyleSheet(
+            f"QFrame#{name} {{ background-color: {theme.SURFACE_HEADER}; border: 1px solid {theme.BORDER}; }}"
+        )
+        strip = QHBoxLayout(frame)
+        strip.setContentsMargins(theme.SP_SM, theme.SP_SM, theme.SP_SM, theme.SP_SM)
+        strip.setSpacing(theme.SP_SM)
+        text = QVBoxLayout()
+        text.setSpacing(theme.SP_XS)
+        lines = QVBoxLayout()
+        lines.setSpacing(theme.SP_XS)
+        text.addLayout(lines)
+        note = _plain_label(wrap=True)
+        _muted(note)
+        text.addWidget(note)
+        strip.addLayout(text, 1)
+        button = QPushButton(GENERATE_TEXT)
+        button.setAutoDefault(False)
+        button.setMinimumHeight(CONTROL_HEIGHT)
+        button.clicked.connect(self.generate_requested)
+        strip.addWidget(button, 0, Qt.AlignmentFlag.AlignTop)
+        frame.hide()
+        return frame, lines, note, button
+
+    def _details_plain_button(self, text: str, slot) -> QPushButton:
+        """A plain button of the Details page (Remove This Library, Set Path Variables..., a disabled Update This Library)."""
+        button = QPushButton(text)
+        button.setAutoDefault(False)
+        button.setDefault(False)
+        button.setMinimumHeight(CONTROL_HEIGHT)
+        button.clicked.connect(slot)
+        button.hide()
+        self._button_row.addWidget(button)
+        return button
 
     def _details_primary_button(self, text: str, slot) -> QPushButton:
         """A primary (accent) button of the Details page; only one is visible for a row, and none without a row."""
@@ -941,8 +995,10 @@ class CatalogDialog(QDialog):
             return
         row = self.current_row()
         if row is None:
+            self._render_result(self._result, self._gone_result_strip, self._gone_lines_box, self._gone_note, self._gone_generate_btn)
             self._show_page(self._empty_page)
             return
+        self._gone_result_strip.hide()
         self._fill_details(row)
         self._show_page(self._details_page)
 
@@ -977,6 +1033,12 @@ class CatalogDialog(QDialog):
         self._show_field("folder", installed or problem)
         self._add_btn.setVisible(row.state is State.NOT_INSTALLED and row.curated is not None)
         self._reinstall_btn.setVisible(row.state is State.FOLDER_MISSING and row.entry is not None)
+        listed = row.entry is not None
+        self._update_btn.setVisible(installed and listed)
+        self._update_btn.setStyleSheet(theme.PRIMARY_BUTTON_QSS if row.state is State.UPDATE_AVAILABLE else "")
+        self._remove_btn.setVisible(((installed or row.state is State.FOLDER_MISSING) and listed) or row.state is State.NOT_IN_CATALOG)
+        self._vars_btn.setVisible(installed and self._vars_differ)
+        self._refresh_detail_buttons()
 
     # -- the rows --
 
@@ -1058,6 +1120,7 @@ class CatalogDialog(QDialog):
         """One line per path variable: its name in Mono and whether KiCad has it set to this library's folder (CAT-06)."""
         box = self._field_rows["vars"][1]
         self._clear_layout(box.layout())
+        self._vars_differ = False
         names = row.entry.vars if row.entry is not None else (row.curated.vars if row.curated is not None else {})
         wanted = self._services.path_vars(self._root, [CatalogEntry(row.id, "", "", vars=dict(names))])
         if not wanted:
@@ -1065,6 +1128,7 @@ class CatalogDialog(QDialog):
             return
         for name in sorted(wanted):
             text, token = self._var_state(name, wanted[name])
+            self._vars_differ = self._vars_differ or text in (VAR_NOT_SET_TEXT, VAR_DIFFERENT_TEXT)
             line = QWidget()
             lay = QHBoxLayout(line)
             lay.setContentsMargins(0, 0, 0, 0)
@@ -1161,23 +1225,27 @@ class CatalogDialog(QDialog):
         self._fill_result()
 
     def _fill_result(self) -> None:
-        self._clear_layout(self._result_lines_box)
-        if self._result is None:
-            self._result_strip.hide()
+        self._render_result(self._result, self._result_strip, self._result_lines_box, self._result_note, self._result_generate_btn)
+
+    def _render_result(self, result, frame: QFrame, box: QVBoxLayout, note_label: QLabel, button: QPushButton) -> None:
+        """Fill one result strip (the Details page's, or the empty page's for a row that left the list) from a result."""
+        self._clear_layout(box)
+        if result is None:
+            frame.hide()
             return
-        lines, generate, note = self._result
+        lines, generate, note = result
         for text, level in lines:
             glyph, token = ("✓ ", theme.SUCCESS) if level == "success" else ("⚠ ", theme.AMBER)
             label = _plain_label(glyph + text, wrap=True)
             label.setObjectName("resultLine")
             label.setStyleSheet(f"color: {token};")
             label.setAccessibleName(label.text())
-            self._result_lines_box.addWidget(label)
+            box.addWidget(label)
         is_git = (self._root / ".git").exists()
-        self._result_note.setText(MANIFEST_NOTE_TEXT.format(collection=self._root.as_posix()) if note and is_git else "")
-        self._result_note.setVisible(bool(note and is_git))
-        self._result_generate_btn.setVisible(generate)
-        self._result_strip.show()
+        note_label.setText(MANIFEST_NOTE_TEXT.format(collection=self._root.as_posix()) if note and is_git else "")
+        note_label.setVisible(bool(note and is_git))
+        button.setVisible(generate)
+        frame.show()
 
     # ── Strips and actions ────────────────────────────────────────────────────────────────────
 
@@ -1250,13 +1318,30 @@ class CatalogDialog(QDialog):
         self._check_btn.setToolTip(tip)
         self._add_url_btn.setEnabled(reason is None and not page_open)
         self._add_url_btn.setToolTip(tip)
-        for button in (self._add_btn, self._reinstall_btn):
-            button.setEnabled(reason is None)
-            button.setToolTip(reason or "")
+        self._refresh_detail_buttons()
         external, busy = self._external_block(), self._job is not None
-        for page in (self._url_page, self._licence_page, self._preview_page):
+        for page in (self._url_page, self._licence_page, self._preview_page, self._update_page, self._remove_page):
             page.set_blocked(external)
             page.set_busy(busy)
+
+    def _refresh_detail_buttons(self) -> None:
+        """Enable the Details buttons: every one waits for a job or an outside reason, Update also needs an update to apply."""
+        reason = self._action_block()
+        row = self.current_row()
+        for button in (self._add_btn, self._reinstall_btn, self._remove_btn, self._vars_btn):
+            button.setEnabled(reason is None)
+            button.setToolTip(reason or "")
+        update = row is not None and row.state is State.UPDATE_AVAILABLE
+        self._update_btn.setEnabled(reason is None and update)
+        if reason:
+            tip = reason
+        elif update or row is None:
+            tip = ""
+        elif row.update is not None and row.update.check is Check.CURRENT:
+            tip = UPDATE_CURRENT_TIP
+        else:
+            tip = UPDATE_UNKNOWN_TIP
+        self._update_btn.setToolTip(tip)
 
     def _on_check_clicked(self) -> None:
         """Check for Updates on a daemon thread; the result is dropped when the window closed or the collection changed."""
@@ -1440,19 +1525,27 @@ class CatalogDialog(QDialog):
             self._job_strip.hide()
             return
         again = job.flow == "reinstall"
+        stoppable, unstoppable_tip = True, REGISTER_CANCEL_TIP
         if job.phase == "check":
             text, cancel = CHECKING_REPOSITORY_TEXT, CANCEL_CHECK_TEXT
+        elif job.phase == "look":
+            text, cancel = LOOKING_TEXT.format(name=job.name), CANCEL_UPDATING_TEXT
+        elif job.phase == "apply":
+            text, cancel = UPDATING_NAME_TEXT.format(name=job.name), CANCEL_UPDATING_TEXT
+        elif job.phase == "remove":
+            text, cancel = REMOVING_NAME_TEXT.format(name=job.name), CANCEL_REMOVING_TEXT
+            stoppable, unstoppable_tip = False, REMOVE_CANCEL_TIP
         else:
             cancel = CANCEL_REINSTALLING_TEXT if again else CANCEL_ADDING_TEXT
             if job.phase == "stage":
                 text = (DOWNLOADING_AGAIN_TEXT if again else DOWNLOADING_TEXT).format(name=job.name)
             else:
                 text = ADDING_NAME_TEXT.format(name=job.name)
-        stoppable = job.phase != "register"
+                stoppable = False
         self._set_job_text(text)
         self._job_cancel.setText(cancel)
         self._job_cancel.setEnabled(stoppable)
-        self._job_cancel.setToolTip(CANCEL_TIP.format(job=label) if stoppable else REGISTER_CANCEL_TIP)
+        self._job_cancel.setToolTip(CANCEL_TIP.format(job=label) if stoppable else unstoppable_tip)
         self._job_strip.show()
 
     def _set_job_text(self, text: str) -> None:
@@ -1477,7 +1570,7 @@ class CatalogDialog(QDialog):
 
     def _on_cancel_clicked(self) -> None:
         job = self._job
-        if job is not None and job.phase in ("check", "stage") and not job.stopping:
+        if job is not None and job.phase in _STOPPABLE and not job.stopping:
             self._cancel_job(job)
 
     def _cancel_job(self, job: _Job) -> None:
@@ -1524,6 +1617,19 @@ class CatalogDialog(QDialog):
                 self._show_refusal(Issue(Severity.ERROR, "catalog.step_failed", STAGE_CRASHED_TEXT))
             elif phase == "register":
                 self._preview_page.show_notice(REGISTER_CRASHED_TEXT)
+            elif phase == "look":
+                self._show_update_refusal(Issue(Severity.ERROR, "catalog.step_failed", UPDATE_CRASHED_TEXT))
+            elif phase == "apply":
+                self._log_could_not("update", Issue(Severity.ERROR, "catalog.step_failed", UPDATE_CRASHED_TEXT))
+                self._update_page.show_notice(UPDATE_CRASHED_TEXT)
+            elif phase == "remove":
+                issue = Issue(Severity.ERROR, "catalog.step_failed", REMOVE_CRASHED_TEXT)
+                self._log_could_not("remove", issue)
+                self._remove_page.show_refusal(issue)
+                flow = self._flow
+                if flow is not None:
+                    self._emit_outcome(flow, ok=False)
+                self.refresh()  # the disk may have changed before the worker failed
             else:  # discard
                 self._staged = None
                 self._leave_pages(clear_selection=bool(self._flow and self._flow.url))
@@ -1538,7 +1644,11 @@ class CatalogDialog(QDialog):
     # -- the pages --
 
     def _review_page(self) -> ReviewPage | None:
-        return {"url": self._url_page, "licence": self._licence_page, "preview": self._preview_page}.get(self._page_kind)
+        pages = {
+            "url": self._url_page, "licence": self._licence_page, "preview": self._preview_page,
+            "update": self._update_page, "remove": self._remove_page,
+        }
+        return pages.get(self._page_kind)
 
     def _enter_page(self, kind: str) -> None:
         """Show a review page: the list locks to the chosen library, Close gives up its default, focus follows."""
@@ -1572,6 +1682,8 @@ class CatalogDialog(QDialog):
         idle = self._page_kind is None
         self._close_btn.setAutoDefault(idle)
         self._close_btn.setDefault(idle)
+        # the Remove page's Keep Library is the default button while that page is open (Enter keeps the library)
+        self._remove_page.back_button().setDefault(self._page_kind == "remove")
 
     def _focus_page(self) -> None:
         page = self._review_page()
@@ -1585,7 +1697,7 @@ class CatalogDialog(QDialog):
     def _details_primary(self) -> QPushButton | None:
         if self._pages.currentWidget() is not self._details_page or self._flow is not None:
             return None
-        for button in (self._add_btn, self._reinstall_btn):
+        for button in (self._add_btn, self._reinstall_btn, self._update_btn):
             if button.isVisibleTo(self._details_page) and button.isEnabled():
                 return button
         return None
@@ -1601,6 +1713,8 @@ class CatalogDialog(QDialog):
             return
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
             button = page.primary_button() if page is not None else self._details_primary()
+            if page is not None and not page.primary_accepts_ctrl_return():
+                button = None  # Ctrl+Return never confirms a deletion
             if button is not None and button.isEnabled() and button.isVisibleTo(self):
                 button.click()
             event.accept()
@@ -1759,7 +1873,7 @@ class CatalogDialog(QDialog):
         self._emit_outcome(flow, ok=False)
 
     def _emit_outcome(self, flow: _Flow, *, ok: bool, **fields) -> None:
-        kind = "reinstall" if flow.kind == "reinstall" else "add"
+        kind = flow.kind if flow.kind in ("reinstall", "update", "remove") else "add"
         self.job_finished.emit(CatalogOutcome(kind, flow.id, flow.name, ok, **fields))
 
     # -- the preview: Add Library, Discard Download, Try Again --
@@ -1883,6 +1997,195 @@ class CatalogDialog(QDialog):
         self._refresh_actions()
         self._emit_busy()
 
+    # ── Update, Remove and Set Path Variables... ──────────────────────────────────────────────
+
+    def _log_could_not(self, verb: str, issue: Issue) -> None:
+        """The error line of a refused or failed job: `Could not {verb} {name}: {text}` (a text that says so already is kept as it is)."""
+        flow = self._flow
+        name = flow.name if flow is not None else ""
+        text = issue.text if issue.text.startswith(f"Could not {verb} ") else LOG_COULD_NOT.format(verb=verb, name=name, text=issue.text)
+        self.log_line.emit(text, "error")
+
+    def _on_vars_clicked(self) -> None:
+        row = self.current_row()
+        if row is not None and self._action_block() is None:
+            self.path_vars_requested.emit(row.id)
+
+    # -- Update --
+
+    def _on_update_clicked(self) -> None:
+        """Update This Library: look for changes first (the folder is not touched); the preview is the next stop."""
+        row, net = self.current_row(), self._net_status
+        if (
+            row is None or row.entry is None or row.state is not State.UPDATE_AVAILABLE or self._flow is not None
+            or self._action_block() is not None or net is None or net.net is None or isinstance(self._mf, Issue)
+        ):
+            return
+        self._flow = _Flow("update", row.id, row.name)
+        self._lock_list(True)
+        services, root, entry, git = self._services, self._root, row.entry, net.net
+
+        def look(progress, cancel):
+            return services.plan_update(root, entry, git, progress=progress, cancel=cancel, running=services.kicad_running)
+
+        self._start_job("look", "update", row.name, look, self._on_looked)
+
+    def _on_looked(self, job: _Job, value) -> None:
+        flow = self._flow
+        if flow is None or flow.kind != "update":
+            return
+        if job.stopping:
+            self._stopped_update(flow)
+            return
+        if isinstance(value, Issue):
+            self._show_update_refusal(value)
+            return
+        flow.plan = value
+        page, name = self._update_page, flow.name
+        if value.refusal is not None:
+            self._log_could_not("update", value.refusal)
+            if value.dirty:
+                page.show_dirty(value, name=name)
+            else:
+                page.show_refusal(value.refusal, heading=catalog_pages.UPDATE_HEADING.format(name=name))
+            self._emit_outcome(flow, ok=False)
+        elif value.current:
+            page.show_current(name)
+            # the check said a newer version exists, but this folder already is at the fetched commit
+            self._updates[flow.id] = status.UpdateState(flow.id, Check.CURRENT, value.new, self._clock())
+            self._rebuild_rows()
+            self.update_states_changed.emit(self._updates)
+        else:
+            page.show_plan(value, name=name)
+        self._enter_page("update")
+
+    def _stopped_update(self, flow: _Flow) -> None:
+        self.log_line.emit(LOG_STOPPED_UPDATING.format(name=flow.name), "info")
+        self._emit_outcome(flow, ok=False)
+        self._leave_pages()
+
+    def _show_update_refusal(self, issue: Issue) -> None:
+        """A failed or refused look for changes: the ✖ row with Back to List; nothing was changed."""
+        flow = self._flow
+        if flow is None:
+            return
+        self._log_could_not("update", issue)
+        self._update_page.show_refusal(issue, heading=catalog_pages.UPDATE_HEADING.format(name=flow.name))
+        self._enter_page("update")
+        self._emit_outcome(flow, ok=False)
+
+    def _on_update_primary(self) -> None:
+        """Update Library on the preview: the one place apply_update is called from, and only for the previewed commit."""
+        flow, net = self._flow, self._net_status
+        plan = flow.plan if flow is not None else None
+        if (
+            flow is None or flow.kind != "update" or not isinstance(plan, ops.UpdatePlan) or plan.refusal is not None
+            or plan.current or self._action_block() is not None or net is None or net.net is None
+        ):
+            return
+        services, root, git = self._services, self._root, net.net
+
+        def apply(progress, cancel):
+            return services.apply_update(root, plan, git, cancel=cancel)
+
+        self._start_job("apply", "update", flow.name, apply, self._on_applied)
+
+    def _on_applied(self, job: _Job, issues) -> None:
+        flow = self._flow
+        plan = flow.plan if flow is not None else None
+        if flow is None or not isinstance(plan, ops.UpdatePlan):
+            return
+        if any(issue.code == "git.cancelled" for issue in issues):
+            self._stopped_update(flow)
+            return
+        errors = [issue for issue in issues if issue.severity is Severity.ERROR]
+        if errors:  # the preview stays: it says why, and Update Library or Keep Current Version remain
+            self._log_could_not("update", errors[0])
+            self._update_page.show_notice(errors[0].text)
+            return
+        for issue in issues:
+            self.log_line.emit(issue.text, issue.severity.value)
+        self._updates[flow.id] = status.UpdateState(flow.id, Check.CURRENT, plan.new, self._clock())
+        text = RESULT_UPDATED.format(name=flow.name, commit=plan.new[:7], a=len(plan.added), r=len(plan.removed))
+        outcome = CatalogOutcome("update", flow.id, flow.name, True, root_is_repo=(self._root / ".git").exists())
+        self._finish_change(flow, [(text, "success")], manifest_note=True, outcome=outcome)
+        self.update_states_changed.emit(self._updates)
+
+    def _finish_change(self, flow: _Flow, lines, *, manifest_note: bool, outcome: CatalogOutcome) -> None:
+        """An Update or Remove ended: the page closes, the rows are read again, the result strip shows, the main window follows up."""
+        self._flow = None
+        self._page_kind = None
+        self._lock_list(False)
+        self.refresh()
+        self._select_row(flow.id)
+        self.show_result(lines, generate=True, manifest_note=manifest_note)
+        self._refresh_details()
+        self._update_default_button()
+        self._refresh_actions()
+        self._tree.setFocus()
+        self._emit_busy()
+        self.job_finished.emit(outcome)
+
+    # -- Remove --
+
+    def _on_remove_clicked(self) -> None:
+        """Remove This Library: plan on a worker (size and the libraries that leave the scan), then the confirmation page."""
+        row, mf = self.current_row(), self._mf
+        if row is None or self._flow is not None or self._action_block() is not None or isinstance(mf, Issue):
+            return
+        listed = row.entry is not None and row.state in (State.INSTALLED, State.UPDATE_AVAILABLE, State.FOLDER_MISSING)
+        if not (listed or row.state is State.NOT_IN_CATALOG):
+            return
+        self._flow = _Flow("remove", row.id, row.name)
+        self._lock_list(True)
+        services, root, scan, target = self._services, self._root, self._scan, row.id
+
+        def plan(progress, cancel):
+            return services.plan_remove(root, target, mf, scan=scan, running=services.kicad_running)
+
+        self._start_job("plan", "remove", row.name, plan, self._on_remove_planned)
+
+    def _on_remove_planned(self, job: _Job, plan) -> None:
+        flow = self._flow
+        if flow is None or flow.kind != "remove":
+            return
+        flow.plan = plan
+        self._remove_page.show_plan(plan, name=flow.name)
+        self._enter_page("remove")
+
+    def _on_remove_primary(self) -> None:
+        """Remove Library, pressed by hand on the confirmation page: the one place apply_remove is called from (D-21)."""
+        flow = self._flow
+        plan = flow.plan if flow is not None else None
+        if flow is None or flow.kind != "remove" or not isinstance(plan, ops.RemovePlan) or self._action_block() is not None:
+            return
+        services, root = self._services, self._root
+
+        def remove(progress, cancel):
+            return services.apply_remove(root, plan)
+
+        self._start_job("remove", "remove", flow.name, remove, self._on_removed)
+
+    def _on_removed(self, job: _Job, issues) -> None:
+        flow = self._flow
+        plan = flow.plan if flow is not None else None
+        if flow is None or not isinstance(plan, ops.RemovePlan):
+            return
+        errors = [issue for issue in issues if issue.severity is Severity.ERROR]
+        if errors:  # a failed Remove changes nothing the window shows: the entry and the row stay as they were
+            for issue in issues:
+                self.log_line.emit(issue.text, issue.severity.value)
+            self._remove_page.show_refusal(errors[0])
+            self._emit_outcome(flow, ok=False)
+            return
+        for issue in issues:
+            self.log_line.emit(issue.text, issue.severity.value)
+        self._updates.pop(flow.id, None)
+        outcome = CatalogOutcome("remove", flow.id, flow.name, True, root_is_repo=(self._root / ".git").exists())
+        self._finish_change(
+            flow, [(RESULT_REMOVED.format(name=flow.name), "success")], manifest_note=plan.listed, outcome=outcome
+        )
+
     # ── Closing ───────────────────────────────────────────────────────────────────────────────
 
     def closeEvent(self, event) -> None:
@@ -1899,7 +2202,12 @@ class CatalogDialog(QDialog):
     def _stop_question(self, job: _Job) -> tuple[QMessageBox, object]:
         """The window-modal question `Stop the current job?`; Keep Working is the default and the Esc button."""
         label = job_label(job.flow, job.name)
-        consequence = CONSEQUENCE_CHECK if job.flow == "check" else CONSEQUENCE_ADD
+        if job.flow == "check":
+            consequence = CONSEQUENCE_CHECK
+        elif job.flow == "update":
+            consequence = CONSEQUENCE_UPDATE.format(name=job.name)
+        else:
+            consequence = CONSEQUENCE_ADD
         text = STOP_TEXT.format(job=label[:1].upper() + label[1:], consequence=consequence)
         box = QMessageBox(QMessageBox.Icon.Question, STOP_TITLE, text, QMessageBox.StandardButton.NoButton, self)
         box.setTextFormat(Qt.TextFormat.PlainText)
@@ -1920,18 +2228,18 @@ class CatalogDialog(QDialog):
     def done(self, r: int) -> None:
         """Hide the window (it is reused), after the job rules: a job is stopped first, a Remove-like step is waited for.
 
-        A repository check or a download asks `Stop the current job?` (Stop and Close ends the job and closes the
-        window when it has ended); the final Add cannot be stopped halfway, so the close is ignored and the strip says
-        so; a download waiting on a preview is deleted without asking.
+        A repository check, a download or an update asks `Stop the current job?` (Stop and Close ends the job and
+        closes the window when it has ended); the final Add and a Remove cannot be stopped halfway, so the close is
+        ignored and the strip says so; a download waiting on a preview is deleted without asking.
         """
         if self._asking:
             return
         job = self._job
         if job is not None:
-            if job.phase == "register":
-                self._set_job_text(REGISTER_CLOSE_TEXT)
+            if job.phase in ("register", "remove"):
+                self._set_job_text(REGISTER_CLOSE_TEXT if job.phase == "register" else REMOVE_CLOSE_TEXT)
                 return
-            if job.phase in ("check", "stage") and not job.stopping and self.isVisible():
+            if job.phase in _STOPPABLE and not job.stopping and self.isVisible():
                 self._asking = True
                 try:
                     stop = self._ask_stop(job)
@@ -1942,7 +2250,7 @@ class CatalogDialog(QDialog):
                 job = self._job  # it may have ended while the question was open
             if job is not None:
                 self._pending_close = r
-                if job.phase in ("check", "stage") and not job.stopping:
+                if job.phase in _STOPPABLE and not job.stopping:
                     self._cancel_job(job)
                 else:
                     job.cancel.set()

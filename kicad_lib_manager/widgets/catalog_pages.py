@@ -897,9 +897,9 @@ class UpdatePreviewPage(ReviewPage):
         self.set_primary(UPDATE_LIBRARY_TEXT)
         self.set_primary_shown(False)
 
-    def show_plan(self, plan) -> None:
-        """Fill the preview from an ops.UpdatePlan that has no refusal and is not current."""
-        self._begin(UPDATE_HEADING.format(name=plan.name))
+    def show_plan(self, plan, *, name: str | None = None) -> None:
+        """Fill the preview from an ops.UpdatePlan that has no refusal and is not current (name overrides the plan's)."""
+        self._begin(UPDATE_HEADING.format(name=name or plan.name))
         self.set_back(KEEP_VERSION_TEXT, KEEP_VERSION_TIP)
         self.set_primary_shown(True)
         version = plain_label(f"{plan.old[:SHORT_ID]}  ->  {plan.new[:SHORT_ID]}")
@@ -938,9 +938,9 @@ class UpdatePreviewPage(ReviewPage):
         self._add(status_line(SUCCESS_GLYPH, UP_TO_DATE_TEXT.format(name=name), theme.SUCCESS))
         self.refresh_buttons()
 
-    def show_dirty(self, plan) -> None:
+    def show_dirty(self, plan, *, name: str | None = None) -> None:
         """Changed files block the update: the refusal, then the changed files in Mono (8 rows, then `and {n} more`)."""
-        self._begin(UPDATE_HEADING.format(name=plan.name))
+        self._begin(UPDATE_HEADING.format(name=name or plan.name))
         if plan.refusal is not None:
             self._add(status_line(ERROR_GLYPH, plan.refusal.text, theme.ERROR))
         files = list(plan.dirty)
@@ -1001,11 +1001,12 @@ class RemovePage(ReviewPage):
     def primary_accepts_ctrl_return(self) -> bool:
         return False
 
-    def show_plan(self, plan) -> None:
-        """Fill the confirmation from an ops.RemovePlan."""
+    def show_plan(self, plan, *, name: str | None = None) -> None:
+        """Fill the confirmation from an ops.RemovePlan (name overrides the plan's: an address-added library shows owner/repo)."""
         self._clear_body()
         self._folder = self._leave = None
-        self.set_heading(REMOVE_HEADING.format(name=plan.name))
+        shown_name = name or plan.name
+        self.set_heading(REMOVE_HEADING.format(name=shown_name))
         self.set_back(KEEP_LIBRARY_TEXT)
         self.set_primary(REMOVE_LIBRARY_TEXT)
         self.set_primary_shown(True)
@@ -1013,7 +1014,7 @@ class RemovePage(ReviewPage):
         folder = plan.folder.as_posix()
         if plan.exists:
             size = status.size_text(math.ceil(plan.size_bytes / 1_000_000))
-            tail = (REMOVE_TAIL_LISTED if plan.listed else REMOVE_TAIL_UNLISTED).format(size=size, name=plan.name)
+            tail = (REMOVE_TAIL_LISTED if plan.listed else REMOVE_TAIL_UNLISTED).format(size=size, name=shown_name)
             self._line = f"{REMOVE_LEAD_TEXT} {folder} {tail}"
             box, lay = _section()
             box.setObjectName("removeLine")

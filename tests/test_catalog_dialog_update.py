@@ -569,6 +569,8 @@ def test_update_current_dirty_and_refused(qtbot, tmp_path, fakes):
     assert "✓ SparkFun is already up to date." in texts(dialog._update_page)
     assert dialog._update_page.primary_button().isHidden()
     dialog._update_page.back_button().click()
+    assert by_name(dialog)["SparkFun"].text(1) == "✓ Installed"  # the row now knows it is current
+    available(dialog)
 
     dirty = tuple(f"symbols/f{n}.kicad_sym" for n in range(10))
     fakes.plan = update_plan(name="SparkFun", dirty=dirty, refusal=dirty_issue("SparkFun"))
@@ -577,6 +579,7 @@ def test_update_current_dirty_and_refused(qtbot, tmp_path, fakes):
     assert dialog._update_page.primary_button().isHidden() and dialog._update_page.back_button().text() == "Back to List"
     assert outcomes and not outcomes[-1].ok and fakes.apply_calls == []
     dialog._update_page.back_button().click()
+    available(dialog)
 
     unreachable = "GitHub could not be reached. Check your internet connection, then try again."
     fakes.plan = Issue(Severity.ERROR, "git.unreachable", unreachable)
@@ -639,7 +642,7 @@ def test_failed_update_logs_error_and_raw_text(qtbot, tmp_path, fakes):
     select(dialog, "SparkFun")
     dialog._update_btn.click()
     qtbot.waitUntil(lambda: bool(dialog._page_kind == "update"), timeout=10000)
-    assert ("error", "Library catalog step failed: boom") in logs
+    assert ("error", "Library catalog step failed: RuntimeError: boom") in logs
     assert any(level == "error" and text.startswith("Could not update SparkFun: ") for level, text in logs)
     assert any(text.startswith("✖ ") for text in texts(dialog._update_page))
     assert dialog._update_page.primary_button().isHidden() and idle(dialog)
