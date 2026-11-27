@@ -5,16 +5,16 @@ milestone_name: Public Library Manager
 current_phase: 17
 current_phase_name: Library Catalog
 status: executing
-stopped_at: Completed 17-11-PLAN.md
-last_updated: "2026-11-27T10:55:37.743Z"
+stopped_at: Completed 17-12-PLAN.md
+last_updated: "2026-11-27T11:15:09.606Z"
 last_activity: 2026-11-27
 last_activity_desc: Phase 17 execution started
-state_head: 47bac92903ce856449cc031275de7f041217039f
+state_head: 80578b7aaecb9fbb475febdc241c79647ae12563
 progress:
   total_phases: 8
   completed_phases: 3
   total_plans: 60
-  completed_plans: 51
+  completed_plans: 52
   percent: 38
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-26)
 ## Current Position
 
 Phase: 17 (Library Catalog) — EXECUTING
-Plan: 12 of 20
+Plan: 13 of 20
 Status: Ready to execute
 Last activity: 2026-11-27 — Phase 17 execution started
 
@@ -92,6 +92,7 @@ Progress: [████░░░░░░] 38%
 | Phase 17 P09 | 20 min | 2 tasks | 4 files |
 | Phase 17 P10 | 12 min | 3 tasks | 8 files |
 | Phase 17 P11 | 18 min | 3 tasks | 3 files |
+| Phase 17 P12 | 17 min | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -135,6 +136,8 @@ The full decision log is in the PROJECT.md Key Decisions table. The v1.0 per-pha
 - [Phase 17]: 17-11: the catalog window's Repository link and Details heading elide (full text as tooltip) because Qt cannot break inside an unbroken word; every wrapped label ignores its text width so nothing widens the window
 - [Phase 17]: 17-11: network actions in the catalog window stay disabled until the off-thread Git check answers; every slow read runs through run_in_background with a generation counter that drops late results after a close or root change
 - [Phase 17]: 17-11: folder size on disk is measured off the GUI thread (CatalogServices.size_on_disk) and reads Calculating... first
+- [Phase 17]: 17-12: the startup update check reads catalog.json on the GUI thread (small file) and runs net_status and check_updates on a daemon thread; each check has its own cancel event and _catalog_check_seq drops an older answer after a switch or close
+- [Phase 17]: 17-12: main window gates Rescan, Generate Tables, Import Part and Migrate through one _refresh_busy_controls (scan and catalog job); _switch_refusal reads the catalog window via is_job_running, is_finishing and holds_download; catalog_model_vars is read on the scan workers and an unreadable record gives {}
 
 ### Pending Todos
 
@@ -180,8 +183,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-27T10:55:36.851Z
-Stopped at: Completed 17-11-PLAN.md
+Last session: 2026-11-27T11:15:08.674Z
+Stopped at: Completed 17-12-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
