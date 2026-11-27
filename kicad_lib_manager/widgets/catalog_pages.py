@@ -8,6 +8,7 @@ refusals after a download); ReviewPage is their common base and CollapsibleList 
 """
 
 import html
+import math
 
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont
@@ -105,6 +106,37 @@ LICENCE_LINE = "Licence: {name}"
 LICENCE_LINE_CONFIRMED = "Licence: {name} (you confirmed you read the terms)"
 NO_LICENCE_FILE_TEXT = "This repository has no licence file, so nothing says what you may do with it."
 NOTHING_ADDED_TEXT = "Nothing was added. The downloaded copy was deleted."
+
+# Update and Remove (UI-SPEC "Update flow", "Remove flow", "Refusals")
+UPDATE_HEADING = "Update {name}"
+KEEP_VERSION_TEXT = "Keep Current Version"
+KEEP_VERSION_TIP = "Do not update. Nothing changes."
+UPDATE_LIBRARY_TEXT = "Update Library"
+VERSION_LABEL = "Version"
+FILES_LABEL = "Files changed"
+FILES_TEXT = "{n} files"
+ADDED_TITLE = "Libraries added"
+REMOVED_TITLE = "Libraries removed"
+NONE_TEXT = "None"
+REMOVED_NOTE = "Projects that use a removed library lose those parts."
+UP_TO_DATE_TEXT = "{name} is already up to date."
+MORE_TEXT = "and {n} more"
+DIRTY_MAX_ROWS = 8
+SHORT_ID = 7
+KICAD_OPEN_UPDATED_TEXT = "KiCad is open ({names}). Restart it after the library is updated to see the changes."
+KICAD_OPEN_REMOVED_TEXT = "KiCad is open ({names}). Restart it after the library is removed to see the changes."
+
+REMOVE_HEADING = "Remove {name}?"
+KEEP_LIBRARY_TEXT = "Keep Library"
+REMOVE_LIBRARY_TEXT = "Remove Library"
+REMOVE_LEAD_TEXT = "This deletes the folder"
+REMOVE_TAIL_LISTED = "({size} on disk) and removes {name} from the catalog."
+REMOVE_TAIL_UNLISTED = "({size} on disk)."
+REMOVE_GONE_TEXT = "The folder is already gone, so only the catalog entry is removed."
+LEAVE_TITLE = "Libraries that leave your scan"
+LEAVE_NOTE = "The next Generate Tables drops them from your KiCad library tables."
+VARS_USED_HEADING = "Path variables it used"
+VARS_STAY_NOTE = "They stay set in KiCad. Projects that still use this library's 3D models lose them."
 
 # ── Sizes ───────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -414,6 +446,10 @@ class ReviewPage(QWidget):
     def _own_primary_rule(self) -> str | None:
         """The reason the page's own rules keep the primary disabled (the missing tick), or None."""
         return None
+
+    def primary_accepts_ctrl_return(self) -> bool:
+        """False on the Remove page: Ctrl+Return never confirms a deletion (D-21)."""
+        return True
 
     def refresh_buttons(self) -> None:
         reason = self._own_primary_rule()
@@ -824,3 +860,219 @@ class AddPreviewPage(ReviewPage):
 
     def _first_input(self) -> QWidget | None:
         return self._tick
+
+
+# ── The Update preview ──────────────────────────────────────────────────────────────────────────────────
+
+def _section() -> tuple[QWidget, QVBoxLayout]:
+    box = QWidget()
+    lay = QVBoxLayout(box)
+    lay.setContentsMargins(0, 0, 0, 0)
+    lay.setSpacing(theme.SP_XS)
+    return box, lay
+
+
+def _kicad_open_line(template: str, names) -> QLabel:
+    return status_line(WARNING_GLYPH, template.format(names=", ".join(names)), theme.AMBER)
+
+
+class UpdatePreviewPage(ReviewPage):
+    """`Update {name}`: the version change, the files changed and the libraries added and removed; also its refusals.
+
+    Variants: show_plan (the preview), show_current (already up to date), show_dirty (changed files block the
+    update, D-07) and show_refusal (any other refusal or failure). Only the preview keeps a primary button.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._added: CollapsibleList | None = None
+        self._removed: CollapsibleList | None = None
+        self._dirty: CollapsibleList | None = None
+
+    def _begin(self, heading: str) -> None:
+        self._clear_body()
+        self._added = self._removed = self._dirty = None
+        self.set_heading(heading)
+        self.set_back(BACK_TEXT)
+        self.set_primary(UPDATE_LIBRARY_TEXT)
+        self.set_primary_shown(False)
+
+    def show_plan(self, plan) -> None:
+        """Fill the preview from an ops.UpdatePlan that has no refusal and is not current."""
+        self._begin(UPDATE_HEADING.format(name=plan.name))
+        self.set_back(KEEP_VERSION_TEXT, KEEP_VERSION_TIP)
+        self.set_primary_shown(True)
+        version = plain_label(f"{plan.old[:SHORT_ID]}  ->  {plan.new[:SHORT_ID]}")
+        mono(version)
+        self._add(_row(VERSION_LABEL, version))
+        self._add(_row(FILES_LABEL, plain_label(FILES_TEXT.format(n=plan.files_changed))))
+        self._added = self._name_section(ADDED_TITLE, plan.added, removed=False)
+        self._removed = self._name_section(REMOVED_TITLE, plan.removed, removed=True)
+        if plan.kicad_open:
+            self._add(_kicad_open_line(KICAD_OPEN_UPDATED_TEXT, plan.kicad_open))
+        self.refresh_buttons()
+
+    def _name_section(self, title: str, names, *, removed: bool) -> CollapsibleList | None:
+        """A list of library names (collapsed above 3, at most 6 rows tall); `None` under a `(0)` heading when there are none."""
+        box, lay = _section()
+        listing = None
+        if names:
+            listing = CollapsibleList(title)
+            listing.set_rows([(f"{WARNING_GLYPH}{n}" if removed else n,) for n in names], token=theme.AMBER if removed else None)
+            lay.addWidget(listing)
+            if removed:
+                note = plain_label(REMOVED_NOTE, wrap=True)
+                muted(note)
+                lay.addWidget(note)
+        else:
+            lay.addWidget(plain_label(f"{title} (0)"))
+            none = plain_label(NONE_TEXT)
+            muted(none)
+            lay.addWidget(none)
+        self._add(box)
+        return listing
+
+    def show_current(self, name: str) -> None:
+        """The fetched version is the one installed: `✓ {name} is already up to date.` and Back to List."""
+        self._begin(UPDATE_HEADING.format(name=name))
+        self._add(status_line(SUCCESS_GLYPH, UP_TO_DATE_TEXT.format(name=name), theme.SUCCESS))
+        self.refresh_buttons()
+
+    def show_dirty(self, plan) -> None:
+        """Changed files block the update: the refusal, then the changed files in Mono (8 rows, then `and {n} more`)."""
+        self._begin(UPDATE_HEADING.format(name=plan.name))
+        if plan.refusal is not None:
+            self._add(status_line(ERROR_GLYPH, plan.refusal.text, theme.ERROR))
+        files = list(plan.dirty)
+        if files:
+            self._dirty = CollapsibleList("", collapse=False)
+            mono(self._dirty.tree())
+            self._dirty.set_rows([(path,) for path in files[:DIRTY_MAX_ROWS]])
+            self._add(self._dirty)
+            if len(files) > DIRTY_MAX_ROWS:
+                more = plain_label(MORE_TEXT.format(n=len(files) - DIRTY_MAX_ROWS))
+                muted(more)
+                self._add(more)
+        self.refresh_buttons()
+
+    def show_refusal(self, issue, *, heading: str = "") -> None:
+        """Any other refusal or failure (GitHub unreachable, Git LFS in the new version, a missing folder): ✖ row, Back to List."""
+        self._begin(heading or self.heading_text())
+        text = issue.text if isinstance(issue, Issue) else str(issue)
+        self._add(status_line(ERROR_GLYPH, text, theme.ERROR))
+        self.refresh_buttons()
+
+    def show_notice(self, text: str) -> None:
+        """A ✖ row at the top of the preview (an update that failed after the preview, which stays open)."""
+        self._body.insertWidget(0, status_line(ERROR_GLYPH, text, theme.ERROR))
+
+    def added_list(self) -> CollapsibleList | None:
+        return self._added
+
+    def removed_list(self) -> CollapsibleList | None:
+        return self._removed
+
+    def dirty_list(self) -> CollapsibleList | None:
+        return self._dirty
+
+
+# ── The Remove confirmation ─────────────────────────────────────────────────────────────────────────────
+
+class RemovePage(ReviewPage):
+    """`Remove {name}?`: what the delete takes with it, Keep Library (the default and the Esc button) and Remove Library.
+
+    Remove Library is the destructive button: ERROR fill, never the default button, never on Ctrl+Return, and it
+    never takes the first focus (D-21). There is no accent button on this page.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._primary.setStyleSheet(destructive_button_qss())
+        self.set_primary(REMOVE_LIBRARY_TEXT)
+        self._line = ""
+        self._folder: ElidedLabel | None = None
+        self._leave: CollapsibleList | None = None
+        self._make_back_default(True)
+
+    def _make_back_default(self, on: bool) -> None:
+        self._back.setAutoDefault(on)
+        self._back.setDefault(on)
+
+    def primary_accepts_ctrl_return(self) -> bool:
+        return False
+
+    def show_plan(self, plan) -> None:
+        """Fill the confirmation from an ops.RemovePlan."""
+        self._clear_body()
+        self._folder = self._leave = None
+        self.set_heading(REMOVE_HEADING.format(name=plan.name))
+        self.set_back(KEEP_LIBRARY_TEXT)
+        self.set_primary(REMOVE_LIBRARY_TEXT)
+        self.set_primary_shown(True)
+        self._make_back_default(True)
+        folder = plan.folder.as_posix()
+        if plan.exists:
+            size = status.size_text(math.ceil(plan.size_bytes / 1_000_000))
+            tail = (REMOVE_TAIL_LISTED if plan.listed else REMOVE_TAIL_UNLISTED).format(size=size, name=plan.name)
+            self._line = f"{REMOVE_LEAD_TEXT} {folder} {tail}"
+            box, lay = _section()
+            box.setObjectName("removeLine")
+            box.setAccessibleName(self._line)
+            lay.addWidget(plain_label(REMOVE_LEAD_TEXT, wrap=True))
+            self._folder = ElidedLabel("", mode=Qt.TextElideMode.ElideMiddle, full_tooltip=True)
+            mono(self._folder)
+            self._folder.set_full_text(folder)
+            lay.addWidget(self._folder)
+            lay.addWidget(plain_label(tail, wrap=True))
+            self._add(box)
+        else:
+            self._line = REMOVE_GONE_TEXT
+            self._add(plain_label(REMOVE_GONE_TEXT, wrap=True))
+        if plan.nicknames:
+            box, lay = _section()
+            self._leave = CollapsibleList(LEAVE_TITLE)
+            self._leave.set_rows([(name,) for name in plan.nicknames])
+            lay.addWidget(self._leave)
+            note = plain_label(LEAVE_NOTE, wrap=True)
+            muted(note)
+            lay.addWidget(note)
+            self._add(box)
+        if plan.vars:
+            box, lay = _section()
+            lay.addWidget(plain_label(VARS_USED_HEADING))
+            for var in plan.vars:
+                label = plain_label(var)
+                mono(label)
+                lay.addWidget(label)
+            note = plain_label(VARS_STAY_NOTE, wrap=True)
+            muted(note)
+            lay.addWidget(note)
+            self._add(box)
+        if plan.kicad_open:
+            self._add(_kicad_open_line(KICAD_OPEN_REMOVED_TEXT, plan.kicad_open))
+        self.refresh_buttons()
+
+    def show_refusal(self, issue) -> None:
+        """A delete that failed: the ✖ row (the catalog entry was kept) and Back to List."""
+        self._clear_body()
+        self._folder = self._leave = None
+        self._line = ""
+        text = issue.text if isinstance(issue, Issue) else str(issue)
+        self._add(status_line(ERROR_GLYPH, text, theme.ERROR))
+        self.set_back(BACK_TEXT)
+        self.set_primary_shown(False)
+        self.refresh_buttons()
+
+    def line_text(self) -> str:
+        """The first sentence of the page as one text (`This deletes the folder ...` or the entry-only line)."""
+        return self._line
+
+    def folder_label(self) -> ElidedLabel | None:
+        return self._folder
+
+    def nickname_list(self) -> CollapsibleList | None:
+        return self._leave
+
+    def focus_first(self) -> None:
+        """Focus never lands on Remove Library: Keep Library takes it."""
+        self._back.setFocus()

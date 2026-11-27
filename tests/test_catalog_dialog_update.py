@@ -85,7 +85,8 @@ def test_update_preview_page(qtbot):
     assert page.back_button().text() == "Keep Current Version"
     assert page.back_button().toolTip() == "Do not update. Nothing changes."
     assert page.primary_button().text() == "Update Library" and page.primary_button().isEnabled()
-    assert not page.primary_button().isHidden() or page.primary_button().isVisibleTo(page)
+    page.show()
+    assert page.primary_button().isVisibleTo(page)
     assert page.primary_button().styleSheet() == theme.PRIMARY_BUTTON_QSS
 
 
@@ -120,7 +121,7 @@ def test_update_current_and_dirty_variants(qtbot):
     assert "✖ " + dirty_issue().text in shown
     rows = page.dirty_list()
     assert rows.row_count() == 8 and rows.tree().topLevelItem(0).text(0) == "symbols/file_0.kicad_sym"
-    assert rows.tree().topLevelItem(0).font(0).family() == theme.MONO_FAMILY or rows.tree().font().family() == theme.MONO_FAMILY
+    assert rows.tree().font().family() == theme.MONO_FAMILY
     assert "and 3 more" in shown
     assert page.back_button().text() == "Back to List" and page.primary_button().isHidden()
     page.show_dirty(update_plan(name="Acme", dirty=dirty[:8], refusal=dirty_issue()))
@@ -156,7 +157,7 @@ def test_update_lists_overflow(qtbot):
         assert lst.is_expanded()
         row_height = lst.tree().sizeHintForRow(0)
         assert lst.tree().height() <= 6 * row_height + 2 * lst.tree().frameWidth() + 4  # at most 6 rows tall, then it scrolls
-        assert lst.tree().verticalScrollBar().maximum() > 0
+        qtbot.waitUntil(lambda: lst.tree().verticalScrollBar().maximum() > 0, timeout=2000)
     assert page.primary_button().isVisibleTo(page) and page.back_button().isVisibleTo(page)
 
 
@@ -169,7 +170,8 @@ def test_remove_page(qtbot):
     assert page.heading_text() == "Remove Acme?"
     folder = (FAKE_COLLECTION / "ThirdParty" / "Acme").as_posix()
     shown = texts(page)
-    assert f"This deletes the folder {folder} (69 MB on disk) and removes Acme from the catalog." in shown
+    assert page.line_text() == f"This deletes the folder {folder} (69 MB on disk) and removes Acme from the catalog."
+    assert "This deletes the folder" in shown and "(69 MB on disk) and removes Acme from the catalog." in shown
     lst = page.nickname_list()
     assert lst.heading_text() == "Libraries that leave your scan (4)" and lst.row_count() == 4 and not lst.is_expanded()
     assert "The next Generate Tables drops them from your KiCad library tables." in shown
@@ -193,17 +195,17 @@ def test_remove_page_variants(qtbot):
     page = build(qtbot, cp.RemovePage())
     page.show_plan(remove_plan(name="Acme", exists=False, size=0))
     shown = texts(page)
+    assert page.line_text() == "The folder is already gone, so only the catalog entry is removed."
     assert "The folder is already gone, so only the catalog entry is removed." in shown
-    assert not any(text.startswith("This deletes the folder") for text in shown)
+    assert "This deletes the folder" not in shown and page.folder_label() is None
     assert page.nickname_list() is None and "Path variables it used" not in shown
     assert not any("KiCad is open" in text for text in shown)
     page.show_plan(remove_plan(name="Stray", listed=False, nicknames=("S",)))
-    shown = texts(page)
     folder = (FAKE_COLLECTION / "ThirdParty" / "Stray").as_posix()
-    assert f"This deletes the folder {folder} (69 MB on disk)." in shown  # not in the catalog: nothing to remove from it
+    assert page.line_text() == f"This deletes the folder {folder} (69 MB on disk)."  # not in the catalog: nothing to remove from it
     assert page.nickname_list().is_expanded() and page.nickname_list().row_count() == 1
     page.show_plan(remove_plan(name="Big", size=2_400_000_000))
-    assert "(2.4 GB on disk)" in " ".join(texts(page))
+    assert "(2.4 GB on disk) and removes Big from the catalog." in texts(page)
 
 
 def test_remove_page_long_names(qtbot):
@@ -229,8 +231,8 @@ def test_remove_page_failure_and_focus(qtbot):
     assert any(text.startswith("✖ Could not remove Acme") for text in texts(page))
     assert page.back_button().text() == "Back to List" and page.primary_button().isHidden()
     page.show_plan(remove_plan())  # a fresh plan restores the confirmation
-    assert page.back_button().text() == "Keep Library" and page.primary_button().isVisibleTo(page) is not None
     page.show()
     qtbot.waitExposed(page)
+    assert page.back_button().text() == "Keep Library" and page.primary_button().isVisibleTo(page)
     page.focus_first()
-    assert page.back_button().hasFocus()  # focus never lands on the destructive button
+    assert page.focusWidget() is page.back_button()  # focus never lands on the destructive button
