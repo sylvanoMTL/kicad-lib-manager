@@ -580,3 +580,33 @@ def test_name_lists_are_capped(harness):
     dropped = next(line for line in lines if line.startswith("Dropped 7 selections"))
     assert dropped.count(".kicad_sym") == 5
     assert dropped.endswith("and 2 more")
+
+
+# -- the refreshing state over the trees (owner finding 2 of 17-17) --------------------------------
+
+
+def test_refresh_overlay_during_the_source_read(harness):
+    h = harness.h
+    root = make_collection(h.tmp_path / "lib")
+    acme(root)
+    window = harness(root)
+    h.source_gate = threading.Event()
+    overlay = window._refresh_overlay
+    assert not overlay.isVisible()
+
+    window._catalog.job_finished.emit(outcome("add"))
+
+    assert overlay.isVisible()
+    assert overlay.text() == "Refreshing the library list after adding Acme. Large libraries can take a minute."
+    assert not window._tree.isEnabled()
+    assert not window._generate_btn.isEnabled()
+    worker = window._catalog_workers[0]
+    worker.progress.emit(4210, 11050)
+    assert overlay.count_text() == "4,210 of 11,050 files"
+    assert (overlay.bar_value(), overlay.bar_maximum()) == (38, 100)
+
+    h.source_gate.set()
+    harness.finish(window)
+
+    assert not overlay.isVisible()
+    assert window._tree.isEnabled()

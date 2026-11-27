@@ -208,3 +208,23 @@ def test_an_atomic_named_library_of_a_source_is_judged_and_dropped_like_in_a_ful
 
     shutil.rmtree(root / "ThirdParty" / "Lib")
     _same_as_full_scan(library_scanner.remove_source(added, "ThirdParty/Lib", nokicad), scan_all(root, kicad_fp_dir=nokicad))
+
+
+def test_scan_source_reports_file_progress(root, nokicad):
+    previous = scan_all(root, kicad_fp_dir=nokicad)
+    files = {f"symbols/S{n}.kicad_sym": _sym() for n in range(2)}
+    files.update({f"footprints/F{n}.pretty/A.kicad_mod": _mod() for n in range(3)})
+    make_third_party(root, "Lib", files)
+    calls: list[tuple[int, int]] = []
+
+    got = library_scanner.scan_source(
+        root, previous, "ThirdParty/Lib", nokicad, progress=lambda done, total: calls.append((done, total))
+    )
+
+    assert isinstance(got, ScanResult)
+    assert calls and calls[-1] == (5, 5)
+    assert {total for _done, total in calls} == {5}
+    assert [done for done, _total in calls] == sorted(done for done, _total in calls)
+    # without the keyword the call reports nothing and gives the same result
+    plain = library_scanner.scan_source(root, previous, "ThirdParty/Lib", nokicad)
+    _same_as_full_scan(plain, got)
