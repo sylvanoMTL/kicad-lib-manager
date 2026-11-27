@@ -10,7 +10,6 @@ from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
-import pytest
 from catalogfixtures import make_third_party
 from collectionfixtures import make_collection
 from PySide6.QtCore import QPoint, QSize, Qt
@@ -706,6 +705,8 @@ def test_details_heading_shows_markup_as_typed(qtbot, tmp_path):
     link = dialog._field_rows["repository"][1]
     assert link.objectName() == "repositoryLink" and link.openExternalLinks()
     assert link.textFormat() == Qt.TextFormat.RichText
+    assert link.url() == "https://github.com/sparkfun/SparkFun-KiCad-Libraries" and link.toolTip() == link.url()
+    assert f'href="{link.url()}"' in link.text()
 
 
 # -- path variables -----------------------------------------------------------------------------

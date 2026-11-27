@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QModelIndex, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QModelIndex, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView, QDialog, QFrame, QGridLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QPushButton, QScrollArea,
@@ -127,8 +127,7 @@ STEP_FAILED = "Library catalog step failed: {text}"
 WINDOW_SIZE = (900, 640)
 WINDOW_MINIMUM = (760, 520)
 LIST_MINIMUM_HEIGHT = 120
-PANE_MINIMUM_HEIGHT = 200  # the pane's own minimum is lower, so the strips never push the list under its 120 px
-_PANE_FLOOR = 80
+PANE_MINIMUM_HEIGHT = 200  # kept while the window has room; strips may squeeze the pane (it scrolls), never the list
 STATUS_WIDTH, LICENCE_WIDTH, SIZE_WIDTH = 200, 120, 80
 CONTROL_HEIGHT = 28
 _LIST_SHARE = 0.45
@@ -186,9 +185,16 @@ def _status_cell(row: status.Row) -> tuple[str, str | None, str]:
 
 
 def _plain_label(text: str = "", *, wrap: bool = False) -> QLabel:
+    """A plain-text label. A wrapped one ignores its text's width, so a long unbreakable path never widens the window.
+
+    Qt breaks a line only at spaces, so such a path is cut off at the right edge; every text that can hold a path
+    carries its full text as tooltip or sits in an ElidedLabel.
+    """
     label = QLabel(text)
     label.setTextFormat(Qt.TextFormat.PlainText)
     label.setWordWrap(wrap)
+    if wrap:
+        label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
     return label
 
 
@@ -205,6 +211,54 @@ def _mono(widget: QWidget) -> None:
 
 def _muted(label: QLabel) -> None:
     label.setStyleSheet(f"color: {theme.MUTED};")
+
+
+class _LinkLabel(QLabel):
+    """The Repository link: one rich-text line elided in the middle to its width; the whole address is the tooltip.
+
+    A web address has no place a line may break, so it is elided instead of wrapped and never widens the window.
+    Only an https address becomes a link (opens in the browser).
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("repositoryLink")
+        self.setTextFormat(Qt.TextFormat.RichText)  # the one rich-text label of the window
+        self.setOpenExternalLinks(True)
+        self.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        palette = self.palette()
+        palette.setColor(palette.ColorRole.Link, QColor(theme.LINK))
+        self.setPalette(palette)
+        self._url = ""
+
+    def set_url(self, url: str) -> None:
+        self._url = url
+        self.setToolTip(url)
+        self._refresh()
+
+    def url(self) -> str:
+        return self._url
+
+    def minimumSizeHint(self) -> QSize:
+        return QSize(0, super().minimumSizeHint().height())
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._refresh()
+
+    def _refresh(self) -> None:
+        if not self._url:
+            shown = ""
+        else:
+            width = self.contentsRect().width()
+            text = self._url if width < 40 else self.fontMetrics().elidedText(self._url, Qt.TextElideMode.ElideMiddle, width)
+            if self._url.startswith("https://"):
+                shown = f'<a href="{html.escape(self._url, quote=True)}">{html.escape(text)}</a>'
+            else:
+                shown = html.escape(text)
+        if self.text() != shown:
+            self.setText(shown)
 
 
 class CatalogDialog(QDialog):
@@ -435,7 +489,8 @@ class CatalogDialog(QDialog):
         pane.setStyleSheet(
             f"QFrame#detailPane {{ background-color: {theme.SURFACE}; border: 1px solid {theme.BORDER}; }}"
         )
-        pane.setMinimumHeight(_PANE_FLOOR)
+        # No height of its own to insist on: when the strips take the room the pane shrinks and scrolls, the list does not
+        pane.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Ignored)
         layout = QVBoxLayout(pane)
         layout.setContentsMargins(theme.SP_MD, theme.SP_MD, theme.SP_MD, theme.SP_MD)
         layout.setSpacing(theme.SP_SM)
@@ -470,7 +525,7 @@ class CatalogDialog(QDialog):
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(theme.SP_SM)
-        self._detail_heading = _plain_label(wrap=True)
+        self._detail_heading = ElidedLabel("", mode=Qt.TextElideMode.ElideRight, full_tooltip=True)
         _heading_font(self._detail_heading)
         layout.addWidget(self._detail_heading)
         self._detail_description = _plain_label(wrap=True)
@@ -540,16 +595,7 @@ class CatalogDialog(QDialog):
 
     def _make_value(self, key: str) -> QWidget:
         if key == "repository":
-            link = QLabel()
-            link.setObjectName("repositoryLink")
-            link.setTextFormat(Qt.TextFormat.RichText)  # the one rich-text label: the Repository link
-            link.setWordWrap(True)
-            link.setOpenExternalLinks(True)
-            link.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
-            palette = link.palette()
-            palette.setColor(palette.ColorRole.Link, QColor(theme.LINK))
-            link.setPalette(palette)
-            return link
+            return _LinkLabel()
         if key == "folder":
             folder = ElidedLabel("", mode=Qt.TextElideMode.ElideMiddle, full_tooltip=True)
             _mono(folder)
@@ -824,7 +870,7 @@ class CatalogDialog(QDialog):
         installed = row.state in (State.INSTALLED, State.UPDATE_AVAILABLE)
         on_disk = installed or row.state is State.NOT_IN_CATALOG
         problem = row.state in (State.FOLDER_MISSING, State.NOT_IN_CATALOG)
-        self._detail_heading.setText(row.name)
+        self._detail_heading.set_full_text(row.name)
         description = row.curated.description if row.curated is not None else ""
         self._detail_description.setText(description)
         self._detail_description.setVisible(bool(description))
@@ -866,15 +912,7 @@ class CatalogDialog(QDialog):
         return url.removesuffix(".git").rstrip("/")
 
     def _set_repository(self, url: str) -> None:
-        link = self._field_rows["repository"][1]
-        if not url:
-            link.setText("")
-        elif url.startswith("https://"):
-            # a zero-width space after each slash lets a long address wrap instead of widening the window
-            shown = html.escape(url).replace("/", "/&#8203;")
-            link.setText(f'<a href="{html.escape(url, quote=True)}">{shown}</a>')
-        else:
-            link.setText(html.escape(url))
+        self._field_rows["repository"][1].set_url(url)
 
     @staticmethod
     def _licence_text(row: status.Row) -> str:
