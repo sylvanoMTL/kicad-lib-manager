@@ -18,7 +18,7 @@ from collectionfixtures import make_collection
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QLabel, QMessageBox, QPushButton
 
-from kicad_lib_manager.catalog import curated, manifest, ops, validate
+from kicad_lib_manager.catalog import addons, curated, manifest, ops, validate
 from kicad_lib_manager.catalog.githubapi import RepoInfo
 from kicad_lib_manager.catalog.manifest import CatalogEntry, Manifest
 from kicad_lib_manager.catalog.ops import NetStatus
@@ -49,6 +49,7 @@ class Fakes:
         self.register_calls: list[SimpleNamespace] = []
         self.discard_calls: list = []
         self.check_calls: list[str] = []
+        self.check_listings: list[tuple] = []  # the listings of KiCad's add-on list each check received
         self.plan_calls = 0
         self.progress = [("Receiving objects", 10), ("Receiving objects", 42)]
         self.check_counts: list[tuple[int, int]] = []  # (files read, files in all) the check reports after the download
@@ -90,8 +91,9 @@ class Fakes:
         self.plan_calls += 1
         return ops.plan_reinstall(root, entry, mf, free_space=free_space, running=running)
 
-    def check_repository(self, root, text, mf, net, *, repo_info=None, cancel=None):
+    def check_repository(self, root, text, mf, net, *, repo_info=None, cancel=None, listings=()):
         self.check_calls.append(text)
+        self.check_listings.append(tuple(listings))
         self.check_started.set()
         while not self.check_release.is_set():
             if cancel is not None and cancel.is_set():
@@ -1149,3 +1151,76 @@ def test_review_page_buttons_stay_in_view_in_a_short_pane(qtbot, tmp_path, fakes
     qtbot.wait(100)
     preview = dialog._preview_page
     assert _fully_visible_in_pane(dialog, preview.primary_button()) and _fully_visible_in_pane(dialog, preview.back_button())
+
+
+# -- Add from KiCad's add-on list (plan 17-25, D-33) -------------------------------------------------
+
+ADDON_FIXTURE = Path(__file__).parent / "fixtures" / "addons" / "packages.json"
+ADDON_LISTINGS = {item.identifier: item for item in addons.parse_packages(ADDON_FIXTURE.read_bytes())}
+FOUR_MS = ADDON_LISTINGS["com.github.4ms.4ms-kicad-lib"]
+ALTERNATE = ADDON_LISTINGS["com.github.dawidcislo.alternate-kicad-library"]
+FOUR_MS_REF = RepoRef("4ms", "4ms-kicad-lib", FOUR_MS.url, "4ms-4ms-kicad-lib")
+
+
+def index_read(*listings, issue=None, from_cache=False, copy_date=""):
+    return addons.IndexRead(tuple(listings), issue, from_cache, copy_date)
+
+
+def build_listed(qtbot, tmp_path, fakes, read=None, **kw):
+    """The window with a fake read of KiCad's list (the 4ms listing unless read says otherwise), waited until it answered."""
+    answer = read or (lambda: index_read(FOUR_MS))
+    dialog = build(qtbot, tmp_path, fakes, read_index=answer, **kw)
+    qtbot.waitUntil(lambda: bool(dialog._index_state != "reading"), timeout=10000)
+    return dialog
+
+
+def test_add_from_kicads_list(qtbot, tmp_path, fakes):
+    fakes.checks[FOUR_MS.url] = ops.CheckedRepo(FOUR_MS_REF, None, "master", None, listing=FOUR_MS)
+    dialog = build_listed(qtbot, tmp_path, fakes)
+    logs, _, _ = record(dialog)
+    item = by_name(dialog)["4ms Kicad Libraries"]
+    assert [item.text(1), item.text(2), item.text(3)] == ["Not installed", "Unlicense", "222 MB"]
+    select(dialog, "4ms Kicad Libraries")
+    assert dialog._add_btn.isVisibleTo(dialog._details_page) and dialog._add_btn.isEnabled()
+    fakes.check_release.clear()
+    dialog._add_btn.click()
+    qtbot.waitUntil(lambda: bool(fakes.check_started.is_set()), timeout=10000)
+    assert dialog._job_label.full_text() == "Checking the repository..." and dialog._job_cancel.text() == "Cancel Check"
+    assert not dialog._tree.isEnabled()
+    fakes.check_release.set()
+    qtbot.waitUntil(lambda: bool(dialog._page_kind == "licence"), timeout=10000)
+    assert fakes.check_calls == [FOUR_MS.url] and fakes.check_listings == [(FOUR_MS,)]
+    licence = dialog._licence_page
+    assert licence.heading_text() == "Add 4ms Kicad Libraries"
+    assert licence.findChild(cd.catalog_pages.LinkLabel).url() == "https://github.com/4ms/4ms-kicad-lib"
+    assert any(label.full_text().endswith("ThirdParty/4ms-4ms-kicad-lib") for label in licence.findChildren(cd.ElidedLabel))
+    assert "Unlicense" in texts(licence)
+    licence.back_button().click()
+    assert dialog._page_kind is None and dialog._tree.isEnabled()
+    assert dialog.selected_id() == "4ms-4ms-kicad-lib"
+    assert logs == []
+
+
+def test_kicads_list_unread_keeps_the_curated_list(qtbot, tmp_path, fakes):
+    issue = Issue(Severity.ERROR, "addons.unreadable", addons.OFFLINE_TEXT)
+    dialog = build(qtbot, tmp_path, fakes, read_index=lambda: index_read(issue=issue))
+    logs, _, _ = record(dialog)
+    qtbot.waitUntil(lambda: bool(dialog._index_state != "reading"), timeout=10000)
+    assert sorted(by_name(dialog)) == ["SparkFun", "Third One", "WurthElektronik"]
+    assert logs == []
+
+
+def test_refused_check_from_the_list(qtbot, tmp_path, fakes):
+    refusal = Issue(Severity.ERROR, "api.not_found", "GitHub has no such repository.")
+    fakes.checks[FOUR_MS.url] = refusal
+    dialog = build_listed(qtbot, tmp_path, fakes)
+    select(dialog, "4ms Kicad Libraries")
+    dialog._add_btn.click()
+    qtbot.waitUntil(lambda: bool(dialog._page_kind == "licence"), timeout=10000)
+    licence = dialog._licence_page
+    assert licence.heading_text() == "Add 4ms Kicad Libraries"
+    assert any("GitHub has no such repository." in text for text in texts(licence))
+    assert not licence.primary_button().isVisibleTo(licence) and licence.back_button().isVisibleTo(licence)
+    assert fakes.stage_calls == []
+    licence.back_button().click()
+    assert dialog._page_kind is None and dialog._tree.isEnabled() and dialog.selected_id() == "4ms-4ms-kicad-lib"

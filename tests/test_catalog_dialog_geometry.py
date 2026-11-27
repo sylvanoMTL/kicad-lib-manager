@@ -158,7 +158,7 @@ def _long_row(root: Path, name: str) -> status.Row:
 def test_long_names_elide_without_widening(qtbot, tmp_path):
     name = "N" * 60
 
-    def rows(root, mf, *, curated=(), updates=None):
+    def rows(root, mf, *, curated=(), updates=None, listings=()):
         return [_long_row(root, name)]
 
     dialog = make(qtbot, tmp_path, real_root=False, row_statuses=rows)
