@@ -50,6 +50,13 @@ Out of this phase: project-local tables (Phase 18; catalog Add and Remove change
 - **D-26:** **Pass check before the submodule is removed**, all three needed: (1) the resolved-URI lists from `scripts/split/uri_diff.py` have the same nicknames before and after, with only the Würth paths changing; (2) zero missing files; (3) the app's 3D model path check reports zero unresolved Würth models with the new `WE_3DMODEL_DIR`.
 - **D-27:** **The old submodule's git data** (`.git/modules/WurthElektronik/...`, about 2.7 GB) is **moved to the owner's backup folder** outside every repository (the one named in CLAUDE.local.md), not deleted, so a rollback needs no download. The owner deletes it by hand later.
 
+### Decided at plan time (2026-11-27, from 17-RESEARCH.md open questions)
+- **D-28:** **Würth selections carry over.** The curated Würth entry records its old folder (`WurthElektronik/KiCad-Library`); after the Add, every library that was selected at the old path starts ticked at its new `ThirdParty/WurthElektronik/...` path, so one Generate Tables rewrites the about 89 entries. Generic (driven by the curated entry), no submodule code.
+- **D-29:** **Catalog network actions need git 2.32 or newer** (the runner needs `GIT_CONFIG_GLOBAL`; verify the exact version at implementation). Below it, Add, Update, Reinstall and the update check are refused with a message naming the version and asking to update Git. D-11's amber warning below 2.49.1 stays; the commit path keeps its 2.25 minimum.
+- **D-30:** **KiCad 9.0 settings are not touched by the Würth conversion.** The app keeps editing only the current KiCad config; the conversion script prints a line naming the stale `WE_3DMODEL_DIR` in an older KiCad config and its new value, for the owner to fix by hand.
+- **D-31:** **A few missing 3D models are warnings, not a Problem state.** A library whose model paths partly miss upstream (SparkFun: 6 of 429) stays Installed; the missing models are reported as warnings in the scan and the log, like the existing 3D model path check.
+- **D-32:** **The last update-check time is kept in memory only** (no new `catalog.json` field, no new QSettings key): the startup check runs on every start, so the detail pane shows the time of this session's last check, or "Not checked yet". `[informational]` — reversible, decided by Claude.
+
 ### Locked from earlier phases (not re-asked)
 - Plain shallow clones plus a manifest, never submodules; the update check runs automatically at startup (owner, 2026-11-22).
 - Catalog Add and Remove change only the collection and its manifest; tables are written by Generate Tables.
