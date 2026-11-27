@@ -14,6 +14,7 @@ from types import SimpleNamespace
 
 import pytest
 from catalogfixtures import FOOTPRINT_TEXT, SYMBOL_TEXT, make_third_party
+from PySide6.QtCore import Qt
 from collectionfixtures import make_collection
 
 from kicad_lib_manager import library_scanner, main_window
@@ -23,7 +24,7 @@ from kicad_lib_manager.catalog import status as catalog_status
 from kicad_lib_manager.catalog.manifest import CatalogEntry, Manifest
 from kicad_lib_manager.catalog.ops import NetStatus
 from kicad_lib_manager.collection import Source
-from kicad_lib_manager.models import FootprintLibrary, Issue, ScanResult, Severity, SymbolLibrary
+from kicad_lib_manager.models import FootprintLibrary, FootprintRef, Issue, ScanResult, Severity, SymbolLibrary
 from kicad_lib_manager.widgets import catalog_dialog as cd
 
 NET_OK = NetStatus(object(), (2, 50, 0), None, None)
@@ -745,3 +746,98 @@ def test_close_with_the_overlay_showing_stops_the_wheel(harness):
 
     assert not window.isVisible()
     assert not wheel.is_spinning()
+
+
+# -- the log and the trees name a catalog library the way the catalog does (owner findings 3 and 6) ---
+
+
+ABSOLUTE_MODEL_FOOTPRINT = '(footprint "A"\n  (model "C:/Old/models/m{n}.step")\n)\n'
+
+
+def record_by_address(root: Path, id: str, url: str) -> None:
+    entry = CatalogEntry(
+        id=id, url=url, branch="main", commit="a" * 40, vars={}, licence_spdx="MIT", added_on="2026-11-20",
+    )
+    assert manifest.save(root, Manifest((entry,))) is None
+
+
+def test_log_shows_one_line_per_catalog_library(harness):
+    h = harness.h
+    root = make_collection(h.tmp_path / "lib")
+    record_by_address(root, "Acme", "https://github.com/acme/acme.git")
+    raw = [
+        Issue(
+            Severity.WARNING, "scan.model_absolute",
+            f"[ThirdParty/Acme/footprints/F.pretty/P{n}.kicad_mod] Absolute/non-variable 3D model path: C:/Old/models/m{n}.step",
+        )
+        for n in range(300)
+    ]
+    h.first_scan = lambda: ScanResult(issues=list(raw))
+
+    window = harness(root)
+
+    # the first scan writes one summary line for the library and keeps every issue in the result
+    summary = [line for line in log_lines(window) if line.startswith("acme/acme:")]
+    assert len(summary) == 1
+    assert summary[0].startswith(
+        "acme/acme: 300 footprints point their 3D model at a fixed folder instead of a path variable, for example "
+    )
+    assert not [line for line in log_lines(window) if "Absolute/non-variable" in line]
+    assert len(window._scan_result.issues) == 300
+
+    # a rescan of the source counts the raw lines, and writes one summary line for them
+    files = {f"footprints/F.pretty/P{n}.kicad_mod": ABSOLUTE_MODEL_FOOTPRINT.format(n=n) for n in range(300)}
+    make_third_party(root, "Acme", files)
+    harness.run(window, outcome("add", name="acme/acme"))
+
+    lines = log_lines(window)
+    assert "Rescanned acme/acme: 300 warnings" in lines
+    assert len([line for line in lines if line.startswith("acme/acme: 300 footprints")]) == 2
+    assert not [line for line in lines if "Absolute/non-variable" in line]
+    assert sum(1 for i in window._scan_result.issues if i.code == "scan.model_absolute") == 300
+
+
+def test_trees_show_catalog_names(harness):
+    h = harness.h
+    root = make_collection(h.tmp_path / "lib")
+    record_by_address(root, "4ms-4ms-kicad-lib", "https://github.com/4ms/4ms-kicad-lib.git")
+    base = "ThirdParty/4ms-4ms-kicad-lib"
+    h.first_scan = lambda: ScanResult(
+        symbol_libs=[
+            SymbolLibrary("Mine", "Custom/Symbols/Mine.kicad_sym", "Custom"),
+            SymbolLibrary(
+                "Four", f"{base}/symbols/Four.kicad_sym", "4ms-4ms-kicad-lib",
+                footprint_refs=[FootprintRef("Four_FP", "X", True)],
+            ),
+        ],
+        footprint_libs=[
+            FootprintLibrary("Four_FP", f"{base}/footprints/Four_FP.pretty", "4ms-4ms-kicad-lib"),
+            FootprintLibrary("Mine_FP", "Custom/Footprints/Mine_FP.pretty", "Custom"),
+        ],
+    )
+
+    window = harness(root)
+
+    sym_tree, fp_tree = window._tree._sym_tree, window._tree._fp_tree
+    for tree in (sym_tree, fp_tree):
+        headers = sorted(tree.topLevelItem(i).text(0) for i in range(tree.topLevelItemCount()))
+        assert headers == ["4ms/4ms-kicad-lib", "Custom"]
+        for i in range(tree.topLevelItemCount()):
+            group = tree.topLevelItem(i)
+            for j in range(group.childCount()):
+                assert group.child(j).text(1) == group.text(0)
+    assert "4ms-4ms-kicad-lib" not in tree_text(window)
+
+    # ticking the header ticks exactly that source's libraries (and the footprint they link)
+    group = next(
+        sym_tree.topLevelItem(i) for i in range(sym_tree.topLevelItemCount())
+        if sym_tree.topLevelItem(i).text(0) == "4ms/4ms-kicad-lib"
+    )
+    group.setCheckState(0, Qt.CheckState.Checked)
+
+    assert ticked(window) == {
+        "Custom/Symbols/Mine.kicad_sym": False,
+        f"{base}/symbols/Four.kicad_sym": True,
+        f"{base}/footprints/Four_FP.pretty": True,
+        "Custom/Footprints/Mine_FP.pretty": False,
+    }

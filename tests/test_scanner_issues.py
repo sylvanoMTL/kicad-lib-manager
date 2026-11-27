@@ -10,6 +10,7 @@ from kicad_lib_manager.library_scanner import scan_all
 from kicad_lib_manager.models import (
     FootprintLibrary,
     Issue,
+    ScanResult,
     Severity,
     SymbolLibrary,
 )
@@ -283,3 +284,137 @@ def test_wurth_model_paths_stay_quiet():
     wurth_issues = [i for i in issues if i.text.startswith("[WurthElektronik/")]
     assert not [i for i in wurth_issues if i.code in ("scan.model_var", "scan.model_missing")]
     assert not [i for i in wurth_issues if "${WE_3DMODEL_DIR}" in i.text]
+
+
+# -- one line per catalog library and kind (Phase 17 plan 23, owner finding 3 of 17-17) ---------------
+
+_ALT_NAMES = {"Alt": "Alternate KiCad Library"}
+
+
+def _model_issue(code: str, rel: str, text: str) -> Issue:
+    return Issue(Severity.WARNING, code, f"[{rel}] {text}")
+
+
+def _absolute(n: int, source: str = "Alt") -> list[Issue]:
+    return [
+        _model_issue(
+            "scan.model_absolute", f"ThirdParty/{source}/footprints/F{i}.pretty/P{i}.kicad_mod",
+            f"Absolute/non-variable 3D model path: C:/Old/models/m{i}.step",
+        )
+        for i in range(1, n + 1)
+    ]
+
+
+def test_catalog_model_lines_are_summarized():
+    issues = _absolute(7)
+
+    got = library_scanner.summarize_catalog_lines(issues, ScanResult(), _ALT_NAMES)
+
+    assert len(got) == 1
+    assert got[0].severity is Severity.WARNING
+    assert got[0].code == "scan.catalog_summary"
+    assert got[0].text == (
+        "Alternate KiCad Library: 7 footprints point their 3D model at a fixed folder instead of a path variable, "
+        "for example C:/Old/models/m1.step, C:/Old/models/m2.step, C:/Old/models/m3.step, "
+        "C:/Old/models/m4.step, C:/Old/models/m5.step and 2 more."
+    )
+    single = library_scanner.summarize_catalog_lines(_absolute(1), ScanResult(), _ALT_NAMES)
+    assert [i.text for i in single] == [
+        "Alternate KiCad Library: 1 footprint points its 3D model at a fixed folder instead of a path variable: "
+        "C:/Old/models/m1.step."
+    ]
+
+
+def test_thousands_use_separators():
+    got = library_scanner.summarize_catalog_lines(_absolute(6904), ScanResult(), _ALT_NAMES)
+
+    assert got[0].text.startswith("Alternate KiCad Library: 6,904 footprints point their 3D model")
+    assert got[0].text.endswith("and 6,899 more.")
+
+
+def test_missing_models_and_unreadable_files():
+    missing = [
+        _model_issue(
+            "scan.model_missing", f"ThirdParty/Alt/footprints/F{i}.pretty/P.kicad_mod",
+            f"3D model not found in ThirdParty/Alt (names are case-sensitive): ${{ALT_DIR}}/m{i}.step",
+        )
+        for i in (1, 2)
+    ]
+    unreadable = [
+        _model_issue("scan.unreadable", f"ThirdParty/Alt/footprints/F{i}.pretty/Bad{i}.kicad_mod", "Could not read: bad")
+        for i in (1, 2, 3)
+    ]
+
+    got = library_scanner.summarize_catalog_lines(missing + unreadable, ScanResult(), _ALT_NAMES)
+
+    assert [i.text for i in got] == [
+        "Alternate KiCad Library: 2 3D models were not found (names are case-sensitive), "
+        "for example ${ALT_DIR}/m1.step, ${ALT_DIR}/m2.step.",
+        "Alternate KiCad Library: 3 footprint files could not be read, for example "
+        "footprints/F1.pretty/Bad1.kicad_mod, footprints/F2.pretty/Bad2.kicad_mod, footprints/F3.pretty/Bad3.kicad_mod.",
+    ]
+    one = library_scanner.summarize_catalog_lines(missing[:1] + unreadable[:1], ScanResult(), _ALT_NAMES)
+    assert [i.text for i in one] == [
+        "Alternate KiCad Library: 1 3D model was not found (names are case-sensitive): ${ALT_DIR}/m1.step.",
+        "Alternate KiCad Library: 1 footprint file could not be read: footprints/F1.pretty/Bad1.kicad_mod.",
+    ]
+
+
+def _link(nickname: str, lib: str, fp: str = "X") -> Issue:
+    return Issue(
+        Severity.WARNING, "scan.footprint_lib_missing",
+        f"[{nickname}] Footprint library '{lib}' not found in repo or KiCad defaults (referenced by {fp})",
+    )
+
+
+def test_missing_footprint_links_are_summarized():
+    scan = ScanResult(symbol_libs=[
+        SymbolLibrary("Espressif", "ThirdParty/Espressif/symbols/Espressif.kicad_sym", "Espressif"),
+    ])
+    issues = [_link("Espressif", "PCM_Espressif", f"F{i}") for i in range(51)]
+
+    got = library_scanner.summarize_catalog_lines(issues, scan, {})
+
+    assert [i.text for i in got] == [
+        "Espressif: 51 footprint links point to footprint libraries that are not in your collection "
+        "or in KiCad's own libraries: PCM_Espressif."
+    ]
+    assert got[0].code == "scan.catalog_summary"
+    one = library_scanner.summarize_catalog_lines(issues[:1], scan, {})
+    assert [i.text for i in one] == [
+        "Espressif: 1 footprint link points to a footprint library that is not in your collection "
+        "or in KiCad's own libraries: PCM_Espressif."
+    ]
+    # a symbol library whose nickname is also used outside that source keeps its own lines
+    shared = ScanResult(symbol_libs=[
+        *scan.symbol_libs, SymbolLibrary("Espressif", "Custom/Symbols/Espressif.kicad_sym", "Custom"),
+    ])
+    assert library_scanner.summarize_catalog_lines(issues, shared, {}) == issues
+
+
+def test_other_lines_are_untouched():
+    scan = ScanResult(symbol_libs=[SymbolLibrary("S", "ThirdParty/Alt/symbols/S.kicad_sym", "Alt")])
+    custom = _model_issue(
+        "scan.model_absolute", "Custom/Footprints/X.pretty/Y.kicad_mod", "Absolute/non-variable 3D model path: C:/z.step"
+    )
+    collision = Issue(Severity.WARNING, "scan.nickname_collision", "[Same] Symbol library nickname is used by a, b")
+    info = Issue(Severity.INFO, "scan.models_skipped", "3D model paths were not checked")
+    issues = [collision, *_absolute(3), custom, info]
+    snapshot = list(issues)
+
+    got = library_scanner.summarize_catalog_lines(issues, scan, {})
+
+    # the summary sits where the first catalog line was; every other line keeps its text and order
+    assert [i.code for i in got] == ["scan.nickname_collision", "scan.catalog_summary", "scan.model_absolute", "scan.models_skipped"]
+    assert got[0] is collision and got[2] is custom and got[3] is info
+    # a source with no names entry is named by its folder
+    assert got[1].text.startswith("Alt: 3 footprints point their 3D model")
+    assert issues == snapshot  # the input list is not changed
+
+
+def test_two_sources_get_one_line_each_at_their_first_line():
+    issues = [*_absolute(2, "Alt")[:1], *_absolute(2, "Beta")[:1], *_absolute(2, "Alt")[1:]]
+
+    got = library_scanner.summarize_catalog_lines(issues, ScanResult(), {"Alt": "A", "Beta": "B"})
+
+    assert [i.text.split(":")[0] for i in got] == ["A", "B"]
