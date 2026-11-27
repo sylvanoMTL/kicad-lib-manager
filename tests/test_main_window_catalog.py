@@ -14,9 +14,10 @@ from types import SimpleNamespace
 import pytest
 from catalogfixtures import make_third_party
 from collectionfixtures import make_collection
+from PySide6.QtCore import Signal
 from PySide6.QtGui import QKeySequence
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtWidgets import QDialog, QMessageBox
 
 from kicad_lib_manager import main_window
 from kicad_lib_manager.catalog import curated, manifest
@@ -466,3 +467,363 @@ def test_no_popup_for_an_update(harness, monkeypatch):
     window = harness(write_collection(harness.h.tmp_path / "lib", [entry("SparkFun")]))
     harness.settle(window)
     assert popups == []
+
+
+# -- busy rules, both ways (Task 2) ---------------------------------------------------------------
+
+BUSY_CATALOG = (
+    "The library folder cannot change while the library catalog is working. "
+    "Wait for it to finish, or stop it with the cancel button in the catalog window."
+)
+BUSY_DOWNLOAD = (
+    "The library folder cannot change while a downloaded library waits for your answer in the catalog window. "
+    "Press Add Library or Discard Download there first."
+)
+WAIT_FOR_CATALOG = "Wait for the library catalog to finish."
+BLOCK_SCAN = "Wait for the scan in the main window to end."
+BLOCK_IMPORT = "Close the import window first."
+BLOCK_MIGRATION = "Close the migration window first."
+
+
+def set_job(window, monkeypatch, running: bool):
+    """Make the catalog window report a running job (the jobs themselves attach in plan 17-13) and tell the main window."""
+    dialog = window._catalog_window()
+    monkeypatch.setattr(dialog, "is_job_running", lambda: running)
+    dialog.busy_changed.emit()
+    return dialog
+
+
+def test_switch_refused_while_catalog_job_runs(harness, monkeypatch):
+    window = harness()
+    root = window._root
+    set_job(window, monkeypatch, True)
+    other = write_collection(harness.h.tmp_path / "other")
+    assert window._switch_root(other, Source.CHOSEN) is False
+    assert window._root == root
+    assert log_lines(window).count(BUSY_CATALOG) == 1
+    assert window.statusBar().currentMessage() == BUSY_CATALOG
+    assert len(harness.h.scan_calls) == 1  # no new scan
+
+
+def test_switch_refused_while_the_last_change_is_finishing(harness):
+    window = harness()
+    window._catalog_window().set_finishing(True)
+    assert window._switch_refusal() == BUSY_CATALOG
+    assert window._switch_root(write_collection(harness.h.tmp_path / "other"), Source.CHOSEN) is False
+    assert log_lines(window).count(BUSY_CATALOG) == 1
+
+
+def test_switch_refused_while_download_waits(harness, monkeypatch):
+    window = harness()
+    dialog = window._catalog_window()
+    monkeypatch.setattr(dialog, "holds_download", lambda: True)
+    assert window._switch_root(write_collection(harness.h.tmp_path / "other"), Source.CHOSEN) is False
+    assert log_lines(window).count(BUSY_DOWNLOAD) == 1
+    assert window.statusBar().currentMessage() == BUSY_DOWNLOAD
+    window._open_choose_folder()
+    assert window._choose_dialog is None  # Change Folder... refuses the same way
+
+
+def test_idle_catalog_never_blocks_a_switch(harness):
+    window = harness()
+    window._open_catalog()
+    assert window._switch_refusal() is None
+    other = write_collection(harness.h.tmp_path / "other")
+    assert window._switch_root(other, Source.CHOSEN) is True
+    assert window._root == other
+
+
+def controls(window):
+    return {
+        "rescan button": window._rescan_btn,
+        "rescan action": window._act_rescan,
+        "generate button": window._generate_btn,
+        "generate action": window._act_generate,
+        "import button": window._import_btn,
+        "import action": window._act_import,
+        "migrate action": window._act_migrate,
+    }
+
+
+def test_main_actions_disabled_during_catalog_job(harness, monkeypatch):
+    window = harness()
+    originals = {name: control.statusTip() for name, control in controls(window).items()}
+    assert all(control.isEnabled() for name, control in controls(window).items() if name != "migrate action")
+    set_job(window, monkeypatch, True)
+    for name, control in controls(window).items():
+        assert not control.isEnabled(), name
+        assert control.statusTip() == WAIT_FOR_CATALOG, name
+    assert window._act_catalog.isEnabled()
+    set_job(window, monkeypatch, False)
+    for name, control in controls(window).items():
+        if name != "migrate action":
+            assert control.isEnabled(), name
+        assert control.statusTip() == originals[name], name
+
+
+def test_finishing_also_disables_the_main_actions(harness):
+    window = harness()
+    window._catalog_window().set_finishing(True)
+    assert not window._act_rescan.isEnabled()
+    assert not window._act_import.isEnabled()
+    window._catalog.set_finishing(False)
+    assert window._act_rescan.isEnabled()
+    assert window._act_import.isEnabled()
+
+
+def test_scan_and_catalog_busy_rules_combine(harness, monkeypatch):
+    h = harness.h
+    window = harness()
+    set_job(window, monkeypatch, True)
+    h.scan_gate = threading.Event()
+    window._start_scan()  # a programmatic start; the Rescan control itself is off
+    assert window._worker is not None
+    set_job(window, monkeypatch, False)  # the catalog is idle again, but the scan still runs
+    assert not window._rescan_btn.isEnabled()
+    h.scan_gate.set()
+    harness.wait(lambda: window._worker is None)
+    assert window._rescan_btn.isEnabled()
+    # the other way round: the scan ends while the catalog still works
+    h.scan_gate = threading.Event()
+    window._on_rescan()
+    set_job(window, monkeypatch, True)
+    h.scan_gate.set()
+    harness.wait(lambda: window._worker is None)
+    assert not window._rescan_btn.isEnabled()
+    assert not window._act_import.isEnabled()
+    set_job(window, monkeypatch, False)
+    assert window._rescan_btn.isEnabled()
+
+
+class StubDialog(QDialog):
+    """Stands in for the import and the migration window: opens and closes, nothing else."""
+
+    installed = Signal(object, object)
+    issues_logged = Signal(object)
+    atomic_fixes_applied = Signal(object)
+    leave_cancelled = Signal()
+    help_requested = Signal()
+    migrated = Signal(object)
+    generate_requested = Signal()
+    setup_chooser_requested = Signal()
+    destination_changed = Signal(str)
+    atomic_check_requested = Signal(str, str)
+
+    def __init__(self, *args, parent=None, **kwargs):
+        super().__init__(parent)
+
+    def set_destination(self, text):
+        pass
+
+    def is_installing(self):
+        return False
+
+    def is_committing(self):
+        return False
+
+    def is_running(self):
+        return False
+
+    def is_busy(self):
+        return False
+
+    def is_finishing(self):
+        return False
+
+
+def test_catalog_blocked_while_scan_import_or_migration(harness, monkeypatch):
+    h = harness.h
+    monkeypatch.setattr(main_window, "ImportDialog", StubDialog)
+    monkeypatch.setattr(main_window, "MigrationDialog", StubDialog)
+    monkeypatch.setattr(main_window, "migration_reason", lambda layout: "a v1 library")
+    h.scan_gate = threading.Event()
+    window = harness(wait=False)
+    dialog = window._catalog_window()  # opened while the start scan still runs
+    assert dialog._blocked == BLOCK_SCAN
+    assert not dialog._add_url_btn.isEnabled()
+    assert dialog._add_url_btn.toolTip() == BLOCK_SCAN
+    h.scan_gate.set()
+    harness.wait(lambda: window._worker is None)
+    assert dialog._blocked is None
+
+    window._open_import()
+    assert dialog._blocked == BLOCK_IMPORT
+    window._import_dialog.reject()
+    harness.wait(lambda: window._import_dialog is None)
+    assert dialog._blocked is None
+
+    window._open_migration()
+    assert dialog._blocked == BLOCK_MIGRATION
+    window._migration_dialog.reject()
+    harness.wait(lambda: window._migration_dialog is None)
+    assert dialog._blocked is None
+
+
+def test_catalog_blocked_while_an_install_is_pending(harness):
+    window = harness()
+    dialog = window._catalog_window()
+    window._pending_post_install = main_window._PostInstall("L", "S", "a", True, None, None, False)
+    window._refresh_catalog_block()
+    assert dialog._blocked == BLOCK_IMPORT
+    window._finish_post_install(None)
+    assert dialog._blocked is None
+
+
+def test_close_cancels_check_and_closes_catalog(harness):
+    h = harness.h
+    h.check_gate = threading.Event()
+    window = harness(write_collection(h.tmp_path / "lib", [entry("SparkFun")]))
+    harness.wait(lambda: h.check_calls)
+    cancel = h.check_calls[0].cancel
+    window.show()
+    window._open_catalog()
+    dialog = window._catalog
+    assert dialog.isVisible()
+    assert not cancel.is_set()
+    assert window.close()
+    assert cancel.is_set()
+    assert window._catalog_check is None
+    assert not dialog.isVisible()
+    h.check_gate.set()
+
+
+def test_close_with_a_hidden_catalog_window(harness):
+    window = harness()
+    window.show()
+    dialog = window._catalog_window()
+    assert not dialog.isVisible()
+    assert window.close()
+    assert window._catalog_cancel.is_set()
+    assert not dialog.isVisible()
+
+
+def test_close_waits_for_catalog_job(harness, monkeypatch):
+    window = harness()
+    window.show()
+    window._open_catalog()
+    dialog = window._catalog
+    monkeypatch.setattr(dialog, "is_job_running", lambda: True)
+    assert window.close() is False
+    assert window.isVisible()
+    assert window._close_after_catalog
+    assert not window._closing
+    monkeypatch.setattr(dialog, "is_job_running", lambda: False)
+    dialog.job_finished.emit(None)
+    harness.wait(lambda: not window.isVisible())
+    assert window._closing
+
+
+def test_close_waits_for_the_catalog_to_finish_its_change(harness):
+    window = harness()
+    window.show()
+    window._open_catalog()
+    dialog = window._catalog
+    dialog.set_finishing(True)
+    assert window.close() is False
+    assert window.isVisible()
+    dialog.set_finishing(False)
+    harness.wait(lambda: not window.isVisible())
+
+
+def test_reopening_the_catalog_forgets_the_pending_close(harness, monkeypatch):
+    window = harness()
+    window.show()
+    window._open_catalog()
+    dialog = window._catalog
+    monkeypatch.setattr(dialog, "is_job_running", lambda: True)
+    window.close()
+    assert window._close_after_catalog
+    window._open_catalog()
+    assert not window._close_after_catalog
+    monkeypatch.setattr(dialog, "is_job_running", lambda: False)
+    dialog.job_finished.emit(None)
+    QTest.qWait(100)
+    assert window.isVisible()
+
+
+# -- the catalog variables in scans and path-variable offers (Task 2) -------------------------------
+
+VARS_ENTRY = CatalogEntry(
+    id="SparkFun",
+    url="https://github.com/acme/sparkfun.git",
+    branch="main",
+    commit=SHA,
+    vars={"SF_3D": "3dmodels"},
+    licence_spdx="MIT",
+    added_on="2026-11-20",
+)
+
+
+def test_scan_worker_passes_model_vars(harness):
+    h = harness.h
+    root = write_collection(h.tmp_path / "lib", [VARS_ENTRY])
+    window = harness(root)
+    assert h.scan_calls[0]["model_vars"] == {"SparkFun": {"SF_3D": "3dmodels"}}
+    window._on_rescan()
+    harness.wait(lambda: window._worker is None)
+    assert h.scan_calls[-1]["model_vars"] == {"SparkFun": {"SF_3D": "3dmodels"}}
+
+
+@pytest.mark.parametrize("record", ["missing", "garbage", "too_new"])
+def test_unreadable_record_means_no_rule_and_no_exception(harness, record):
+    h = harness.h
+    root = write_collection(h.tmp_path / "lib")
+    if record == "garbage":
+        (root / "catalog.json").write_text("{ not json", encoding="utf-8")
+    elif record == "too_new":
+        (root / "catalog.json").write_text('{"format": 99, "libraries": []}', encoding="utf-8")
+    window = harness(root)
+    assert h.scan_calls[0]["model_vars"] == {}
+    assert window._scan_result is not None
+    assert not any(line.startswith("Scan error") for line in log_lines(window))
+
+
+def test_library_rescan_worker_passes_model_vars(harness, monkeypatch):
+    from kicad_lib_manager import library_scanner
+    from kicad_lib_manager.models import SymbolLibrary
+
+    h = harness.h
+    root = write_collection(h.tmp_path / "lib", [VARS_ENTRY])
+    window = harness(root)
+    window._scan_result = ScanResult(symbol_libs=[SymbolLibrary("A", "Custom/Symbols/A.kicad_sym", "Custom")])
+    seen = []
+
+    def fake_rescan(root, previous, kind, rel_path, kicad_fp_dir=None, *, model_vars=None):
+        seen.append(model_vars)
+        return library_scanner.LibraryRescan(previous, [], [])
+
+    monkeypatch.setattr(main_window, "rescan_library", fake_rescan)
+    window._on_library_rescan_requested("symbol", "Custom/Symbols/A.kicad_sym")
+    harness.wait(lambda: window._worker is None)
+    assert seen == [{"SparkFun": {"SF_3D": "3dmodels"}}]
+
+
+def test_path_var_offers_pass_extra_vars(harness, monkeypatch):
+    h = harness.h
+    root = write_collection(h.tmp_path / "lib", [VARS_ENTRY])
+    window = harness(root)
+    expected = manifest.path_vars(root, [VARS_ENTRY])
+    assert expected == {"SF_3D": f"{root.as_posix()}/ThirdParty/SparkFun/3dmodels"}
+    synced, asked = [], []
+    monkeypatch.setattr(main_window, "sync_kicad_path_vars", lambda repo, **kw: synced.append(kw.get("extra_vars")) or [])
+    monkeypatch.setattr(
+        main_window, "would_change_path_vars", lambda repo, **kw: asked.append(kw.get("extra_vars")) or True
+    )
+    window._offer_vars_after_scan = True
+    window._offer_path_vars_after_switch()
+    harness.wait(lambda: not window._path_var_busy)
+    assert asked == [expected]
+    assert synced == [expected]
+    # Generate Tables and Install Part reach the same sync
+    window._sync_path_vars()
+    harness.wait(lambda: not window._path_var_busy)
+    assert synced == [expected, expected]
+
+
+def test_path_var_offer_without_a_catalog_adds_nothing(harness, monkeypatch):
+    window = harness()
+    synced = []
+    monkeypatch.setattr(main_window, "sync_kicad_path_vars", lambda repo, **kw: synced.append(kw.get("extra_vars")) or [])
+    window._sync_path_vars()
+    harness.wait(lambda: not window._path_var_busy)
+    assert synced == [{}]

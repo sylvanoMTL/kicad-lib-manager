@@ -1355,7 +1355,7 @@ class MainWindow(QMainWindow):
             # already disabled the action again and this would wrongly re-enable it
             self._refresh_migrate_action()
             self._offer_path_vars_after_switch()
-            self._start_catalog_check_when_due()
+            self._check_catalog_when_due()
             # After the offer step: while its question is pending the focus waits (_on_path_var_check)
             if self._focus_after_scan and self._worker is None and not self._offer_from_switch:
                 self._focus_after_scan = False
@@ -2511,7 +2511,7 @@ class MainWindow(QMainWindow):
         if self._catalog is not None:
             self._catalog.set_check_running(False)
 
-    def _start_catalog_check_when_due(self):
+    def _check_catalog_when_due(self):
         if self._catalog_check_due:
             self._catalog_check_due = False
             self._start_catalog_check()
