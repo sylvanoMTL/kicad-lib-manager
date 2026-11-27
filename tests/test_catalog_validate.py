@@ -485,3 +485,15 @@ def test_both_kinds_are_reported_each_with_its_own_count(tmp_path):
     assert report.warnings[0].text == "1 3D model uses KiCad's own path variables; it shows only in a matching KiCad version."
     assert report.warnings[1].text == ADDON_TEXT.format(n=3)  # any name ending in _3RD_PARTY counts
     assert report.vars == {}
+
+
+def test_no_catalog_code_reads_or_writes_kicads_add_on_manager_state():
+    """CAT-10, T-17-61: the add-on folder, installed_packages.json and KiCad's add-on name setting are never named by catalog code."""
+    package = Path(validate.__file__).parent
+    allowed_variable = {"manifest.py", "validate.py", "curated.py"}  # the rules that refuse or count it, and a note that names it
+    for source in sorted(package.glob("*.py")):
+        text = source.read_text(encoding="utf-8")
+        for word in ("installed_packages", "3rdparty", "lib_prefix", "pcm.json"):
+            assert word not in text, (source.name, word)
+        if source.name not in allowed_variable:
+            assert "_3RD_PARTY" not in text, source.name
