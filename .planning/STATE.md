@@ -5,16 +5,16 @@ milestone_name: Public Library Manager
 current_phase: 17
 current_phase_name: Library Catalog
 status: executing
-stopped_at: Completed 17-02-PLAN.md
-last_updated: "2026-11-27T08:49:12.558Z"
+stopped_at: Completed 17-03-PLAN.md
+last_updated: "2026-11-27T09:04:05.282Z"
 last_activity: 2026-11-27
 last_activity_desc: Phase 17 execution started
-state_head: 6f2749d2a5befde25cb5161c4afdefe51dc48181
+state_head: 01ed59d07063c3be617897a0cd491de919328a96
 progress:
   total_phases: 8
   completed_phases: 3
   total_plans: 60
-  completed_plans: 42
+  completed_plans: 43
   percent: 38
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-26)
 ## Current Position
 
 Phase: 17 (Library Catalog) — EXECUTING
-Plan: 3 of 20
+Plan: 4 of 20
 Status: Ready to execute
 Last activity: 2026-11-27 — Phase 17 execution started
 
@@ -83,6 +83,7 @@ Progress: [████░░░░░░] 38%
 | Phase 08 P06 | 70 min | 3 tasks | 6 files |
 | Phase 17 P01 | 45 min | 2 tasks | 8 files |
 | Phase 17 P02 | 6 min | 2 tasks | 3 files |
+| Phase 17 P03 | 11 min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -109,6 +110,7 @@ The full decision log is in the PROJECT.md Key Decisions table. The v1.0 per-pha
 - [Phase 16]: Split done 2026-11-26: `kicad_libraries` kept as the private collection with its history (code removed in one commit); the public tool repo `kicad-lib-manager` (MIT) started from an allow-listed copy with a fresh history; both library repos private, the tool repo flipped public by the owner. KiCad tables resolve identically (428 entries, 0 missing). Fresh-clone CI 4004 passed, 1 skipped (budget 10); `corpus` / `needs_kicad` deselected with counts. `Source.LEGACY` is gone; the `Kicad_Libraries-importer` worktree is retired.
 - [Phase 17]: 17-01: catalog progress callbacks receive (text, percent) with percent None until 17-03; StreamedProcess.run checks stop() after every stderr line so cancel is deterministic
 - [Phase 17]: 17-02: MigrationDialog stops both timers in done() and _reap; a pending draft save runs once before _closing is set; worker starts refuse while closing (D-16 close rule for the catalog window)
+- [Phase 17]: 17-03: catalog network actions refused below Git 2.32 (GIT_CONFIG_GLOBAL arrived in 2.32.0); warning below 2.49.1; addresses with user info refused before git starts
 
 ### Pending Todos
 
@@ -154,8 +156,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-27T08:49:11.747Z
-Stopped at: Completed 17-02-PLAN.md
+Last session: 2026-11-27T09:04:04.453Z
+Stopped at: Completed 17-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
