@@ -74,6 +74,17 @@ UPDATE_AVAILABLE_TEXT = "⚠ Update available"
 FOLDER_MISSING_TEXT = "✖ Problem: folder missing"
 NOT_IN_CATALOG_TEXT = "⚠ Problem: not in the catalog"
 UNKNOWN_TEXT = catalog_pages.UNKNOWN_TEXT
+CANNOT_ADD_TEXT = "Cannot be added yet"  # the status of a library of KiCad's list that the catalog cannot add; its reason is the tooltip
+
+# The line under the strips about KiCad's add-on list (D-33, D-36); muted, never logged
+INDEX_READING_TEXT = "Reading KiCad's add-on list..."
+INDEX_FAILED_TEXT = "KiCad's add-on list could not be read right now, so only this app's own list is shown."
+INDEX_COPY_TEXT = "Showing KiCad's add-on list from {date}. The current list could not be read right now."
+# The Details row that says where a library is listed
+LISTED_ADDON_TEXT = "KiCad's add-on list (reviewed by the KiCad team)"
+LISTED_ADDON_COPY_TEXT = "KiCad's add-on list from {date} (reviewed by the KiCad team)"
+LISTED_CURATED_TEXT = "This app's own list"
+LISTED_URL_TEXT = "Added by its web address"
 
 RECORD_STRIP_TEXT = (
     "✖ The catalog record of this collection cannot be read ({reason}). Nothing was changed. "
@@ -94,6 +105,7 @@ MANIFEST_NOTE_TEXT = "catalog.json in {collection} changed. The app does not com
 # The Details page (UI-SPEC "Details page")
 FIELDS = (
     ("repository", "Repository"),
+    ("listed", "Listed in"),
     ("licence", "Licence"),
     ("size", "Size"),
     ("libraries", "Libraries"),
@@ -317,6 +329,8 @@ def _status_cell(row: status.Row) -> tuple[str, str | None, str]:
     """(text, colour token or None for the default text colour, tooltip) of a row's Status cell."""
     state = row.state
     if state is State.NOT_INSTALLED:
+        if not row.addable:
+            return CANNOT_ADD_TEXT, theme.MUTED, row.reason
         return NOT_INSTALLED_TEXT, theme.MUTED, NOT_INSTALLED_TEXT
     if state is State.INSTALLED:
         if row.update is not None and row.update.check is Check.CURRENT:
@@ -457,6 +471,11 @@ class CatalogDialog(QDialog):
         self._git_old_strip, self._git_old_label = self._make_strip("gitOldStrip", amber=True)
         for strip in (self._record_strip, self._git_missing_strip, self._git_too_old_strip, self._git_old_strip):
             outer.addWidget(strip)
+        self._index_line = _plain_label(wrap=True)  # KiCad's add-on list: reading, kept copy or unread (D-33, D-36)
+        self._index_line.setObjectName("indexLine")
+        _muted(self._index_line)
+        self._index_line.hide()
+        outer.addWidget(self._index_line)
 
         self._toolbar = QWidget()
         toolbar = QHBoxLayout(self._toolbar)
@@ -648,6 +667,9 @@ class CatalogDialog(QDialog):
         self._detail_description = _plain_label(wrap=True)
         _muted(self._detail_description)
         layout.addWidget(self._detail_description)
+        self._detail_reason = _plain_label(wrap=True)  # why a library of KiCad's list cannot be added yet
+        _muted(self._detail_reason)
+        layout.addWidget(self._detail_reason)
 
         # The result strip: shown after a job ends, kept until another row is selected (D-03, D-18)
         self._result_strip, self._result_lines_box, self._result_note, self._result_generate_btn = self._make_result_strip(
@@ -861,6 +883,7 @@ class CatalogDialog(QDialog):
         if self._index_ok:
             return
         self._index_state = "reading"
+        self._update_index_line()
         services = self._services
         self._background.append(
             run_in_background(
@@ -883,8 +906,35 @@ class CatalogDialog(QDialog):
             self._index_state, self._index_ok = "ok", True
         else:
             self._index_state = "copy" if self._listings else "failed"
+        self._update_index_line()
         self._rebuild_rows()
         self._refresh_actions()
+
+    def _update_index_line(self) -> None:
+        """The muted line about KiCad's add-on list: shown while it is read and when only a kept copy or nothing is there.
+
+        A review page (Add, Update, Remove) has the room instead: the line is hidden while one is open, so its
+        buttons stay in view in the shortest window.
+        """
+        state, issue = self._index_state, self._index_issue
+        text, tip = "", ""
+        if state == "reading":
+            text = INDEX_READING_TEXT
+        elif state == "copy":
+            text, tip = INDEX_COPY_TEXT.format(date=self._copy_date), issue.text if issue is not None else ""
+        elif state == "failed":
+            text, tip = INDEX_FAILED_TEXT, issue.text if issue is not None else ""
+        show = bool(text) and self._page_kind is None
+        line = self._index_line
+        if line.text() != text:
+            line.setText(text)
+            line.setAccessibleName(text)
+        if line.toolTip() != tip:
+            line.setToolTip(tip)
+        if line.isHidden() == show:
+            line.setVisible(show)
+            self.layout().activate()  # the splitter has its new height before the split is worked out
+            self._apply_split()
 
     def _on_index_failed(self, gen: int, text: str) -> None:
         if gen != self._gen:
@@ -1016,9 +1066,8 @@ class CatalogDialog(QDialog):
         self._pump_sizes()
 
     def _row_text(self, row: status.Row) -> list[str]:
-        repository = row.entry.url if row.entry is not None else (row.curated.url if row.curated is not None else "")
-        description = row.curated.description if row.curated is not None else ""
-        return [row.name, description, repository]
+        repository = self._repository_url(row)
+        return [row.name, self._description(row), repository]
 
     def _apply_filter(self, *_args) -> None:
         needle = self._search.text().strip().casefold()
@@ -1092,14 +1141,19 @@ class CatalogDialog(QDialog):
         on_disk = installed or row.state is State.NOT_IN_CATALOG
         problem = row.state in (State.FOLDER_MISSING, State.NOT_IN_CATALOG)
         self._detail_heading.set_full_text(row.name)
-        description = row.curated.description if row.curated is not None else ""
+        description = self._description(row)
         self._detail_description.setText(description)
         self._detail_description.setVisible(bool(description))
+        reason = row.reason if not row.addable else ""
+        self._detail_reason.setText(reason)
+        self._detail_reason.setVisible(bool(reason))
         self._fill_problem_strip(row)
         self._fill_result()
 
         url = self._repository_url(row)
         self._set_repository(url)
+        listed = self._listed_text(row)
+        self._set_value("listed", listed)
         self._set_value("licence", self._licence_text(row))
         self._set_value("size", self._size_text(row) if on_disk else self._size_estimate(row))
         self._set_value("libraries", self._libraries_text(row, on_disk))
@@ -1110,6 +1164,7 @@ class CatalogDialog(QDialog):
         folder.set_full_text(row.folder.as_posix())
 
         self._show_field("repository", bool(url))
+        self._show_field("listed", bool(listed))
         for key in ("licence", "size", "libraries", "vars"):
             self._show_field(key, True)
         self._show_field("version", installed)
@@ -1118,10 +1173,10 @@ class CatalogDialog(QDialog):
         addable = row.curated is not None or (row.listing is not None and row.addable)
         self._add_btn.setVisible(row.state is State.NOT_INSTALLED and addable)
         self._reinstall_btn.setVisible(row.state is State.FOLDER_MISSING and row.entry is not None)
-        listed = row.entry is not None
-        self._update_btn.setVisible(installed and listed)
+        recorded = row.entry is not None
+        self._update_btn.setVisible(installed and recorded)
         self._update_btn.setStyleSheet(theme.PRIMARY_BUTTON_QSS if row.state is State.UPDATE_AVAILABLE else "")
-        self._remove_btn.setVisible(((installed or row.state is State.FOLDER_MISSING) and listed) or row.state is State.NOT_IN_CATALOG)
+        self._remove_btn.setVisible(((installed or row.state is State.FOLDER_MISSING) and recorded) or row.state is State.NOT_IN_CATALOG)
         self._vars_btn.setVisible(installed and self._vars_differ)
         self._refresh_detail_buttons()
 
@@ -1136,9 +1191,29 @@ class CatalogDialog(QDialog):
         self._field_rows[key][1].setText(text)
 
     @staticmethod
+    def _description(row: status.Row) -> str:
+        """The one-line description: the row's own (the curated one, or the one KiCad's list gives)."""
+        return row.description or (row.curated.description if row.curated is not None else "")
+
+    def _listed_text(self, row: status.Row) -> str:
+        """Where the library is listed (the Listed in row); '' for a folder the record does not list."""
+        if row.origin == "curated":
+            return LISTED_CURATED_TEXT
+        if row.origin == "addon":
+            if row.listing is not None and self._index_state == "copy" and self._copy_date:
+                return LISTED_ADDON_COPY_TEXT.format(date=self._copy_date)
+            return LISTED_ADDON_TEXT
+        return LISTED_URL_TEXT if row.origin == "url" else ""
+
+    @staticmethod
     def _repository_url(row: status.Row) -> str:
-        """The repository page of a row without the .git ending; '' for a folder the record does not list."""
-        url = row.entry.url if row.entry is not None else (row.curated.url if row.curated is not None else "")
+        """The repository page of a row without the .git ending (a listing's own page when nothing else is known); '' for a folder the record does not list."""
+        if row.entry is not None:
+            url = row.entry.url
+        elif row.curated is not None:
+            url = row.curated.url
+        else:
+            url = row.listing.page if row.listing is not None else ""
         return url.removesuffix(".git").rstrip("/")
 
     def _set_repository(self, url: str) -> None:
@@ -1253,6 +1328,9 @@ class CatalogDialog(QDialog):
         box = self._field_rows["vars"][1]
         self._clear_layout(box.layout())
         self._vars_differ = False
+        if row.entry is None and row.curated is None and row.listing is not None and row.state is State.NOT_INSTALLED:
+            box.layout().addWidget(_plain_label(LIBRARIES_UNKNOWN_TEXT, wrap=True))  # known after the download is checked
+            return
         names = row.entry.vars if row.entry is not None else (row.curated.vars if row.curated is not None else {})
         wanted = self._services.path_vars(self._root, [CatalogEntry(row.id, "", "", vars=dict(names))])
         if not wanted:
@@ -1441,6 +1519,7 @@ class CatalogDialog(QDialog):
         return self._manual_check or self._external_check
 
     def _refresh_actions(self) -> None:
+        self._update_index_line()
         reason = self._action_block()
         checking = self._checking()
         page_open = self._flow is not None

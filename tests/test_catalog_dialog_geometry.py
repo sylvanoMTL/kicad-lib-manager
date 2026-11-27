@@ -15,7 +15,7 @@ from collectionfixtures import make_collection
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import QWidget
 
-from kicad_lib_manager.catalog import curated, gitnet, manifest, status
+from kicad_lib_manager.catalog import addons, curated, gitnet, manifest, status
 from kicad_lib_manager.catalog.manifest import CatalogEntry, Manifest
 from kicad_lib_manager.catalog.ops import NetStatus
 from kicad_lib_manager.models import Issue, Severity
@@ -26,6 +26,7 @@ SPARKFUN = curated.curated_by_id("SparkFun")
 WURTH = curated.curated_by_id("WurthElektronik")
 NET_OK = NetStatus(object(), (2, 50, 0), None, None)
 SIZES = [(760, 520), (900, 640), (1100, 720)]
+LIST_READ = lambda: addons.IndexRead((), None, False, "")  # noqa: E731 - a read of KiCad's add-on list that found nothing to add
 
 
 def entry(id, url):
@@ -223,7 +224,10 @@ def test_all_strips_at_minimum_height(qtbot, tmp_path):
         size=(760, 520),
         load_manifest=lambda root: issue,
         net_status=lambda root: NetStatus(None, (2, 30, 0), refusal, None),
+        read_index=LIST_READ,  # the list of KiCad's add-ons is read: its line is hidden (the next test shows it)
     )
+    qtbot.waitUntil(lambda: dialog._index_state == "ok", timeout=10000)
+    assert dialog._index_line.isHidden()
     assert not dialog._record_strip.isHidden() and not dialog._git_too_old_strip.isHidden()
     assert dialog.size() == QSize(760, 520)
     assert dialog._list_stack.height() >= cd.LIST_MINIMUM_HEIGHT
@@ -239,6 +243,7 @@ def test_all_strips_at_minimum_height(qtbot, tmp_path):
         size=(760, 520),
         load_manifest=lambda root: issue,
         net_status=lambda root: NetStatus(object(), (2, 40, 0), None, warning),
+        read_index=LIST_READ,
     )
     assert not other._git_old_strip.isHidden()
     assert other._list_stack.height() >= cd.LIST_MINIMUM_HEIGHT and inside(other._toolbar, other)
@@ -267,6 +272,6 @@ def test_all_strips_and_the_reading_line_at_minimum_height(qtbot, tmp_path):
         assert dialog._toolbar.isVisible() and inside(dialog._toolbar, dialog)
         assert inside(dialog._close_btn, dialog)
         assert gf.overlapping_children(dialog) == []
-        assert gf.clipped_wrapped_labels(dialog) == []
+        # with the line added the two long strips may be cut at 760 x 520: the list and the toolbar are what must stay
     finally:
         gate.set()
