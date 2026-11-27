@@ -244,3 +244,7 @@ def default_backup_dir(
 def normalize_eol(text: str, eol: str) -> str:
     """Convert every line ending in text to eol (the target file's dominant style)."""
     return text.replace("\r\n", "\n").replace("\r", "\n").replace("\n", eol)
+
+
+def remove_tree(folder, *, inside, retry_delays=_RETRY_DELAYS, sleep=time.sleep):
+    return None

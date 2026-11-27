@@ -446,3 +446,109 @@ def test_normalize_eol_converts_every_style():
     mixed = "a\r\nb\nc\rd"
     assert fsutil.normalize_eol(mixed, "\r\n") == "a\r\nb\r\nc\r\nd"
     assert fsutil.normalize_eol(mixed, "\n") == "a\nb\nc\nd"
+
+
+# -- remove_tree (Phase 17 plan 07; RESEARCH Pitfall 2, T-17-20) ------------------------------
+
+
+def _tree(root, *, read_only=True):
+    root.mkdir(parents=True)
+    (root / "sub").mkdir()
+    for path in (root / "a.txt", root / "sub" / "b.txt"):
+        path.write_text("x", encoding="utf-8")
+        if read_only:
+            path.chmod(stat.S_IREAD)
+    return root
+
+
+def _make_link(target, link):
+    """A symbolic link where the platform allows it, else a directory junction (Windows)."""
+    try:
+        os.symlink(target, link, target_is_directory=True)
+        return
+    except (OSError, NotImplementedError):
+        pass
+    import _winapi
+
+    _winapi.CreateJunction(str(target), str(link))
+
+
+def test_remove_tree_deletes_a_tree_with_read_only_files(tmp_path):
+    inside = tmp_path / "ThirdParty"
+    folder = _tree(inside / "Lib")
+    assert fsutil.remove_tree(folder, inside=inside) is None
+    assert not folder.exists()
+    assert inside.is_dir()
+
+
+def test_remove_tree_of_a_missing_folder_is_success(tmp_path):
+    inside = tmp_path / "ThirdParty"
+    inside.mkdir()
+    assert fsutil.remove_tree(inside / "Gone", inside=inside) is None
+
+
+def test_remove_tree_refuses_a_folder_outside_inside(tmp_path):
+    inside = tmp_path / "ThirdParty"
+    inside.mkdir()
+    outside = _tree(tmp_path / "Other", read_only=False)
+    result = fsutil.remove_tree(outside, inside=inside)
+    assert isinstance(result, Issue) and result.code == "fs.remove_outside"
+    assert result.severity is Severity.ERROR
+    assert (outside / "a.txt").exists() and (outside / "sub" / "b.txt").exists()
+
+
+def test_remove_tree_refuses_dotdot_and_the_inside_folder_itself(tmp_path):
+    inside = tmp_path / "ThirdParty"
+    inside.mkdir()
+    sibling = _tree(tmp_path / "Sibling", read_only=False)
+    escaped = fsutil.remove_tree(inside / ".." / "Sibling", inside=inside)
+    assert isinstance(escaped, Issue) and escaped.code == "fs.remove_outside"
+    assert (sibling / "a.txt").exists()
+    same = fsutil.remove_tree(inside, inside=inside)
+    assert isinstance(same, Issue) and same.code == "fs.remove_outside"
+    assert inside.is_dir()
+
+
+def test_remove_tree_refuses_a_link_and_leaves_its_target(tmp_path):
+    inside = tmp_path / "ThirdParty"
+    inside.mkdir()
+    target = _tree(tmp_path / "Target", read_only=False)
+    link = inside / "Linked"
+    _make_link(target, link)
+    result = fsutil.remove_tree(link, inside=inside)
+    assert isinstance(result, Issue) and result.code == "fs.remove_link"
+    assert (target / "a.txt").exists() and (target / "sub" / "b.txt").exists()
+
+
+def test_remove_tree_retries_a_permission_error_then_succeeds(tmp_path, monkeypatch):
+    inside = tmp_path / "ThirdParty"
+    folder = _tree(inside / "Lib", read_only=False)
+    real = fsutil.shutil.rmtree
+    calls = []
+
+    def flaky(path, **kwargs):
+        calls.append(path)
+        if len(calls) < 3:
+            raise PermissionError(13, "Access is denied")
+        return real(path, **kwargs)
+
+    monkeypatch.setattr(fsutil.shutil, "rmtree", flaky)
+    sleeps = _SleepRecorder()
+    assert fsutil.remove_tree(folder, inside=inside, sleep=sleeps) is None
+    assert len(calls) == 3 and len(sleeps.calls) == 2
+    assert not folder.exists()
+
+
+def test_remove_tree_a_lasting_failure_is_a_plain_issue(tmp_path, monkeypatch):
+    inside = tmp_path / "ThirdParty"
+    folder = _tree(inside / "Lib", read_only=False)
+
+    def always(path, **kwargs):
+        raise PermissionError(13, "Access is denied")
+
+    monkeypatch.setattr(fsutil.shutil, "rmtree", always)
+    result = fsutil.remove_tree(folder, inside=inside, retry_delays=(0.0, 0.0), sleep=_no_sleep)
+    assert isinstance(result, Issue) and result.code == "fs.remove_failed"
+    assert result.severity is Severity.ERROR
+    assert "Access is denied" in result.text and "Traceback" not in result.text
+    assert folder.exists()
