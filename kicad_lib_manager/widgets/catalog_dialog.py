@@ -106,6 +106,8 @@ LABEL_COLUMN_WIDTH = 120
 NOT_STATED_TEXT = catalog_pages.NOT_STATED_TEXT
 LICENCE_UNREADABLE_TEXT = catalog_pages.LICENCE_UNREADABLE_TEXT
 SIZE_PENDING_TEXT = "Calculating..."
+SIZE_UNKNOWN_TEXT = "Unknown"
+SIZE_ON_DISK_TIP = "{size} on disk"
 LIBRARIES_UNKNOWN_TEXT = "Known after it is added"
 NO_VARS_TEXT = "This library needs none."
 VARS_PENDING_TEXT = "Reading KiCad settings..."
@@ -371,7 +373,10 @@ class CatalogDialog(QDialog):
         self._shown_id: str | None = None
         self._split_user = False
         self._size_cache: dict[Path, int | None] = {}  # folder -> bytes on disk, None when it could not be measured
-        self._size_pending: set[Path] = set()
+        self._size_queue: list[Path] = []  # folders waiting to be measured, the next one first; one is measured at a time
+        self._size_running: Path | None = None
+        self._size_stale: set[Path] = set()  # folders whose running measurement is out of date (the folder changed under it)
+        self._size_task: BackgroundTask | None = None
         self._kicad_fp_dir: Path | None = None
         self._job: _Job | None = None  # the one job on a worker; plan, check, stage, register or discard
         self._flow: _Flow | None = None  # the Add, Reinstall or Add by URL in progress
@@ -800,7 +805,6 @@ class CatalogDialog(QDialog):
         self._fresh = True
 
     def _load(self) -> None:
-        self._size_cache.clear()  # the folders may have changed since they were measured
         self._path_label.set_full_text(f"{self._root.as_posix()}/ThirdParty")
         self._mf = self._services.load_manifest(self._root)
         self._rebuild_rows()
@@ -850,7 +854,13 @@ class CatalogDialog(QDialog):
         self._fit_timer.stop()
         self._focus_timer.stop()
         self._manual_check = False
-        self._size_pending.clear()
+        self._size_cache.clear()
+        self._size_queue.clear()
+        self._size_stale.clear()
+        self._size_running = None
+        if self._size_task is not None:
+            self._size_task.cancel()
+            self._size_task = None
 
     def _track(self, task: BackgroundTask) -> BackgroundTask:
         """Remember a background task so a close or a root change can drop its result."""
@@ -898,20 +908,38 @@ class CatalogDialog(QDialog):
 
     def _make_item(self, row: status.Row) -> QTreeWidgetItem:
         text, token, tip = _status_cell(row)
-        item = QTreeWidgetItem([row.name, text, row.licence_label, row.size_text])
+        item = QTreeWidgetItem([row.name, text, row.licence_label, ""])
         item.setData(0, _ROW_ID, row.id)
         item.setToolTip(0, row.name)
         item.setToolTip(1, tip)
         item.setToolTip(2, row.licence_label)
-        item.setToolTip(3, row.size_text)
         if token is not None:
             item.setForeground(1, QBrush(QColor(token)))
         if row.licence_class is LicenceClass.UNKNOWN:
             item.setForeground(2, QBrush(QColor(theme.MUTED)))
-        if row.size_mb is None:
-            item.setForeground(3, QBrush(QColor(theme.MUTED)))
+        self._set_size_cell(item, row)
         item.setTextAlignment(3, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         return item
+
+    @staticmethod
+    def _on_disk(row: status.Row) -> bool:
+        """True for a row whose folder exists, so its size is the size on disk."""
+        return row.state in (State.INSTALLED, State.UPDATE_AVAILABLE, State.NOT_IN_CATALOG)
+
+    def _set_size_cell(self, item: QTreeWidgetItem, row: status.Row) -> None:
+        """The Size cell: the size on disk of an installed folder (Calculating... until measured), else the listed size."""
+        if not self._on_disk(row):
+            text, tip, muted = row.size_text, row.size_text, row.size_mb is None
+        elif row.folder not in self._size_cache:
+            text, tip, muted = SIZE_PENDING_TEXT, SIZE_PENDING_TEXT, True
+        elif self._size_cache[row.folder] is None:
+            text, tip, muted = SIZE_UNKNOWN_TEXT, SIZE_UNKNOWN_TEXT, True
+        else:
+            text = status.size_text(math.ceil(self._size_cache[row.folder] / 1_000_000))
+            tip, muted = SIZE_ON_DISK_TIP.format(size=text), False
+        item.setText(3, text)
+        item.setToolTip(3, tip)
+        item.setForeground(3, QBrush(QColor(theme.MUTED)) if muted else QBrush())
 
     def _rebuild_rows(self) -> None:
         keep = self.selected_id()
@@ -933,6 +961,10 @@ class CatalogDialog(QDialog):
         finally:
             tree.blockSignals(False)
         self._apply_filter()
+        for row in sorted(self._rows, key=lambda r: r.id != keep):  # the selected row's folder first
+            if self._on_disk(row):
+                self._request_size(row.folder)
+        self._pump_sizes()
 
     def _row_text(self, row: status.Row) -> list[str]:
         repository = row.entry.url if row.entry is not None else (row.curated.url if row.curated is not None else "")
@@ -1081,30 +1113,77 @@ class CatalogDialog(QDialog):
         return "Unknown" if row.size_mb is None else f"about {row.size_text}"
 
     def _size_text(self, row: status.Row) -> str:
-        """The folder's size on disk; it is measured on a daemon thread, so the row reads Calculating... first."""
+        """The folder's size on disk for the Details page; measured off the GUI thread, so it reads Calculating... first."""
         folder = row.folder
         if folder in self._size_cache:
             size = self._size_cache[folder]
-            return "Unknown" if size is None else f"{status.size_text(math.ceil(size / 1_000_000))} on disk"
-        if folder not in self._size_pending:
-            self._size_pending.add(folder)
-            services, gen = self._services, self._gen
-            self._track(
-                run_in_background(
-                    lambda: int(services.size_on_disk(folder)),
-                    lambda result, g=gen: self._on_size(g, folder, result),
-                    lambda text, g=gen: self._on_size(g, folder, None),
-                    name="catalog-folder-size",
-                )
-            )
+            return SIZE_UNKNOWN_TEXT if size is None else SIZE_ON_DISK_TIP.format(size=status.size_text(math.ceil(size / 1_000_000)))
+        self._request_size(folder, first=True)
+        self._pump_sizes()
         return SIZE_PENDING_TEXT
+
+    def _request_size(self, folder: Path, *, first: bool = False) -> None:
+        """Queue a folder for measuring (first puts it next); a measured, queued or running folder is not queued twice."""
+        if folder in self._size_cache or (folder == self._size_running and folder not in self._size_stale):
+            return
+        if folder in self._size_queue:
+            if first:
+                self._size_queue.remove(folder)
+                self._size_queue.insert(0, folder)
+            return
+        if first:
+            self._size_queue.insert(0, folder)
+        else:
+            self._size_queue.append(folder)
+
+    def _pump_sizes(self) -> None:
+        """Start the next measurement when none runs: the folders are measured one after another, never in parallel."""
+        if self._size_running is not None or not self._size_queue:
+            return
+        folder = self._size_queue.pop(0)
+        self._size_running = folder
+        services, gen = self._services, self._gen
+        self._size_task = run_in_background(
+            lambda: int(services.size_on_disk(folder)),
+            lambda result, g=gen: self._on_size(g, folder, result),
+            lambda text, g=gen: self._on_size(g, folder, None),
+            name="catalog-folder-size",
+        )
 
     def _on_size(self, gen: int, folder: Path, size: int | None) -> None:
         if gen != self._gen:
             return
-        self._size_pending.discard(folder)
-        self._size_cache[folder] = size
-        self._refresh_details()
+        self._size_running = None
+        self._size_task = None
+        if folder in self._size_stale:  # the folder changed while it was measured: the value is dropped
+            self._size_stale.discard(folder)
+        else:
+            self._size_cache[folder] = size
+            self._update_size_cells(folder)
+        self._pump_sizes()
+
+    def _update_size_cells(self, folder: Path) -> None:
+        """Write a measured size into its list cell and the Details page, in place: selection and search stay."""
+        by_id = {row.id: row for row in self._rows}
+        for index in range(self._tree.topLevelItemCount()):
+            item = self._tree.topLevelItem(index)
+            row = by_id.get(item.data(0, _ROW_ID))
+            if row is not None and row.folder == folder and self._on_disk(row):
+                self._set_size_cell(item, row)
+        current = self.current_row()
+        if current is not None and current.folder == folder:
+            self._refresh_details()
+
+    def _forget_size(self, id: str) -> None:
+        """A finished Add, Update or Reinstall changed this library's folder: it is measured again."""
+        for row in self._rows:
+            if row.id == id:
+                folder = row.folder
+                self._size_cache.pop(folder, None)
+                if folder in self._size_queue:
+                    self._size_queue.remove(folder)
+                if folder == self._size_running:
+                    self._size_stale.add(folder)
 
     def _libraries_text(self, row: status.Row, on_disk: bool) -> str:
         if on_disk and self._scan is not None:
@@ -1944,6 +2023,7 @@ class CatalogDialog(QDialog):
         self._flow = None
         self._page_kind = None
         self._lock_list(False)
+        self._forget_size(flow.id)
         # the library was just downloaded at its recorded commit, so its row reads installed and current
         self._updates[flow.id] = status.UpdateState(flow.id, Check.CURRENT, staged.commit, self._clock())
         self.refresh()
@@ -2139,6 +2219,7 @@ class CatalogDialog(QDialog):
         self._flow = None
         self._page_kind = None
         self._lock_list(False)
+        self._forget_size(flow.id)
         self.refresh()
         self._select_row(flow.id)
         self.show_result(lines, generate=True, manifest_note=manifest_note)

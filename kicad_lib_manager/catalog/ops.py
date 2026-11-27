@@ -1018,6 +1018,8 @@ class RemovePlan:
 
     exists is False for a listed library whose folder is already gone (only the entry is removed); listed is False
     for a ThirdParty folder the catalog does not list (the folder is deleted, the catalog is not changed).
+    symbol_nicknames and footprint_nicknames are the libraries of each kind (a symbol and a footprint library of
+    one name are in both); nicknames is the union of the names, one entry per name.
     """
 
     id: str
@@ -1029,6 +1031,8 @@ class RemovePlan:
     vars: tuple[str, ...]
     listed: bool
     kicad_open: tuple[str, ...]
+    symbol_nicknames: tuple[str, ...] = ()
+    footprint_nicknames: tuple[str, ...] = ()
 
 
 def _disk_paths(folder: Path) -> list[str]:
@@ -1059,13 +1063,16 @@ def plan_remove(
     exists = existing is not None and folder.is_dir()
     if scan is not None:
         prefix = f"{THIRD_PARTY_DIR}/{folder.name}/".casefold()
-        found = {
-            lib.nickname
-            for lib in [*scan.symbol_libs, *scan.footprint_libs]
-            if lib.rel_path.replace("\\", "/").casefold().startswith(prefix)
-        }
+
+        def inside(libraries) -> set[str]:
+            return {lib.nickname for lib in libraries if lib.rel_path.replace("\\", "/").casefold().startswith(prefix)}
+
+        symbols, footprints = inside(scan.symbol_libs), inside(scan.footprint_libs)
     else:
-        found = _library_names(_disk_paths(folder)) if exists else set()
+        typed = _typed_names(_disk_paths(folder)) if exists else set()
+        symbols = {name for kind, name in typed if kind == "sym"}
+        footprints = {name for kind, name in typed if kind == "fp"}
+    found = symbols | footprints
     return RemovePlan(
         id=entry.id if entry is not None else folder.name,
         name=_display_name(entry.id if entry is not None else folder.name),
@@ -1076,6 +1083,8 @@ def plan_remove(
         vars=tuple(sorted(entry.vars)) if entry is not None else (),
         listed=entry is not None,
         kicad_open=tuple(running()),
+        symbol_nicknames=tuple(sorted(symbols, key=str.casefold)),
+        footprint_nicknames=tuple(sorted(footprints, key=str.casefold)),
     )
 
 

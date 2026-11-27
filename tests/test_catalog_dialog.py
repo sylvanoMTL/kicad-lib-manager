@@ -248,20 +248,24 @@ def test_header_click_does_not_sort(qtbot, tmp_path):
 
 def test_cells_elide_with_tooltips(qtbot, tmp_path):
     dialog = build(qtbot, tmp_path, **STATUS_FIXTURE)
+    qtbot.waitUntil(lambda: "Calculating..." not in [item.text(3) for item in items(dialog)], timeout=10000)
     for item in items(dialog):
-        for column in (0, 2, 3):
+        for column in (0, 2):
             assert item.toolTip(column) == item.text(column)
+        # a measured size says where it comes from; a listed size is its own tooltip
+        assert item.toolTip(3) in (item.text(3), f"{item.text(3)} on disk")
     assert dialog._tree.textElideMode() == Qt.TextElideMode.ElideRight
 
 
 def test_size_and_licence_cells(qtbot, tmp_path):
     dialog = build(qtbot, tmp_path, **STATUS_FIXTURE)
+    qtbot.waitUntil(lambda: "Calculating..." not in [item.text(3) for item in items(dialog)], timeout=10000)
     rows = by_name(dialog)
-    assert (rows["SparkFun"].text(2), rows["SparkFun"].text(3)) == ("CC BY 4.0", "69 MB")
-    assert (rows["Würth Elektronik"].text(2), rows["Würth Elektronik"].text(3)) == ("Proprietary", "2.7 GB")
+    assert (rows["SparkFun"].text(2), rows["SparkFun"].text(3)) == ("CC BY 4.0", "69 MB")  # the size on disk (fake: 69 MB)
+    assert (rows["Würth Elektronik"].text(2), rows["Würth Elektronik"].text(3)) == ("Proprietary", "2.7 GB")  # folder missing: as listed
     stray = rows["Stray"]
-    assert (stray.text(2), stray.text(3)) == ("Unknown", "Unknown")
-    assert colour(stray, 2) == hex_of(theme.MUTED) and colour(stray, 3) == hex_of(theme.MUTED)
+    assert (stray.text(2), stray.text(3)) == ("Unknown", "69 MB")
+    assert colour(stray, 2) == hex_of(theme.MUTED) and colour(stray, 3) != hex_of(theme.MUTED)
     assert rows["SparkFun"].textAlignment(3) & Qt.AlignmentFlag.AlignRight
 
 
@@ -642,6 +646,7 @@ def test_installed_size_cell_shows_size_on_disk(qtbot, tmp_path):
 
 def test_folders_are_measured_one_at_a_time(qtbot, tmp_path):
     lock = threading.Lock()
+    gate = threading.Event()
     active = {"now": 0, "most": 0}
     calls: list[str] = []
 
@@ -650,21 +655,38 @@ def test_folders_are_measured_one_at_a_time(qtbot, tmp_path):
             active["now"] += 1
             active["most"] = max(active["most"], active["now"])
             calls.append(folder.name)
+        gate.wait(10)
         time.sleep(0.03)
         with lock:
             active["now"] -= 1
         return 325_000_000
 
     dialog = build(qtbot, tmp_path, size_on_disk=size, clock=CLOCK, **STATUS_FIXTURE)
-    select(dialog, "SparkFun")
-    qtbot.waitUntil(lambda: all(by_name(dialog)[n].text(3) != "Calculating..." for n in ("SparkFun", "acme/demo-lib", "acme/alpha", "Stray")), timeout=10000)
+    qtbot.waitUntil(lambda: bool(calls), timeout=10000)
+    select(dialog, "SparkFun")  # the first measurement is held: the selected row's folder goes next
+    gate.set()
+    names = ("SparkFun", "acme/demo-lib", "acme/alpha", "Stray")
+    qtbot.waitUntil(lambda: all(by_name(dialog)[n].text(3) != "Calculating..." for n in names), timeout=10000)
     assert active["most"] == 1
-    assert calls[0] == "SparkFun"  # the selected row's folder first
-    assert sorted(calls) == ["Stray", "SparkFun", "alpha", "demo"]  # each folder once
+    assert calls[1] == "SparkFun"
+    assert sorted(calls) == ["SparkFun", "Stray", "alpha", "demo"]  # each folder once
     assert value(dialog, "size") == "325 MB on disk"  # the Details page uses the same measurement
     select(dialog, "acme/demo-lib")
     assert value(dialog, "size") == "325 MB on disk"
     assert len(calls) == 4
+
+
+def test_a_finished_change_measures_the_folder_again(qtbot, tmp_path):
+    current = {"bytes": 325_000_000}
+    dialog = build(qtbot, tmp_path, size_on_disk=lambda folder: current["bytes"], clock=CLOCK, **STATUS_FIXTURE)
+    qtbot.waitUntil(lambda: by_name(dialog)["SparkFun"].text(3) == "325 MB", timeout=10000)
+    dialog.refresh()  # a plain reload keeps what was measured
+    assert by_name(dialog)["SparkFun"].text(3) == "325 MB"
+    current["bytes"] = 400_000_000  # an Update changed the folder
+    dialog._forget_size("SparkFun")
+    dialog.refresh()
+    assert by_name(dialog)["SparkFun"].text(3) == "Calculating..."
+    qtbot.waitUntil(lambda: by_name(dialog)["SparkFun"].text(3) == "400 MB", timeout=10000)
 
 
 def test_updates_row_texts(qtbot, tmp_path):

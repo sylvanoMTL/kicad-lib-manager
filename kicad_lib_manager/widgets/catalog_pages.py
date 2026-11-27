@@ -146,6 +146,23 @@ REMOVE_TAIL_UNLISTED = "({size} on disk)."
 REMOVE_GONE_TEXT = "The folder is already gone, so only the catalog entry is removed."
 LEAVE_TITLE = "Libraries that leave your scan"
 LEAVE_NOTE = "The next Generate Tables drops them from your KiCad library tables."
+LEAVE_LIBRARY_COLUMN = "Library"
+LEAVE_KIND_COLUMN = "Kind"
+KIND_SYMBOL_TEXT = "Symbol"
+KIND_FOOTPRINT_TEXT = "Footprint"
+
+
+def leave_counts(symbols: int, footprints: int) -> str:
+    """'25 symbol and 29 footprint libraries', '1 symbol and 1 footprint library', '3 footprint libraries', '1 symbol library'."""
+
+    def noun(n: int) -> str:
+        return "library" if n == 1 else "libraries"
+
+    if symbols and footprints:
+        return f"{symbols} symbol and {footprints} footprint {noun(footprints)}"
+    if symbols:
+        return f"{symbols} symbol {noun(symbols)}"
+    return f"{footprints} footprint {noun(footprints)}"
 VARS_USED_HEADING = "Path variables it used"
 VARS_STAY_NOTE = "They stay set in KiCad. Projects that still use this library's 3D models lose them."
 
@@ -297,14 +314,18 @@ def clear_layout(layout) -> None:
 class CollapsibleList(QWidget):
     """A heading with the row count, a Show toggle above 3 rows and a list at most 6 rows tall (it scrolls beyond).
 
-    collapse=False keeps the list always shown (the name clashes of the Add preview). Extra columns come from
-    columns; a single column has no header. Names elide at the column width and carry their text as tooltip.
+    collapse=False keeps the list always shown (the name clashes of the Add preview). counted=False leaves the
+    row count off the heading (the title says it already). Extra columns come from columns; a single column
+    has no header. Names elide at the column width and carry their text as tooltip.
     """
 
-    def __init__(self, title: str, columns: tuple[str, ...] = (), *, collapse: bool = True, parent=None):
+    def __init__(
+        self, title: str, columns: tuple[str, ...] = (), *, collapse: bool = True, counted: bool = True, parent=None
+    ):
         super().__init__(parent)
         self._title = title
         self._collapse = collapse
+        self._counted = counted
         self._columns = tuple(columns) or ("",)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -362,7 +383,8 @@ class CollapsibleList(QWidget):
             self._tree.setVisible(self._rows > 0)
 
     def _refresh_heading(self) -> None:
-        self._heading.setText(f"{self._title} ({self._rows})" if self._title else "")
+        text = self._title if not self._counted else f"{self._title} ({self._rows})"
+        self._heading.setText(text if self._title else "")
         self._heading.setVisible(bool(self._title))
 
     def row_count(self) -> int:
@@ -1090,10 +1112,16 @@ class RemovePage(ReviewPage):
         else:
             self._line = REMOVE_GONE_TEXT
             self._add(plain_label(REMOVE_GONE_TEXT, wrap=True))
-        if plan.nicknames:
+        if plan.symbol_nicknames or plan.footprint_nicknames:
             box, lay = _section()
-            self._leave = CollapsibleList(LEAVE_TITLE)
-            self._leave.set_rows([(name,) for name in plan.nicknames])
+            self._leave = CollapsibleList(
+                f"{LEAVE_TITLE}: {leave_counts(len(plan.symbol_nicknames), len(plan.footprint_nicknames))}",
+                (LEAVE_LIBRARY_COLUMN, LEAVE_KIND_COLUMN),
+                counted=False,
+            )
+            rows = [(name, KIND_SYMBOL_TEXT) for name in plan.symbol_nicknames]
+            rows += [(name, KIND_FOOTPRINT_TEXT) for name in plan.footprint_nicknames]
+            self._leave.set_rows(sorted(rows, key=lambda row: (row[0].casefold(), row[0], row[1])))
             lay.addWidget(self._leave)
             note = plain_label(LEAVE_NOTE, wrap=True)
             muted(note)
