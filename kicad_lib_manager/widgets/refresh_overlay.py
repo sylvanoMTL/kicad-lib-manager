@@ -5,7 +5,7 @@ Shown by the main window while it reads a library source again after a catalog A
 overlay is shown.
 """
 
-from PySide6.QtCore import QEvent, QObject, Qt
+from PySide6.QtCore import QEvent, QObject, Qt, QTimer
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QLabel, QProgressBar, QVBoxLayout, QWidget
 
@@ -20,19 +20,43 @@ _TEXT_WIDTH = 520
 _TRACK = 12  # width of the ring and of the arc, in pixels
 _ARC_DEGREES = 300
 _OVERLAY_ALPHA = 235
+_TICK_MS = 40  # one step every 40 ms ...
+_STEP_DEGREES = 12  # ... of 12 degrees: a full turn in 30 steps, about 1.2 s
 
 
 class SpinnerWheel(QWidget):
-    """A thick arc on a ring (the arc is drawn at angle())."""
+    """A thick arc on a ring, turned by a timer that runs only while the wheel is shown.
+
+    The timer starts in showEvent and stops in hideEvent (which a hidden or closed parent window also sends), so
+    nothing a timer starts outlives the window (UI-SPEC close rule).
+    """
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFixedSize(WHEEL_SIZE, WHEEL_SIZE)
         self._angle = 0
+        self._timer = QTimer(self)
+        self._timer.setInterval(_TICK_MS)
+        self._timer.timeout.connect(self._advance)
 
     def angle(self) -> int:
         """Where the arc starts, in degrees (0 to 359)."""
         return self._angle
+
+    def is_spinning(self) -> bool:
+        return self._timer.isActive()
+
+    def _advance(self):
+        self._angle = (self._angle + _STEP_DEGREES) % 360
+        self.update()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._timer.start()
+
+    def hideEvent(self, event):
+        self._timer.stop()
+        super().hideEvent(event)
 
     def paintEvent(self, event):
         painter = QPainter(self)

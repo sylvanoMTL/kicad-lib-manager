@@ -124,3 +124,14 @@ def test_the_wheel_is_large(parts):
     assert overlay.wheel.width() >= 96
     assert overlay.wheel.height() >= 96
     assert refresh_overlay.WHEEL_SIZE >= 96
+
+
+def test_the_wheel_paints_its_arc_and_ring(parts):
+    _parent, overlay = parts
+    overlay.show_for("add", "Acme")
+
+    image = overlay.wheel.grab().toImage()
+    colours = {image.pixelColor(x, y).name().upper() for x in range(image.width()) for y in range(image.height())}
+
+    assert "#0078D4" in colours  # the arc
+    assert "#C8C8C8" in colours  # the ring
