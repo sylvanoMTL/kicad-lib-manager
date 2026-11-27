@@ -5,16 +5,16 @@ milestone_name: Public Library Manager
 current_phase: 17
 current_phase_name: Library Catalog
 status: executing
-stopped_at: Completed 17-26-PLAN.md
-last_updated: "2026-11-27T18:14:19.662Z"
+stopped_at: Completed 17-18-PLAN.md
+last_updated: "2026-11-27T18:24:43.068Z"
 last_activity: 2026-11-27
 last_activity_desc: Phase 17 execution started
-state_head: 85fe527da51f868f169c61b19cc1b19792515aef
+state_head: 817c28208321b4ff047e8dc17fceb1ba249726a9
 progress:
   total_phases: 8
   completed_phases: 3
   total_plans: 67
-  completed_plans: 64
+  completed_plans: 65
   percent: 38
 ---
 
@@ -104,6 +104,7 @@ Progress: [████░░░░░░] 38%
 | Phase 17 P25 | 19 min | 3 tasks | 10 files |
 | Phase 17 P27 | 17 min | 3 tasks | 10 files |
 | Phase 17 P26 | 22min | 2 tasks | 6 files |
+| Phase 17 P18 | 25 min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -169,6 +170,7 @@ The full decision log is in the PROJECT.md Key Decisions table. The v1.0 per-pha
 - [Phase 17]: 17-25: a library of KiCad's add-on list is one row (curated wins on repository key; a recorded library takes its listing by add-on id, else repository); Add from the list runs the same GitHub check, licence page, download check and preview; the line about KiCad's list is hidden on review pages
 - [Phase 17]: 17-27: scratch switch --scratch-root / KICAD_LIBMGR_SCRATCH_ROOT (command line wins) puts settings, backups and KiCad's settings under PATH/settings, PATH/backups, PATH/kicad; bad value exits 2 with a reason, no fallback
 - [Phase 17]: 17-26: the guide's new section 'If a library cannot be added yet' follows 'Adding by web address'; the plain-language test refuses PCM not followed by an underscore and the word staging
+- [Phase 17]: 17-18: CURATED is Wurth and SparkFun; 4ms and Alternate come from KiCad's add-on list (D-33); Espressif is REJECTED (add-on folder variables, not in KiCad's list)
 
 ### Pending Todos
 
@@ -214,8 +216,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-27T18:14:18.691Z
-Stopped at: Completed 17-26-PLAN.md
+Last session: 2026-11-27T18:24:42.030Z
+Stopped at: Completed 17-18-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
