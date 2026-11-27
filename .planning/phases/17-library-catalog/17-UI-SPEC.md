@@ -276,7 +276,7 @@ Problem strips (top of the detail page, `✖` in `ERROR` for the first, `⚠` in
 - Folder missing: `✖ The folder {folder} is missing. It may have been deleted, or this collection was copied from another computer without it. Reinstall This Library downloads it again from {repository}.`
 - Not in the catalog: `⚠ This folder is in ThirdParty but is not in the catalog, so the app does not know where it came from. Its libraries are still scanned like any other. The app never deletes it by itself; Remove This Library deletes it after you confirm.`
 
-Licence cell: the display names of "Licence labels" (`CC BY 4.0`, `MIT`, `Proprietary`, `Not stated`, `Unknown`). Size cell: `{n} MB` below 1000 MB, `{x.x} GB` from 1000 MB, `Unknown` (`MUTED`) when no size is known. Name cell: the curated friendly name, or `{owner}/{repo}` for a library added by URL, or the folder name for a problem row not in the catalog.
+Licence cell: the display names of "Licence labels" (`CC BY 4.0`, `MIT`, `Proprietary`, `Not stated`, `Unknown`). Size cell: `{n} MB` below 1000 MB, `{x.x} GB` from 1000 MB, `Unknown` (`MUTED`) when no size is known; for an installed, update-available or not-in-the-catalog row it is the folder's size on disk (tooltip `{size} on disk`), `Calculating...` (`MUTED`) until measured, one folder after another off the GUI thread, and `Unknown` (`MUTED`) when it cannot be measured (17-17 finding 4). Name cell: the curated friendly name, or `{owner}/{repo}` for a library added by URL, or the folder name for a problem row not in the catalog.
 
 Row text is elided at the cell width with the full text as tooltip. Search: case-insensitive text match on Name, description and repository; rows that do not match are hidden; an empty search shows all. Selection is kept when the row still matches, otherwise the detail pane shows its empty state.
 
@@ -400,7 +400,7 @@ While steps 2 and 3 run, every action button in the catalog window is disabled w
 Heading `Remove {name}?`. Body rows:
 
 - `This deletes the folder {folder} ({size} on disk) and removes {name} from the catalog.` (folder gone already: `The folder is already gone, so only the catalog entry is removed.`)
-- `Libraries that leave your scan ({n})`: the nicknames, collapsed behind `Show` above 3; then `The next Generate Tables drops them from your KiCad library tables.`
+- `Libraries that leave your scan: {s} symbol and {f} footprint libraries` (owner-approved 2026-11-27, 17-17 finding 5; `1 symbol library` / `1 footprint library` in the singular, one kind only reads `{s} symbol libraries` or `{f} footprint libraries`): one row per library with the columns `Library` and `Kind` (`Symbol` or `Footprint`, so a symbol and a footprint library of one name are two rows), collapsed behind `Show` above 3; then `The next Generate Tables drops them from your KiCad library tables.`
 - `Path variables it used`: `{VAR}` list in Mono, then `They stay set in KiCad. Projects that still use this library's 3D models lose them.` (none: omit the row).
 - KiCad-open line when KiCad is open.
 - Buttons: `Keep Library` (plain, **the default button**, `Esc` = this) and `Remove Library` (destructive: fill `ERROR`, white text bold, same padding and minimum height as `PRIMARY_BUTTON_QSS`, composed locally; never the default; no `Ctrl+Return`).
@@ -418,9 +418,9 @@ Visible only while a job runs, between the splitter and the button row. One row:
 | Job | Label steps | Cancel button |
 |-----|-------------|---------------|
 | Check repository | `Checking the repository...` (indeterminate) | `Cancel Check` |
-| Add | `Downloading {name}... {n}%` (determinate when the percentage is known, else indeterminate), `Checking {name}...`, `Adding {name}...` | `Cancel Adding` |
+| Add | `Downloading {name}... {n}%` (determinate when the percentage is known, else indeterminate), `Checking {name}...` (indeterminate until the footprint files are counted, then `Checking {name}... {n}% ({done} of {total} files)` with thousands separators, determinate, at most one update per whole percent; 17-17 finding 1), `Adding {name}...` | `Cancel Adding` |
 | Update | `Looking for changes in {name}...`, `Updating {name}...` | `Cancel Updating` |
-| Reinstall | `Downloading {name} again... {n}%`, `Checking {name}...`, `Adding {name}...` | `Cancel Reinstalling` |
+| Reinstall | `Downloading {name} again... {n}%`, `Checking {name}...` (with the file count, as for Add), `Adding {name}...` | `Cancel Reinstalling` |
 | Remove | `Removing {name}...` (indeterminate) | `Cancel Removing` (disabled) |
 | Check for updates (startup or manual) | no strip; the toolbar button reads `Checking...` and the Details page `Updates` row reads `Checking for updates...` | none |
 
