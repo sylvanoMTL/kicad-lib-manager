@@ -5,16 +5,16 @@ milestone_name: Public Library Manager
 current_phase: 17
 current_phase_name: Library Catalog
 status: executing
-stopped_at: Completed 17-12-PLAN.md
-last_updated: "2026-11-27T11:15:09.606Z"
+stopped_at: Completed 17-13-PLAN.md
+last_updated: "2026-11-27T11:38:26.429Z"
 last_activity: 2026-11-27
 last_activity_desc: Phase 17 execution started
-state_head: 80578b7aaecb9fbb475febdc241c79647ae12563
+state_head: d82700c08f6dc6e2642c27b81fd3f0fd1ebd1c06
 progress:
   total_phases: 8
   completed_phases: 3
   total_plans: 60
-  completed_plans: 52
+  completed_plans: 53
   percent: 38
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-26)
 ## Current Position
 
 Phase: 17 (Library Catalog) — EXECUTING
-Plan: 13 of 20
+Plan: 14 of 20
 Status: Ready to execute
 Last activity: 2026-11-27 — Phase 17 execution started
 
@@ -93,6 +93,7 @@ Progress: [████░░░░░░] 38%
 | Phase 17 P10 | 12 min | 3 tasks | 8 files |
 | Phase 17 P11 | 18 min | 3 tasks | 3 files |
 | Phase 17 P12 | 17 min | 2 tasks | 9 files |
+| Phase 17 P13 | 22 min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -138,6 +139,9 @@ The full decision log is in the PROJECT.md Key Decisions table. The v1.0 per-pha
 - [Phase 17]: 17-11: folder size on disk is measured off the GUI thread (CatalogServices.size_on_disk) and reads Calculating... first
 - [Phase 17]: 17-12: the startup update check reads catalog.json on the GUI thread (small file) and runs net_status and check_updates on a daemon thread; each check has its own cancel event and _catalog_check_seq drops an older answer after a switch or close
 - [Phase 17]: 17-12: main window gates Rescan, Generate Tables, Import Part and Migrate through one _refresh_busy_controls (scan and catalog job); _switch_refusal reads the catalog window via is_job_running, is_finishing and holds_download; catalog_model_vars is read on the scan workers and an unreadable record gives {}
+- [Phase 17]: The planning step and the repository check run off the GUI thread as jobs; the final Add (record write) cannot be stopped, so a close during it is ignored with a strip line instead of the Stop the current job? question
+- [Phase 17]: A waiting download is deleted on the GUI thread when the window closes; job_finished carries CatalogOutcome for the add and reinstall flows only (success, stop, refusal, failure, discard)
+- [Phase 17]: Git percentage 100 switches the job strip to Checking {name}...; the Repository link on the licence page is Mono so an Add by URL address elides with its full text as tooltip
 
 ### Pending Todos
 
@@ -183,8 +187,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-27T11:15:08.674Z
-Stopped at: Completed 17-12-PLAN.md
+Last session: 2026-11-27T11:38:25.466Z
+Stopped at: Completed 17-13-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
