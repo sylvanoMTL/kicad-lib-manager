@@ -246,5 +246,61 @@ def normalize_eol(text: str, eol: str) -> str:
     return text.replace("\r\n", "\n").replace("\r", "\n").replace("\n", eol)
 
 
-def remove_tree(folder, *, inside, retry_delays=_RETRY_DELAYS, sleep=time.sleep):
-    return None
+def _clear_read_only(func, path, _exc):
+    """rmtree error handler: clear the read-only bit (git objects) and try the same call once more."""
+    os.chmod(path, stat.S_IWRITE)
+    func(path)
+
+
+def _is_link(path: Path) -> bool:
+    return os.path.islink(path) or os.path.isjunction(path)
+
+
+def remove_tree(
+    folder: Path,
+    *,
+    inside: Path,
+    retry_delays: tuple[float, ...] = _RETRY_DELAYS,
+    sleep: Callable[[float], None] = time.sleep,
+) -> Issue | None:
+    """Delete folder and everything in it, but only when it lies below inside; an Issue on any refusal or failure.
+
+    folder must resolve to a place strictly inside inside (not inside itself). A link or junction is never
+    deleted or followed. Read-only files (git objects on Windows) are made writable, and a PermissionError
+    (another program holds a file) is retried after each of retry_delays. A missing folder is success.
+    """
+    folder = Path(folder)
+    if _is_link(folder):
+        return Issue(
+            Severity.ERROR,
+            "fs.remove_link",
+            f"Could not delete {folder.name}: it is a shortcut to another folder, so it was left alone.",
+        )
+    try:
+        resolved, boundary = folder.resolve(), Path(inside).resolve()
+    except (OSError, RuntimeError) as e:
+        return Issue(Severity.ERROR, "fs.remove_failed", f"Could not delete {folder.name}: {getattr(e, 'strerror', None) or e}")
+    if boundary not in resolved.parents:
+        return Issue(
+            Severity.ERROR,
+            "fs.remove_outside",
+            f"Could not delete {folder.name}: it is not inside {Path(inside).name}, so it was left alone.",
+        )
+    last: OSError | None = None
+    for delay in (*retry_delays, None):
+        if not folder.exists() and not _is_link(folder):
+            return None
+        try:
+            if sys.version_info >= (3, 12):
+                shutil.rmtree(folder, onexc=_clear_read_only)
+            else:
+                shutil.rmtree(folder, onerror=_clear_read_only)
+            return None
+        except FileNotFoundError:
+            return None
+        except OSError as e:
+            last = e
+            if delay is not None:
+                sleep(delay)
+    reason = (last and last.strerror) or last
+    return Issue(Severity.ERROR, "fs.remove_failed", f"Could not delete {folder.name}: {reason}")
