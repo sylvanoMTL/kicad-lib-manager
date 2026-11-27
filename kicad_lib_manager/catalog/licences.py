@@ -1,8 +1,9 @@
 """Licence labels and the acknowledgement rule of the library catalog (Phase 17; D-10, UI-SPEC "Licence labels").
 
 GitHub reports a licence as an SPDX id (or nothing, or the generic "other"); the screens show the display
-names of the UI-SPEC table, never the id. Open licences need no tick in the Add preview; share-alike,
-proprietary, not stated, unrecognised and unknown ones do. Stdlib only. Qt-free.
+names of the UI-SPEC table, never the id. KiCad's add-on list also names licences, some without a version
+(CC-BY-SA, CC-BY). Open licences need no tick in the Add preview; share-alike, proprietary, not stated,
+unrecognised and unknown ones do. Stdlib only. Qt-free.
 """
 
 import re
@@ -23,7 +24,7 @@ NOT_STATED_LABEL = "Not stated"
 OTHER_LABEL = "Other (see the licence file)"
 UNKNOWN_LABEL = "Unknown"
 
-# open licences by casefolded SPDX id
+# open licences by casefolded SPDX id (cc-by is KiCad's versionless name)
 _OPEN = {
     "mit": "MIT",
     "bsd-2-clause": "BSD",
@@ -32,9 +33,12 @@ _OPEN = {
     "isc": "ISC",
     "unlicense": "Unlicense",
     "cc0-1.0": "CC0 1.0",
+    "cc-by": "CC BY",
     "cc-by-3.0": "CC BY 3.0",
     "cc-by-4.0": "CC BY 4.0",
 }
+# share-alike names that carry no version (as KiCad's add-on list writes them), by casefolded id
+_SHARE_ALIKE_FIXED = {"cc-by-sa": "CC BY-SA"}
 # share-alike families: (pattern on the casefolded id, label prefix); the version is the first group
 _SHARE_ALIKE = (
     (re.compile(r"cc-by-sa-(\d\.\d)"), "CC BY-SA"),
@@ -47,6 +51,8 @@ _NOT_STATED = frozenset({"", "noassertion", "other", "none"})
 
 
 def _share_alike_label(key: str) -> str | None:
+    if key in _SHARE_ALIKE_FIXED:
+        return _SHARE_ALIKE_FIXED[key]
     for pattern, prefix in _SHARE_ALIKE:
         found = pattern.fullmatch(key)
         if found is None:
