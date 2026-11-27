@@ -530,6 +530,33 @@ def _isolated_user_state(tmp_path_factory, monkeypatch):
     _rmtree(home, ignore_errors=True)
 
 
+@pytest.fixture(autouse=True)
+def _scratch_switch_reset(_isolated_user_state):
+    """Clear the scratch switch (D-35) before and after every test and put back what a start with it changed.
+
+    The switch sets three process-wide things: the scratch state of kicad_lib_manager.userdirs, the QSettings
+    folder and KICAD_CONFIG_HOME. The first is cleared; the other two are set back to the values this test's
+    own isolated folders gave them. It depends on _isolated_user_state, so it is set up after it and torn
+    down before it; it only adds to the isolation, nothing there is changed.
+    """
+    from PySide6.QtCore import QSettings
+
+    from kicad_lib_manager import userdirs
+
+    userdirs.set_scratch_root(None)
+    # Qt's ini path is <folder>/<org>/<app>.ini: two levels up is the folder that setPath took
+    ini = Path(QSettings(QSettings.Format.IniFormat, QSettings.Scope.UserScope, "KiCadExtLibManager", "settings").fileName())
+    settings_folder = ini.parent.parent
+    config_home = os.environ.get("KICAD_CONFIG_HOME")
+    yield
+    userdirs.set_scratch_root(None)
+    QSettings.setPath(QSettings.Format.IniFormat, QSettings.Scope.UserScope, str(settings_folder))
+    if config_home is None:
+        os.environ.pop("KICAD_CONFIG_HOME", None)
+    else:
+        os.environ["KICAD_CONFIG_HOME"] = config_home
+
+
 @pytest.fixture
 def repo_root() -> Path:
     return REPO_ROOT

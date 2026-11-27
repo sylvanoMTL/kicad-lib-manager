@@ -11,11 +11,20 @@ from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QSettings
 
+from . import userdirs
+
 _MAX_DEST_HISTORY = 10
 _MAX_LIBRARY_RECENT = 10
 
 APP_ORG = "KiCadExtLibManager"
 APP_NAME = "settings"
+
+
+def use_scratch_settings(folder: Path) -> None:
+    """Point every QSettings the app builds from now on at <folder>/settings (D-35); call it before the first read."""
+    base = Path(folder) / userdirs.SETTINGS_FOLDER
+    base.mkdir(parents=True, exist_ok=True)
+    QSettings.setPath(QSettings.Format.IniFormat, QSettings.Scope.UserScope, str(base))
 
 
 def get_settings() -> QSettings:

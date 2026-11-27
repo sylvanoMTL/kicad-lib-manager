@@ -9,7 +9,7 @@ from typing import Callable, Mapping
 
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
 
-from . import kicad_setup, settings
+from . import kicad_setup, settings, userdirs
 from .collection import (
     Candidate, FolderCheck, Resolution, Source, absolute_folder, check_folder,
     no_answer, resolve_library_root, spelling_key,
@@ -19,6 +19,13 @@ from .models import Issue, Severity
 from .widgets.first_run_dialog import FirstRunChoice, FirstRunDialog
 
 ENV_VAR = "KICAD_LIBMGR_ROOT"
+# The scratch switch for owner checks (D-35): the app's settings, backups and KiCad's settings move under one folder
+SCRATCH_OPTION = "--scratch-root"
+SCRATCH_ENV_VAR = "KICAD_LIBMGR_SCRATCH_ROOT"
+SCRATCH_NOTE = (
+    "Working in the scratch folder {folder}: the app's settings, saved scans and backups and KiCad's "
+    "settings are read and written there, and your real ones are not touched."
+)
 STARTUP_CHECK_TIMEOUT = 5.0
 # The default of start_window's chosen and kicad: read the saved choice and KiCad's configuration.
 # An explicit None means "no such candidate".
@@ -27,10 +34,32 @@ _READ = object()
 
 def parse_args(argv: list[str]) -> tuple[str | None, list[str]]:
     """Split argv into the --library-root value and the arguments left for Qt."""
+    known, rest = _parse(argv)
+    return known.library_root, rest
+
+
+def scratch_root_arg(argv: list[str]) -> str | None:
+    """The --scratch-root value, or None when the option is not given."""
+    return _parse(argv)[0].scratch_root
+
+
+def _parse(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
     parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
     parser.add_argument("--library-root", default=None)
-    known, rest = parser.parse_known_args(argv[1:])
-    return known.library_root, rest
+    parser.add_argument(SCRATCH_OPTION, default=None)  # it never reaches Qt
+    return parser.parse_known_args(argv[1:])
+
+
+def apply_scratch_root(folder: Path) -> None:
+    """Move the app's settings, backups and KiCad's settings folder under folder, for the rest of the process.
+
+    KICAD_CONFIG_HOME is set so a program the app starts (kicad-cli) reads the scratch KiCad settings too.
+    """
+    userdirs.set_scratch_root(folder)
+    settings.use_scratch_settings(folder)
+    kicad_folder = userdirs.kicad_config_base()
+    kicad_folder.mkdir(parents=True, exist_ok=True)
+    os.environ["KICAD_CONFIG_HOME"] = str(kicad_folder)
 
 
 def check_in_time(
@@ -169,8 +198,16 @@ def start_window(
 
     Everything here runs before any window exists: the remembered folder and KiCad's folder are
     read and checked first (each check bounded by `timeout`), and the first-run window is the only
-    dialog, shown only when nothing resolved.
+    dialog, shown only when nothing resolved. The scratch switch, when set, is applied before all of it.
     """
+    scratch_note: tuple[Issue, ...] = ()
+    scratch_value = scratch_root_arg(argv)
+    if scratch_value is None:
+        scratch_value = environ.get(SCRATCH_ENV_VAR)
+    if scratch_value is not None:
+        scratch = absolute_folder(scratch_value)
+        apply_scratch_root(scratch)
+        scratch_note = (Issue(Severity.WARNING, "scratch.in_use", SCRATCH_NOTE.format(folder=scratch)),)
     cli, _rest = parse_args(argv)
     if chosen is _READ:
         chosen = settings.load_library_root()
@@ -188,12 +225,12 @@ def start_window(
         if choice is None:
             _say("No library folder chosen; exiting.")
             return 0
-        return _after_choice(choice, resolution.notes, check, timeout)
+        return _after_choice(choice, (*scratch_note, *resolution.notes), check, timeout)
     if resolution.source in (Source.CLI, Source.ENV):
         # A start through --library-root or KICAD_LIBMGR_ROOT is not the user's choice, so library/root stays
         # as it is; the folder joins Recent Library Collections so the user can switch back to it
         settings.add_library_recent(resolution.root)
-    return MainWindow(resolution.root, resolution.source, startup_notes=resolution.notes)
+    return MainWindow(resolution.root, resolution.source, startup_notes=(*scratch_note, *resolution.notes))
 
 
 def run(argv: list[str] | None = None) -> int:
