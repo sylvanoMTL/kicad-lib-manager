@@ -5,16 +5,16 @@ milestone_name: Public Library Manager
 current_phase: 17
 current_phase_name: Library Catalog
 status: executing
-stopped_at: Completed 17-03-PLAN.md
-last_updated: "2026-11-27T09:04:05.282Z"
+stopped_at: Completed 17-04-PLAN.md
+last_updated: "2026-11-27T09:14:00.847Z"
 last_activity: 2026-11-27
 last_activity_desc: Phase 17 execution started
-state_head: 01ed59d07063c3be617897a0cd491de919328a96
+state_head: 244ba652a74c5954b714db1642ac23ad13114114
 progress:
   total_phases: 8
   completed_phases: 3
   total_plans: 60
-  completed_plans: 43
+  completed_plans: 44
   percent: 38
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-26)
 ## Current Position
 
 Phase: 17 (Library Catalog) — EXECUTING
-Plan: 4 of 20
+Plan: 5 of 20
 Status: Ready to execute
 Last activity: 2026-11-27 — Phase 17 execution started
 
@@ -84,6 +84,7 @@ Progress: [████░░░░░░] 38%
 | Phase 17 P01 | 45 min | 2 tasks | 8 files |
 | Phase 17 P02 | 6 min | 2 tasks | 3 files |
 | Phase 17 P03 | 11 min | 2 tasks | 4 files |
+| Phase 17 P04 | 9 min | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -111,6 +112,10 @@ The full decision log is in the PROJECT.md Key Decisions table. The v1.0 per-pha
 - [Phase 17]: 17-01: catalog progress callbacks receive (text, percent) with percent None until 17-03; StreamedProcess.run checks stop() after every stderr line so cancel is deterministic
 - [Phase 17]: 17-02: MigrationDialog stops both timers in done() and _reap; a pending draft save runs once before _closing is set; worker starts refuse while closing (D-16 close rule for the catalog window)
 - [Phase 17]: 17-03: catalog network actions refused below Git 2.32 (GIT_CONFIG_GLOBAL arrived in 2.32.0); warning below 2.49.1; addresses with user info refused before git starts
+- [Phase 17]: manifest.load takes a keyword allow_file (default False): a file:// catalog entry is refused unless a test asks, so later tests that register two file:// libraries through ops must pass allow_file=True
+- [Phase 17]: valid_var_name also refuses system and loader names (PATH, APPDATA, LD_*, DYLD_*, PYTHON*) and KiCad's *_HOME and KICAD_PATH names, beyond the plan list (CAT-10)
+- [Phase 17]: default_id is cut to 63 characters and valid_id refuses Custom and ThirdParty, so every address GitHub allows gives a valid, unambiguous id
+- [Phase 17]: Only WurthElektronik and SparkFun are CURATED; 4ms, Alternate-KiCad-Library and Espressif stay CANDIDATES until plan 17-17 passes, REJECTED is empty until 17-18
 
 ### Pending Todos
 
@@ -156,8 +161,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-27T09:04:04.453Z
-Stopped at: Completed 17-03-PLAN.md
+Last session: 2026-11-27T09:14:00.011Z
+Stopped at: Completed 17-04-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
