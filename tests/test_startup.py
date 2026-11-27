@@ -181,6 +181,16 @@ def test_parse_args_keeps_qt_switches():
     assert startup.parse_args(["app.py", "--library-root", ""]) == ("", [])
 
 
+def test_parse_args_removes_the_scratch_switch_from_the_qt_arguments():
+    argv = ["app.py", "-style", "fusion", "--scratch-root", "C:/Scratch", "--library-root", "C:/Lib", "-platform", "offscreen"]
+    value, rest = startup.parse_args(argv)
+    assert value == "C:/Lib"
+    assert rest == ["-style", "fusion", "-platform", "offscreen"]
+    assert startup.scratch_root_arg(argv) == "C:/Scratch"
+    assert startup.scratch_root_arg(["app.py", "--library-root", "C:/Lib"]) is None
+    assert startup.scratch_root_arg(["app.py", "--scratch-root", ""]) == ""
+
+
 def test_check_in_time_reports_no_answer(tmp_path):
     release = threading.Event()
 

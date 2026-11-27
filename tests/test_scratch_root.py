@@ -228,3 +228,89 @@ def test_real_folders_are_never_touched(seams, qtbot, tmp_path):
     created = _snapshot(scratch)
     for needed in (config, cache, index, scratch / "settings"):
         assert any(_under(path, needed) for path in created), needed
+
+
+# -- Task 3: the environment variable, precedence and bad values ---------------------------------
+
+
+def test_env_switch_and_precedence(seams, qtbot, tmp_path):
+    from kicad_lib_manager import userdirs
+
+    env_scratch = tmp_path / "env_scratch"
+    cli_scratch = tmp_path / "cli_scratch"
+    env_scratch.mkdir()
+    cli_scratch.mkdir()
+    root = make_collection(tmp_path / "lib")
+    environ = {startup.SCRATCH_ENV_VAR: str(env_scratch)}
+
+    # The variable alone moves the folders
+    window = start(qtbot, ["--library-root", str(root)], environ)
+    assert not isinstance(window, int)
+    assert userdirs.scratch_root() == env_scratch
+    assert _under(settings.get_settings().fileName(), env_scratch / "settings")
+    assert Path(os.environ["KICAD_CONFIG_HOME"]) == env_scratch / "kicad"
+    assert log_lines(window)[0] == SCRATCH_LINE.format(folder=env_scratch)
+    userdirs.set_scratch_root(None)
+
+    # With both set the command line's folder is used and the variable's folder is left alone
+    other = make_collection(tmp_path / "lib2")
+    window = start(qtbot, ["--scratch-root", str(cli_scratch), "--library-root", str(other)], environ)
+    assert not isinstance(window, int)
+    assert userdirs.scratch_root() == cli_scratch
+    assert _under(settings.get_settings().fileName(), cli_scratch / "settings")
+    assert log_lines(window)[0] == SCRATCH_LINE.format(folder=cli_scratch)
+    assert sorted(p.name for p in env_scratch.iterdir()) == ["kicad", "settings"]  # only what the first start made
+
+
+_BAD_REASONS = {
+    "blank": "the value is empty",
+    "missing": "it does not exist",
+    "file": "it is not a folder",
+    "unwritable": "the app cannot write there",
+}
+
+
+@pytest.mark.parametrize("via", ["--scratch-root", "KICAD_LIBMGR_SCRATCH_ROOT"])
+@pytest.mark.parametrize("case", sorted(_BAD_REASONS))
+def test_bad_scratch_values_exit_2(seams, qtbot, tmp_path, monkeypatch, capsys, via, case):
+    from kicad_lib_manager import userdirs
+
+    folder = tmp_path / "scratch"
+    if case == "blank":
+        value, shown = "", ""
+    elif case == "missing":
+        value, shown = str(folder), str(folder)
+    elif case == "file":
+        folder.write_text("not a folder", encoding="utf-8")
+        value, shown = str(folder), str(folder)
+    else:
+        folder.mkdir()
+        # The check is faked: a folder the app cannot write cannot be built portably in a test
+        monkeypatch.setattr(startup, "check_scratch_folder", lambda path: "the app cannot write there", raising=False)
+        value, shown = str(folder), str(folder)
+    root = make_collection(tmp_path / "lib")
+
+    def never(*args, **kwargs):
+        raise AssertionError("a setting was read after a bad scratch value")
+
+    monkeypatch.setattr(settings, "load_library_root", never)
+    monkeypatch.setattr(settings, "get_settings", never)
+    monkeypatch.setattr(startup, "MainWindow", lambda *a, **k: never())
+    argv = ["--library-root", str(root)]
+    environ = {}
+    if via == "--scratch-root":
+        argv = ["--scratch-root", value, *argv]
+    else:
+        environ[startup.SCRATCH_ENV_VAR] = value
+    config_home = os.environ["KICAD_CONFIG_HOME"]
+
+    outcome = startup.start_window(["kicad_lib_manager.py", *argv], environ, first_run=lambda resolution: None)
+
+    assert outcome == 2
+    assert capsys.readouterr().err == f"Not using the scratch folder {shown} (set by {via}): {_BAD_REASONS[case]}\n"
+    assert userdirs.scratch_root() is None
+    assert os.environ["KICAD_CONFIG_HOME"] == config_home
+    if case == "missing":
+        assert not folder.exists()
+    if case == "unwritable":
+        assert not list(folder.iterdir())
