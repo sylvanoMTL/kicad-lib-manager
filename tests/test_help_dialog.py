@@ -560,8 +560,8 @@ def test_help_names_the_toolbar_help():
 # -- The Library Catalog page (phase 17, plan 17-16; CAT-01, CAT-10) ---------------------------------------------
 
 CATALOG_SECTIONS = [
-    "What the catalog is", "Adding a library", "Adding by web address", "Licences", "Updating", "Removing",
-    "If a library shows a problem", "Update checks", "Path variables",
+    "What the catalog is", "Adding a library", "Adding by web address", "If a library cannot be added yet",
+    "Licences", "Updating", "Removing", "If a library shows a problem", "Update checks", "Path variables",
 ]
 
 
@@ -664,12 +664,61 @@ def test_catalog_page_problems_and_path_variables():
 
 def test_catalog_page_plain_language():
     page = _page_text("catalog")
-    for word in ("ls-remote", "clone", "SPDX", "manifest", "submodule", "refspec", "--depth", "LFS"):
+    for word in ("ls-remote", "clone", "SPDX", "manifest", "submodule", "refspec", "--depth", "LFS", "staging"):
         assert word.casefold() not in page.casefold(), word
+    # the abbreviation of KiCad's add-on manager is never used; PCM_ appears only inside a library name
+    assert not re.search(r"PCM(?!_)", page)
+    assert not re.search(r"PCM_(?![A-Z][A-Za-z0-9_]*)", page)
     # the file name catalog.json is the one name from the record the page may use; no field names of it
     for field in ('"id"', "legacy_prefix", "licence_spdx", "acknowledged", "vars"):
         assert field not in page, field
     assert not re.search(r"(?<![A-Za-z])[A-Za-z]:[\\/]", page)  # no folder of anybody's computer
+
+
+def test_catalog_page_names_kicads_list():
+    intro = _catalog_section("What the catalog is")
+    for claim in (
+        "KiCad's add-on list", "reviewed by the KiCad team", "Reading KiCad's add-on list...", "Listed in",
+        "Showing KiCad's add-on list from", "only the app's own list", "nothing is logged",
+    ):
+        assert claim in intro, claim
+    assert "size on disk" in intro.casefold()  # the Size column of an installed library
+
+
+def test_catalog_page_explains_cannot_be_added_yet():
+    section = _catalog_section("If a library cannot be added yet")
+    for claim in (
+        "Cannot be added yet", "part of the repository of a program", "another site than GitHub", "packed file",
+        "KiCad's Plugin and Content Manager", "no Add This Library",
+    ):
+        assert claim in section, claim
+
+
+def test_catalog_page_explains_the_names():
+    adding = _catalog_section("Adding a library")
+    for claim in (
+        "from KiCad's add-on list", "Names in KiCad",
+        "PCM_Espressif", "their own names", "KiCad's own entry", "left alone",
+    ):
+        assert claim in adding, claim
+    assert "footprint files" in adding  # the check counts them while it runs
+
+
+def test_catalog_page_mentions_the_refresh_and_the_log():
+    adding = _catalog_section("Adding a library")
+    for claim in ("Refreshing the library list...", "main window", "one line for each library"):
+        assert claim in adding, claim
+    for claim in ("3D model", "footprint"):
+        assert claim in adding, claim
+    removing = _catalog_section("Removing")
+    assert "symbol libraries and" in removing and "footprint libraries" in removing and "apart" in removing
+
+
+def test_guide_mentions_the_scratch_switch():
+    page = _page_text("library_folder")
+    for claim in ("--scratch-root", "settings", "backups", "KiCad's settings", "first line", "trial"):
+        assert claim in page, claim
+    assert "KICAD_LIBMGR_SCRATCH_ROOT" in page
 
 
 def test_help_library_tree_names_catalog_sources():
