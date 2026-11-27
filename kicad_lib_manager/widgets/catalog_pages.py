@@ -730,6 +730,19 @@ class LicencePage(ReviewPage):
         self.set_primary_shown(not self._refused)  # a refusal leaves only Back to List
         self.refresh_buttons()
 
+    def show_refusal(self, issue, *, name: str) -> None:
+        """The check of the repository was refused (or failed) before the page could be filled: the reason and Back to List only."""
+        self._clear_body()
+        self._tick = None
+        self._reinstall = False
+        self.set_heading(ADD_HEADING.format(name=name))
+        self.set_primary(DOWNLOAD_TEXT)
+        text = issue.text if isinstance(issue, Issue) else str(issue)
+        self._add(status_line(ERROR_GLYPH, text, theme.ERROR))
+        self._refused = True
+        self.set_primary_shown(False)
+        self.refresh_buttons()
+
     def acknowledged(self) -> bool:
         """True when the tick on this page is ticked (False when it is not shown)."""
         return self._tick is not None and self._tick.isChecked()

@@ -1206,7 +1206,7 @@ def test_kicads_list_unread_keeps_the_curated_list(qtbot, tmp_path, fakes):
     dialog = build(qtbot, tmp_path, fakes, read_index=lambda: index_read(issue=issue))
     logs, _, _ = record(dialog)
     qtbot.waitUntil(lambda: bool(dialog._index_state != "reading"), timeout=10000)
-    assert sorted(by_name(dialog)) == ["SparkFun", "Third One", "WurthElektronik"]
+    assert sorted(by_name(dialog)) == sorted([SPARKFUN.name, WURTH.name, THIRD.name])
     assert logs == []
 
 

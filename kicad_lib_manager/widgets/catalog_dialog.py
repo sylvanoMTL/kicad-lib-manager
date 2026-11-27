@@ -28,10 +28,10 @@ from PySide6.QtWidgets import (
     QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
-from .. import kicad_process, library_scanner
+from .. import kicad_process, library_scanner, settings
 from ..collection import OWN_DIR, THIRD_PARTY_DIR
 from ..catalog import curated as curated_list
-from ..catalog import githubapi, manifest, ops, status
+from ..catalog import addons, githubapi, manifest, ops, status
 from ..catalog.licences import LicenceClass
 from ..catalog.manifest import CatalogEntry
 from ..catalog.status import Check, State
@@ -254,6 +254,7 @@ class _Flow:
     name: str = ""
     plan: object = None
     url: bool = False
+    listed: bool = False  # an Add from KiCad's add-on list: its check runs from the Details page, its refusal shows on the licence page
 
 
 _STOPPED = object()  # what a stage job returns when the user pressed Cancel
@@ -271,6 +272,11 @@ CONTROL_HEIGHT = 28
 _LIST_SHARE = 0.45
 
 _ROW_ID = Qt.ItemDataRole.UserRole
+
+
+def _read_addon_list():
+    """KiCad's add-on list, with the copy kept beside the app's settings (D-33, D-36); runs off the GUI thread."""
+    return addons.read_index(cache_file=settings.addon_index_file())
 
 
 @dataclass(frozen=True)
@@ -304,6 +310,7 @@ class CatalogServices:
     free_space: Callable = shutil.disk_usage
     stock_fp: Callable = library_scanner.get_kicad_default_fp_nicknames
     stock_sym: Callable = library_scanner.get_kicad_default_sym_nicknames
+    read_index: Callable = _read_addon_list
 
 
 def _status_cell(row: status.Row) -> tuple[str, str | None, str]:
@@ -361,6 +368,11 @@ class CatalogDialog(QDialog):
         self._fresh = False  # True from a load until the window closes
         self._mf = None  # Manifest, or the Issue catalog.json gave (D-02)
         self._rows: list[status.Row] = []
+        self._listings: tuple = ()  # the libraries of KiCad's add-on list (live, or the kept copy shown offline)
+        self._index_state = "idle"  # reading, ok, copy (the kept copy is shown), failed (no list) or idle
+        self._index_ok = False  # a live list was read: it is kept for the window's life and never read again
+        self._index_issue: Issue | None = None
+        self._copy_date = ""
         self._updates: dict[str, status.UpdateState] = {}
         self._net_status = None  # ops.NetStatus once the Git check answered
         self._kicad_vars: dict[str, str] | None = None
@@ -842,6 +854,43 @@ class CatalogDialog(QDialog):
                 name="catalog-kicad-variables",
             ),
         ]
+        self._start_index_read(gen)
+
+    def _start_index_read(self, gen: int) -> None:
+        """Read KiCad's add-on list on a daemon thread unless a live one was read already (a failed read is tried again)."""
+        if self._index_ok:
+            return
+        self._index_state = "reading"
+        services = self._services
+        self._background.append(
+            run_in_background(
+                lambda: services.read_index(),
+                lambda result, g=gen: self._on_index(g, result),
+                lambda text, g=gen: self._on_index_failed(g, text),
+                name="catalog-addon-list",
+            )
+        )
+
+    def _on_index(self, gen: int, result) -> None:
+        if gen != self._gen:
+            return
+        if not isinstance(result, addons.IndexRead):
+            result = addons.IndexRead((), Issue(Severity.ERROR, "addons.unreadable", addons.ODD_TEXT), False, "")
+        self._listings = tuple(result.listings)
+        self._index_issue = result.issue
+        self._copy_date = result.copy_date if result.issue is not None else ""
+        if result.issue is None:
+            self._index_state, self._index_ok = "ok", True
+        else:
+            self._index_state = "copy" if self._listings else "failed"
+        self._rebuild_rows()
+        self._refresh_actions()
+
+    def _on_index_failed(self, gen: int, text: str) -> None:
+        if gen != self._gen:
+            return
+        self.log_line.emit(STEP_FAILED.format(text=text), "error")
+        self._on_index(gen, addons.IndexRead((), Issue(Severity.ERROR, "addons.unreadable", addons.ODD_TEXT), False, ""))
 
     def _stop_background(self) -> None:
         """Drop every outstanding result: the window closed or the collection changed."""
@@ -945,7 +994,7 @@ class CatalogDialog(QDialog):
         keep = self.selected_id()
         self._rows = list(
             self._services.row_statuses(
-                self._root, self._mf, curated=self._services.curated, updates=self._updates
+                self._root, self._mf, curated=self._services.curated, updates=self._updates, listings=self._listings
             )
         )
         tree = self._tree
@@ -1066,7 +1115,8 @@ class CatalogDialog(QDialog):
         self._show_field("version", installed)
         self._show_field("updates", installed)
         self._show_field("folder", installed or problem)
-        self._add_btn.setVisible(row.state is State.NOT_INSTALLED and row.curated is not None)
+        addable = row.curated is not None or (row.listing is not None and row.addable)
+        self._add_btn.setVisible(row.state is State.NOT_INSTALLED and addable)
         self._reinstall_btn.setVisible(row.state is State.FOLDER_MISSING and row.entry is not None)
         listed = row.entry is not None
         self._update_btn.setVisible(installed and listed)
@@ -1705,7 +1755,12 @@ class CatalogDialog(QDialog):
             if phase == "plan":
                 self._leave_pages(clear_selection=bool(self._flow and self._flow.url))
             elif phase == "check":
-                self._url_page.show_refusals([Issue(Severity.ERROR, "catalog.step_failed", CHECK_CRASHED_TEXT)])
+                crash = Issue(Severity.ERROR, "catalog.step_failed", CHECK_CRASHED_TEXT)
+                if self._flow is not None and self._flow.listed:
+                    self._licence_page.show_refusal(crash, name=self._flow.name)
+                    self._enter_page("licence")
+                else:
+                    self._url_page.show_refusals([crash])
             elif phase == "stage":
                 self._show_refusal(Issue(Severity.ERROR, "catalog.step_failed", STAGE_CRASHED_TEXT))
             elif phase == "register":
@@ -1818,8 +1873,12 @@ class CatalogDialog(QDialog):
 
     def _on_add_clicked(self) -> None:
         row = self.current_row()
-        if row is not None and row.curated is not None and row.state is State.NOT_INSTALLED:
+        if row is None or row.state is not State.NOT_INSTALLED:
+            return
+        if row.curated is not None:
             self._begin_flow("add", row)
+        elif row.listing is not None and row.addable:
+            self._begin_listed_flow(row)
 
     def _on_reinstall_clicked(self) -> None:
         row = self.current_row()
@@ -1851,6 +1910,31 @@ class CatalogDialog(QDialog):
         self._licence_page.show_plan(plan, reinstall=plan.reinstall, acknowledged_on=plan.acknowledged_on, name=flow.name)
         self._enter_page("licence")
 
+    def _begin_listed_flow(self, row: status.Row) -> None:
+        """Add a library of KiCad's add-on list: the same GitHub check as Add by URL, then the licence page (D-33, D-23)."""
+        net = self._net_status
+        if self._action_block() is not None or self._flow is not None or isinstance(self._mf, Issue) or net is None or net.net is None:
+            return
+        self._flow = _Flow("add", row.id, row.name, listed=True)
+        self._lock_list(True)
+        self._start_job("check", "check", "", self._check_function(row.listing.url), self._on_checked)
+
+    def _check_function(self, text: str) -> Callable:
+        """The job of the repository check and the plan that follows it, for a typed address or a listing's address."""
+        mf, net, services, root = self._mf, self._net_status, self._services, self._root
+        git, listings = net.net, self._listings
+
+        def check(progress, cancel):
+            checked = services.check_repository(
+                root, text, mf, git, repo_info=services.repo_info, cancel=cancel, listings=listings
+            )
+            if isinstance(checked, Issue) or cancel.is_set():
+                return checked
+            plan = services.plan_add(root, checked, mf, free_space=services.free_space, running=services.kicad_running)
+            return checked, plan
+
+        return check
+
     # -- Add by URL --
 
     def _on_add_url(self) -> None:
@@ -1868,19 +1952,14 @@ class CatalogDialog(QDialog):
         if not text or self._action_block() is not None or isinstance(mf, Issue) or net is None or net.net is None:
             return
         self._url_page.show_refusals([])
-        services, root, git = self._services, self._root, net.net
-
-        def check(progress, cancel):
-            checked = services.check_repository(root, text, mf, git, repo_info=services.repo_info, cancel=cancel)
-            if isinstance(checked, Issue) or cancel.is_set():
-                return checked
-            plan = services.plan_add(root, checked, mf, free_space=services.free_space, running=services.kicad_running)
-            return checked, plan
-
-        self._start_job("check", "check", "", check, self._on_checked)
+        self._start_job("check", "check", "", self._check_function(text), self._on_checked)
 
     def _on_checked(self, job: _Job, value) -> None:
-        if job.stopping or self._flow is None:
+        flow = self._flow
+        if flow is not None and flow.listed:
+            self._on_listed_checked(job, value)
+            return
+        if job.stopping or flow is None:
             return  # stopped: the address page stays as it was, the field editable
         if isinstance(value, Issue):
             self._url_page.show_refusals([value])
@@ -1890,6 +1969,20 @@ class CatalogDialog(QDialog):
         display = plan.name  # owner/repo: the plan names the library the way the list does
         self._flow = _Flow("add", plan.source.id, display, plan, url=True)
         self._licence_page.show_plan(plan, reinstall=False, acknowledged_on="", name=display, address=ref.https_url)
+        self._enter_page("licence")
+
+    def _on_listed_checked(self, job: _Job, value) -> None:
+        """The check of a library of KiCad's list ended: its licence page, or the refusal on that page with Back to List only."""
+        flow = self._flow
+        if job.stopping:  # stopped: nothing changed, back to the row
+            self._leave_pages()
+            return
+        if isinstance(value, Issue):
+            self._licence_page.show_refusal(value, name=flow.name)
+        else:
+            _checked, plan = value
+            flow.plan = plan
+            self._licence_page.show_plan(plan, reinstall=False, acknowledged_on="", name=flow.name)
         self._enter_page("licence")
 
     # -- the download --

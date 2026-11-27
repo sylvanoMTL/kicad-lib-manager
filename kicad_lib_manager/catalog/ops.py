@@ -20,7 +20,7 @@ import os
 import secrets
 import shutil
 import time
-from collections.abc import Callable, Collection, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping
 from dataclasses import dataclass, replace
 from datetime import date
 from pathlib import Path
@@ -94,12 +94,15 @@ class CheckedRepo:
     """A repository typed by address that passed the address, duplicate and GitHub checks (D-23, D-04).
 
     info is GitHub's answer, or None when it could not be read (info_issue says why); branch is the one to clone.
+    listing is the library of KiCad's add-on list that has this repository (None for any other address, D-33): it
+    names the library, gives its licence when GitHub names none, and decides the add-on name rule and id.
     """
 
     ref: RepoRef
     info: RepoInfo | None
     branch: str
     info_issue: Issue | None = None
+    listing: object = None
 
 
 @dataclass(frozen=True)
@@ -285,6 +288,11 @@ def net_status(
     return NetStatus(None if refusal is not None else NetGit(exe), found, refusal, warning)
 
 
+def _listing_keys(listing) -> tuple[str, ...]:
+    """The repository keys of a listing of KiCad's add-on list: its git address and its page (either may be empty)."""
+    return tuple(urls.repo_key(text) for text in (listing.url, listing.page) if text)
+
+
 def check_repository(
     root: Path,
     text: str,
@@ -293,8 +301,12 @@ def check_repository(
     *,
     repo_info: Callable = githubapi.repo_info,
     cancel=None,
+    listings: Iterable = (),
 ) -> CheckedRepo | Issue:
     """Check a typed address before the licence page: the address, a repository already known, GitHub's answer.
+
+    listings are the libraries of KiCad's add-on list: the one that has this repository is attached to the answer
+    (D-33). This module reads their attributes and never imports the network module that reads the list.
 
     The curated list and the catalog are compared by repository (letter case ignored), so the same library under
     another spelling is refused. GitHub saying not found or private is refused; GitHub not answering is not (D-04):
@@ -311,6 +323,7 @@ def check_repository(
     for known in curated.CURATED:
         if urls.repo_key(known.url) == key:
             return _already_listed(known.name)
+    listing = next((item for item in listings if key in _listing_keys(item)), None)
     info: RepoInfo | None = None
     info_issue: Issue | None = None
     if ref.owner:  # a file:// address (tests) has no GitHub page to ask
@@ -333,7 +346,7 @@ def check_repository(
         branch = found[0]
         if not urls.valid_branch(branch):
             return Issue(Severity.ERROR, "catalog.bad_branch", "This repository's default branch has a name the catalog cannot use.")
-    return CheckedRepo(ref, info, branch, info_issue)
+    return CheckedRepo(ref, info, branch, info_issue, listing)
 
 
 # ── Plan ─────────────────────────────────────────────────────────────
@@ -347,7 +360,22 @@ def _curated_source(entry: CuratedEntry) -> AddSource:
 
 def _checked_source(checked: CheckedRepo) -> AddSource:
     """The source of a checked address: the folder name is the id, the name is owner/repo (the id for a file:// address)."""
-    info = checked.info
+    info, listing = checked.info, checked.listing
+    if listing is not None:  # KiCad's name, KiCad's licence when GitHub names none, the add-on names unless the links say otherwise
+        github = info.spdx if info is not None and licences.licence_class(info.spdx) is not LicenceClass.NOT_STATED else None
+        return AddSource(
+            checked.ref.default_id,
+            listing.name,
+            checked.ref.https_url,
+            checked.branch,
+            {},
+            github or listing.licence,
+            licence_known=True,  # KiCad's review counts as the check (D-22, D-33)
+            detect_vars=True,
+            nickname_prefix=None,
+            default_prefix=manifest.PCM_PREFIX,
+            addon_id=listing.identifier,
+        )
     return AddSource(
         checked.ref.default_id,
         display_name(checked.ref.default_id, url=checked.ref.https_url),

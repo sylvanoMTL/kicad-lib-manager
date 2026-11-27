@@ -17,7 +17,7 @@ from pathlib import Path
 from ..collection import STAGING_DIR, THIRD_PARTY_DIR
 from ..models import Issue
 from . import curated as curated_list
-from . import gitnet, licences, manifest, names
+from . import gitnet, licences, manifest, names, urls
 from .curated import CuratedEntry
 from .licences import LicenceClass
 from .manifest import CatalogEntry, Manifest
@@ -68,6 +68,11 @@ class Row:
     curated: CuratedEntry | None
     folder: Path
     update: UpdateState | None
+    listing: object = None  # the add-on list's Listing of this row (read by attribute: this module never imports catalog.addons)
+    description: str = ""
+    addable: bool = True  # False for a listing the catalog cannot add yet
+    reason: str = ""  # the plain reason when addable is False
+    origin: str = ""  # curated, addon, url or folder: where the library is listed
 
 
 def size_text(mb: int | None) -> str:
@@ -103,28 +108,55 @@ def _folders(root: Path) -> dict[str, str]:
     return found
 
 
+def _listing_keys(listing) -> tuple[str, ...]:
+    """The repository keys a listing is known by: its git address and its page (either may be empty)."""
+    return tuple(urls.repo_key(text) for text in (listing.url, listing.page) if text)
+
+
+def _listing_id(listing) -> str:
+    """The folder name of a listing that can be added (owner-repo, as an Add by address names it), else its identifier."""
+    ref = urls.parse_github_url(listing.url) if listing.url else None
+    return listing.identifier if ref is None or isinstance(ref, Issue) else ref.default_id
+
+
 def row_statuses(
     root: Path,
     mf: "Manifest | Issue",
     *,
     curated: Iterable[CuratedEntry] = curated_list.CURATED,
     updates: Mapping[str, UpdateState] | None = None,
+    listings: Iterable = (),
 ) -> list[Row]:
-    """One row per curated library, per catalog entry that is not curated and per ThirdParty folder the record does not list.
+    """One row per curated library, per catalog entry that is not curated, per library of KiCad's add-on list and per stray ThirdParty folder.
 
     Never a row for .staging or a dot folder. Rows are sorted by name, case-insensitive, then id, so a status that
     changes never moves a row. mf may be the Issue catalog.json gave (D-02): every row is then UNKNOWN. updates
     holds the last update check per id; it only decides UPDATE_AVAILABLE (the remote differs from the recorded commit).
+
+    listings are the libraries of KiCad's add-on list (D-33; read by attribute, so any object with the fields of
+    addons.Listing will do). A listing whose address or page is a curated library's repository is dropped (the
+    curated row wins: its licence, size and variables are used). A recorded library that is not curated takes the
+    listing whose identifier is its add-on id, else whose repository is its address; its row carries that listing,
+    its description and the name KiCad gives it unless the record has its own. Every other listing is a row of its
+    own: an addable one has the id an Add by address gives it (owner-repo), one that cannot be added yet has its
+    identifier; it reads NOT_INSTALLED, or NOT_IN_CATALOG when a ThirdParty folder of that id exists.
     """
     third = Path(root) / THIRD_PARTY_DIR
     folders = _folders(root)
     readable = not isinstance(mf, Issue)
     entries: tuple[CatalogEntry, ...] = mf.libraries if readable else ()
     updates = updates or {}
+    curated = tuple(curated)
+    curated_keys = {urls.repo_key(known.url) for known in curated}
+    free = [item for item in listings if curated_keys.isdisjoint(_listing_keys(item))]
+    used: set[str] = set()  # identifiers of the listings a recorded library took
     rows: list[Row] = []
     seen: set[str] = set()
 
-    def add(id: str, name: str, entry: CatalogEntry | None, known: CuratedEntry | None) -> None:
+    def add(
+        id: str, name: str, entry: CatalogEntry | None, known: CuratedEntry | None, *,
+        listing=None, origin: str,
+    ) -> None:
         key = id.casefold()
         seen.add(key)
         disk = folders.get(key)
@@ -144,9 +176,16 @@ def row_statuses(
             spdx, settled = entry.licence_spdx, True
         elif known is not None:
             spdx, settled = known.licence_spdx, True
+        elif listing is not None:
+            spdx, settled = listing.licence, True  # KiCad's review counts as the check (D-22, D-33)
         else:
             spdx, settled = None, False  # an unlisted folder: nothing is known about its licence
-        size = known.size_mb if known is not None else None
+        if known is not None:
+            size, description = known.size_mb, known.description
+        elif listing is not None:
+            size, description = listing.install_mb, listing.description
+        else:
+            size, description = None, ""
         rows.append(
             Row(
                 id=id,
@@ -160,17 +199,42 @@ def row_statuses(
                 curated=known,
                 folder=third / (disk or id),
                 update=update,
+                listing=listing,
+                description=description,
+                addable=listing.addable if listing is not None and entry is None else True,
+                reason=listing.reason if listing is not None and entry is None else "",
+                origin=origin,
             )
         )
 
+    def listing_of(entry: CatalogEntry):
+        if entry.addon_id:
+            found = next((item for item in free if item.identifier == entry.addon_id), None)
+            if found is not None:
+                return found
+        key = urls.repo_key(entry.url)
+        return next((item for item in free if key in _listing_keys(item)), None)
+
     for known in curated:
-        add(known.id, known.name, next((e for e in entries if e.id.casefold() == known.id.casefold()), None), known)
+        add(
+            known.id, known.name, next((e for e in entries if e.id.casefold() == known.id.casefold()), None), known,
+            origin="curated",
+        )
     for entry in entries:
         if entry.id.casefold() not in seen:
-            add(entry.id, names.display_name(entry.id, entry, curated=curated), entry, None)
+            listing = listing_of(entry)
+            if listing is not None:
+                used.add(listing.identifier)
+            name = entry.name or (listing.name if listing is not None else "") or names.display_name(entry.id, entry, curated=curated)
+            origin = "addon" if listing is not None or entry.addon_id else "url"
+            add(entry.id, name, entry, None, listing=listing, origin=origin)
+    for item in free:
+        id = _listing_id(item)
+        if item.identifier not in used and id.casefold() not in seen:
+            add(id, item.name, None, None, listing=item, origin="addon")
     for key, name in folders.items():
         if key not in seen:
-            add(name, name, None, None)
+            add(name, name, None, None, origin="folder")
     rows.sort(key=lambda row: (row.name.casefold(), row.id.casefold()))
     return rows
 
