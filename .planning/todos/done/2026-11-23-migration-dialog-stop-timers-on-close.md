@@ -19,3 +19,5 @@ Suggested fix: stop both timers when the window really closes (in `done()` befor
 `super().done(r)`, and in the delayed close in `_reap`); if a draft save is pending, run it as a
 worker and let the existing "close waits without blocking" path delay the close so the last edit
 is kept (D-14). Add a test that closes the dialog with a pending timer and checks no worker starts.
+
+Fixed by plan 17-02
