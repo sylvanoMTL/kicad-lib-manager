@@ -31,7 +31,7 @@ created: "2026-11-27"
 | Which licences need the tick (D-10) | Table in "Licence labels". Open licences (MIT, BSD, Apache, ISC, Unlicense, CC0, CC BY) need no tick; share-alike (CC BY-SA, GPL family, MPL, EPL), proprietary, not stated and unrecognised licences do. | Licence labels |
 | Close while a job runs (D-16) | One new window-modal question over the catalog window, `Stop the current job?`, default `Keep Working`. A Remove cannot be stopped halfway, so closing during a Remove is ignored with a line in the job strip instead of a dialog. | Close rules |
 
-Judgment calls made without asking the owner (each reversible, each also flagged **(default)** where it appears): a `Check for Updates` button so an offline start can be re-checked; a `Set Path Variables...` button for an installed library whose variable is not set; the Add flow has three presses for a curated library (Add, Download and Check, Add Library) because the licence page and the Add preview are separate safety stops; the catalog window's actions are disabled while the main window scans, or the import or migration window is open; confirm pages live inside the detail pane, not in extra dialogs.
+Judgment calls made without asking the owner (each reversible, each also flagged **(default)** where it appears): a `Check for Updates` button so an offline start can be re-checked; a `Set Path Variables...` button for an installed library whose variable is not set; the Add flow has three presses for a curated library (Add This Library, Download and Check, Add Library) because the licence page and the Add preview are separate safety stops; the catalog window's actions are disabled while the main window scans, or the import or migration window is open; confirm pages live inside the detail pane, not in extra dialogs.
 
 ---
 
@@ -64,7 +64,11 @@ Reused without change (do not re-specify, do not contradict):
 
 Enumerated by `env\Scripts\python.exe -I -c "import PySide6, PySide6.QtWidgets as w; print(PySide6.__version__, len([n for n in dir(w) if n.startswith('Q')]))"` — 192 components — PySide6@6.12.0 — 2026-11-27.
 
-The project's own widgets are a second, separate inventory (the tool above counts Qt classes, not app modules): `ls kicad_lib_manager/widgets/*.py | wc -l` gives 19 files including `__init__.py`; the reusable ones for this phase are listed above (`theme.py`, `import_result.py` for `ElidedLabel`, `import_dialog.py` for `centre_window` and `TaskWorker`, `background.py`, `help_dialog.py` as the non-modal window model, `log_panel.py`). No mismatch between sources.
+The project's own widgets are a second, separate inventory (the tool above counts Qt classes, not app modules).
+
+Enumerated by `ls kicad_lib_manager/widgets/*.py | wc -l` — 19 files (including `__init__.py`) — project modules of `kicad_lib_manager/widgets` (no package version: they are this repository's own code, not an installed package) — 2026-11-27.
+
+The modules this phase names (`theme.py`, `import_result.py` for `ElidedLabel`, `import_dialog.py` for `centre_window` and `TaskWorker`, `background.py`, `help_dialog.py` as the non-modal window model, `log_panel.py`) are a **non-exhaustive** selection, not an allowlist; the executor may use any other module in that folder. No mismatch between sources.
 
 Presence of every class in the table below was checked with `hasattr` on the same install (all True), 2026-11-27. The table is a **non-exhaustive** list of known-good widgets for this phase, not a closed allowlist.
 
@@ -144,10 +148,10 @@ Qt terms: the 60/30 surfaces come from the platform palette; hex values below ar
 
 Accent reserved for (exhaustive, this phase):
 
-1. **The one primary button of the page currently shown in the catalog window** (`PRIMARY_BUTTON_QSS`): `Add`, `Update` or `Reinstall` on the Details page, `Check Repository` on the Add by URL page, `Download and Check` on the licence page, `Add Library`, `Update Library` or `Reinstall Library` on a review page. Pages are stacked, so exactly one accent button is visible in the catalog window at a time. Remove-related pages use no accent button (see Destructive).
+1. **The one primary button of the page currently shown in the catalog window** (`PRIMARY_BUTTON_QSS`): `Add This Library`, `Update This Library` or `Reinstall This Library` on the Details page, `Check Repository` on the Add by URL page, `Download and Check` on the licence page, `Add Library`, `Update Library` or `Reinstall Library` on a review page. Pages are stacked, so exactly one accent button is visible in the catalog window at a time. Remove-related pages use no accent button (see Destructive).
 2. The determinate chunk of the job strip's `QProgressBar` (and the indeterminate chunk).
 
-Everything else is plain: `Add by URL...`, `Check for Updates`, `Close`, `Back to List`, `Discard Download`, `Keep Library`, `Keep Current Version`, `Try Again`, `Set Path Variables...`, `Generate Tables` (in the result strip; the main window's own `Generate Tables` keeps its accent), `Remove` on the Details page, `Cancel`. Links use `LINK`, not the accent. The selected list row uses the platform selection colour. The first accent button in the main window and the one in the catalog window can be on screen together because the windows are separate; each window has at most one.
+Everything else is plain: `Add by URL...`, `Check for Updates`, `Close`, `Back to List`, `Discard Download`, `Keep Library`, `Keep Current Version`, `Try Again`, `Set Path Variables...`, `Generate Tables` (in the result strip; the main window's own `Generate Tables` keeps its accent), `Remove This Library` on the Details page, and the job strip's cancel button (`Cancel Adding`, `Cancel Updating`, `Cancel Reinstalling`, `Cancel Check`, `Cancel Removing`). Links use `LINK`, not the accent. The selected list row uses the platform selection colour. The first accent button in the main window and the one in the catalog window can be on screen together because the windows are separate; each window has at most one.
 
 Semantic colours:
 
@@ -222,9 +226,9 @@ Title `Library Catalog - KiCad External Lib Manager`. Non-modal, parentless, sta
 | | Path variables  SPARKFUN_KICAD_LIBRARY  ✓ set                              | |
 | | Installed       3f9a2c1 (added 2026-11-20)                                 | |
 | | Updates         Checked today at 09:14: up to date                         | |
-| |                                              [Update (disabled)] [Remove]  | |
+| |                                              [Update This Library] [Remove This Library] | |
 | +----------------------------------------------------------------------------+ |
-| Adding SparkFun... 42%   [==========------------------]   [Cancel]  (job strip)|
+| Adding SparkFun... 42%   [===========-------------]   [Cancel Adding]  (job strip)|
 |                                                                      [Close]   |
 +--------------------------------------------------------------------------------+
 ```
@@ -232,6 +236,8 @@ Title `Library Catalog - KiCad External Lib Manager`. Non-modal, parentless, sta
 Header row: Heading `Library Catalog` at the left, the `Help` tool button at the right end (opens the User Guide on `Library Catalog`, same top-right place as the import window's Help). Under it a Body line `Libraries are installed in ` + an `ElidedLabel` in Mono (`ElideMiddle`, tooltip = full path) showing `{collection root}/ThirdParty`. When the collection folder changes (a switch), both are updated at once.
 
 Toolbar row: `Search libraries` field (stretch 1, placeholder `Search libraries`, accessible name `Search libraries`), `Check for Updates` (plain), `Add by URL...` (plain). `Check for Updates` reads `Checking...` and is disabled while a check runs. **(default: `Check for Updates` is an addition so an offline start can be re-checked.)**
+
+**Focal point (idle window, no row selected).** The primary visual anchor is the library list: it is the largest block, the only white (`Base`) surface on the grey window, and its Name column is the widest. Nothing competes with it. No accent button is on screen (the Details page has no primary button until a row is selected, and the empty-pane text is `MUTED`). The only colour in the idle view sits in the Status cells, so `⚠ Update available` and `✖ Problem` rows draw the eye first, which is the point of the list. Keyboard focus starts in the Search field directly above the list, so typing filters at once and `Down` or `Tab` leads into the list. When a row is selected the anchor moves to that library's one primary button in the detail pane; when a job ends, focus returns to the list row that was selected.
 
 Window buttons: a single `Close` at the bottom right (plain, the dialog's default button on the idle list view only; never default on a review page, so Enter cannot dismiss a preview).
 
@@ -244,7 +250,7 @@ At most these, in this order; each is hidden when it does not apply:
 | Order | Condition | Strip | Effect |
 |-------|-----------|-------|--------|
 | 1 | The catalog record cannot be read (D-02) | `✖` ERROR text (no tint): `The catalog record of this collection cannot be read ({reason}). Nothing was changed. Fix or delete catalog.json in {collection}, then reopen the catalog.` | The list shows the curated libraries with status `Unknown` (`MUTED`); every action button except `Close` and `Help` is disabled with tooltip `The catalog record cannot be read.` (a write would overwrite it). |
-| 2 | Git not found | `✖` ERROR text: `Git was not found. The catalog needs Git to download libraries. Install Git for Windows, then reopen the catalog.` | `Add`, `Update`, `Reinstall`, `Add by URL...`, `Check for Updates` disabled (tooltip `Git was not found.`). `Remove` still works (it needs no Git). |
+| 2 | Git not found | `✖` ERROR text: `Git was not found. The catalog needs Git to download libraries. Install Git for Windows, then reopen the catalog.` | `Add This Library`, `Update This Library`, `Reinstall This Library`, `Add by URL...`, `Check for Updates` disabled (tooltip `Git was not found.`). `Remove This Library` still works (it needs no Git). |
 | 3 | Git older than 2.49.1 (D-11) | Amber strip (`AMBER_TINT`, 2px `AMBER` left bar): `⚠ Your Git is version {version}. Versions before 2.49.1 have a known security flaw when they download code from the internet. The catalog still works. Update Git for Windows when you can.` | None: the catalog allows it. The commit path keeps its own 2.25 minimum, unrelated. |
 
 ### The list (D-16, CAT-01)
@@ -257,18 +263,18 @@ Status cell, exactly one of:
 
 | Status | Cell text | Colour | Detail pane strip and buttons |
 |--------|-----------|--------|-------------------------------|
-| Not installed | `Not installed` | `MUTED` | Buttons: `Add` (primary) |
-| Installed, confirmed current | `✓ Installed` | `SUCCESS` | Buttons: `Update` (disabled, tooltip `Already up to date.`), `Remove` |
-| Installed, not checked or could not be checked (offline) | `Installed` (no glyph) | `MUTED`, tooltip `Updates have not been checked, or GitHub could not be reached.` | Buttons: `Update` (disabled, tooltip `No update is known. Press Check for Updates.`), `Remove` |
-| Update available | `⚠ Update available` | `AMBER` | Strip `⚠ A newer version is available ({installed} -> {available}).` Buttons: `Update` (primary), `Remove` |
-| Problem: folder missing (D-05) | `✖ Problem: folder missing` | `ERROR` | Strip (below). Buttons: `Reinstall` (primary), `Remove` |
-| Problem: not in the catalog (D-06) | `⚠ Problem: not in the catalog` | `AMBER` | Strip (below). Buttons: `Remove` only |
+| Not installed | `Not installed` | `MUTED` | Buttons: `Add This Library` (primary) |
+| Installed, confirmed current | `✓ Installed` | `SUCCESS` | Buttons: `Update This Library` (disabled, tooltip `Already up to date.`), `Remove This Library` |
+| Installed, not checked or could not be checked (offline) | `Installed` (no glyph) | `MUTED`, tooltip `Updates have not been checked, or GitHub could not be reached.` | Buttons: `Update This Library` (disabled, tooltip `No update is known. Press Check for Updates.`), `Remove This Library` |
+| Update available | `⚠ Update available` | `AMBER` | Strip `⚠ A newer version is available ({installed} -> {available}).` Buttons: `Update This Library` (primary), `Remove This Library` |
+| Problem: folder missing (D-05) | `✖ Problem: folder missing` | `ERROR` | Strip (below). Buttons: `Reinstall This Library` (primary), `Remove This Library` |
+| Problem: not in the catalog (D-06) | `⚠ Problem: not in the catalog` | `AMBER` | Strip (below). Buttons: `Remove This Library` only |
 | Working | `Adding...`, `Updating...`, `Removing...`, `Reinstalling...` (with ` 42%` when known) | default text | All buttons disabled |
 
 Problem strips (top of the detail page, `✖` in `ERROR` for the first, `⚠` in `AMBER` for the second):
 
-- Folder missing: `✖ The folder {folder} is missing. It may have been deleted, or this collection was copied from another computer without it. Reinstall downloads it again from {repository}.`
-- Not in the catalog: `⚠ This folder is in ThirdParty but is not in the catalog, so the app does not know where it came from. Its libraries are still scanned like any other. The app never deletes it by itself; Remove deletes it after you confirm.`
+- Folder missing: `✖ The folder {folder} is missing. It may have been deleted, or this collection was copied from another computer without it. Reinstall This Library downloads it again from {repository}.`
+- Not in the catalog: `⚠ This folder is in ThirdParty but is not in the catalog, so the app does not know where it came from. Its libraries are still scanned like any other. The app never deletes it by itself; Remove This Library deletes it after you confirm.`
 
 Licence cell: the display names of "Licence labels" (`CC BY 4.0`, `MIT`, `Proprietary`, `Not stated`, `Unknown`). Size cell: `{n} MB` below 1000 MB, `{x.x} GB` from 1000 MB, `Unknown` (`MUTED`) when no size is known. Name cell: the curated friendly name, or `{owner}/{repo}` for a library added by URL, or the folder name for a problem row not in the catalog.
 
@@ -305,7 +311,7 @@ Pages inside the detail pane. The list is locked to the chosen library while a p
 
 ```
 Details (not installed)            Licence page                    Add preview
- [Add]  ----------------------->  [Back to List] [Download and Check] ---> [Discard Download] [Add Library]
+ [Add This Library] ---------->  [Back to List] [Download and Check] ---> [Discard Download] [Add Library]
                                        (nothing written)         (staging download   (renames into place,
                                                                   runs here, job strip)  writes catalog.json)
 ```
@@ -372,7 +378,7 @@ While steps 2 and 3 run, every action button in the catalog window is disabled w
 
 ### Update flow (CAT-04, D-07, D-08, D-09)
 
-`Update` (primary on the Details page of a library with an update). Per library only; there is no `Update all` (D-09).
+`Update This Library` (primary on the Details page of a library with an update). Per library only; there is no `Update all` (D-09).
 
 1. The job strip reads `Looking for changes in {name}...`. First the clean-tree check; then the download of the new version into the existing folder's object store without changing any file. (The user-visible effect: nothing in the folder changes yet.)
 2. **Dirty folder (D-07).** If files in the folder were changed, the page shows `✖ {name} cannot be updated: files in {folder} were changed after it was added. Catalog libraries are managed copies, and an update would overwrite your changes. Keep your own changes in Custom/ instead.` and below it the changed files in Mono, at most 8 rows then `and {n} more`. Buttons: `Back to List`.
@@ -388,7 +394,7 @@ While steps 2 and 3 run, every action button in the catalog window is disabled w
 
 ### Remove flow (CAT-04, D-21, D-06, D-05)
 
-`Remove` on the Details page (plain). A confirmation page replaces the Details page. No accent button on this page.
+`Remove This Library` on the Details page (plain; its confirm button is `Remove Library`, so the two labels differ). A confirmation page replaces the Details page. No accent button on this page.
 
 Heading `Remove {name}?`. Body rows:
 
@@ -398,31 +404,31 @@ Heading `Remove {name}?`. Body rows:
 - KiCad-open line when KiCad is open.
 - Buttons: `Keep Library` (plain, **the default button**, `Esc` = this) and `Remove Library` (destructive: fill `ERROR`, white text bold, same padding and minimum height as `PRIMARY_BUTTON_QSS`, composed locally; never the default; no `Ctrl+Return`).
 
-During the delete the job strip reads `Removing {name}...` (indeterminate) with `Cancel` disabled and tooltip `Removing cannot be stopped halfway. It ends in a moment.` After it: the row leaves the list (or returns as `Not installed` for a curated library), the result strip `✓ Removed {name}. Press Generate Tables to drop its libraries from your KiCad library tables.` and the main window rescans. A deleted `Problem: not in the catalog` folder disappears from the list.
+During the delete the job strip reads `Removing {name}...` (indeterminate) with `Cancel Removing` disabled and tooltip `Removing cannot be stopped halfway. It ends in a moment.` After it: the row leaves the list (or returns as `Not installed` for a curated library), the result strip `✓ Removed {name}. Press Generate Tables to drop its libraries from your KiCad library tables.` and the main window rescans. A deleted `Problem: not in the catalog` folder disappears from the list.
 
 ### Reinstall flow (D-05, D-18)
 
-`Reinstall` (primary, on a `Problem: folder missing` row) follows the Add flow with these differences: the licence page heading is `Reinstall {name}`, shows the recorded repository and branch, shows `You confirmed the licence terms on {date}.` instead of the tick, and its primary is `Download and Check`; the preview heading is `Reinstall {name}` and its primary is `Reinstall Library`. The preview's `What will be added` row lists only the folder (the record already exists; it is updated with the new commit). After success the same three follow-ups as an Add run (rescan of the source, path variable question, `Generate Tables` offer).
+`Reinstall This Library` (primary, on a `Problem: folder missing` row) follows the Add flow with these differences: the licence page heading is `Reinstall {name}`, shows the recorded repository and branch, shows `You confirmed the licence terms on {date}.` instead of the tick, and its primary is `Download and Check`; the preview heading is `Reinstall {name}` and its primary is `Reinstall Library`. The preview's `What will be added` row lists only the folder (the record already exists; it is updated with the new commit). After success the same three follow-ups as an Add run (rescan of the source, path variable question, `Generate Tables` offer).
 
 ### Job strip (D-16)
 
-Visible only while a job runs, between the splitter and the button row. One row: a Body label with the current step (left, stretch), a `QProgressBar` (fixed 240 px wide, accessible name `Progress of {job}`), and a plain `Cancel` button.
+Visible only while a job runs, between the splitter and the button row. One row: a Body label with the current step (left, stretch), a `QProgressBar` (fixed 240 px wide, accessible name `Progress of {job}`), and a plain cancel button whose label names the job (`Cancel Adding`, `Cancel Updating`, `Cancel Reinstalling`, `Cancel Check` for a repository check, `Cancel Removing`); the word Cancel stays, as D-16 names it, and the noun says what is stopped. The tooltip reads `Stop {job label} and delete what it downloaded. Nothing is changed.`
 
-| Job | Label steps |
-|-----|-------------|
-| Check repository | `Checking the repository...` (indeterminate) |
-| Add | `Downloading {name}... {n}%` (determinate when the percentage is known, else indeterminate), `Checking {name}...`, `Adding {name}...` |
-| Update | `Looking for changes in {name}...`, `Updating {name}...` |
-| Reinstall | `Downloading {name} again... {n}%`, `Checking {name}...`, `Adding {name}...` |
-| Remove | `Removing {name}...` (indeterminate, `Cancel` disabled) |
-| Check for updates (startup or manual) | no strip; the toolbar button reads `Checking...` and the Details page `Updates` row reads `Checking for updates...` |
+| Job | Label steps | Cancel button |
+|-----|-------------|---------------|
+| Check repository | `Checking the repository...` (indeterminate) | `Cancel Check` |
+| Add | `Downloading {name}... {n}%` (determinate when the percentage is known, else indeterminate), `Checking {name}...`, `Adding {name}...` | `Cancel Adding` |
+| Update | `Looking for changes in {name}...`, `Updating {name}...` | `Cancel Updating` |
+| Reinstall | `Downloading {name} again... {n}%`, `Checking {name}...`, `Adding {name}...` | `Cancel Reinstalling` |
+| Remove | `Removing {name}...` (indeterminate) | `Cancel Removing` (disabled) |
+| Check for updates (startup or manual) | no strip; the toolbar button reads `Checking...` and the Details page `Updates` row reads `Checking for updates...` | none |
 
-`Cancel` stops the job and deletes what it made: the label becomes `Stopping...`, the button disables, and when the job ends the log gets one `info` line (Copywriting) and the page returns to where the user started (the list for an Add, the Details page for an Update). Nothing in the collection changes.
+The cancel button stops the job and deletes what it made: the label becomes `Stopping...`, the button disables, and when the job ends the log gets one `info` line (Copywriting) and the page returns to where the user started (the list for an Add, the Details page for an Update). Nothing in the collection changes.
 
 ### Close rules (D-16)
 
 - Idle: `Close`, `Esc` and the window's close box close the window. The window is hidden, not destroyed, so reopening it is instant and its search text is cleared **(default)**.
-- A job runs (Add, Update, Reinstall, Check repository): closing opens the window-modal question over the catalog window. Title `Stop the current job?`; text `{Job label} is still running. If you close the catalog now, it is stopped and the partly downloaded files are deleted. {Consequence}` where the consequence is `Nothing is added to your collection.` (Add, Reinstall), `{name} stays on the version it has now.` (Update) or `Nothing is changed.` (Check repository). Buttons `Stop and Close` and `Keep Working` (the default and the `Esc` button). `Stop and Close` runs the same code as `Cancel` and closes the window when the job has ended.
+- A job runs (Add, Update, Reinstall, Check repository): closing opens the window-modal question over the catalog window. Title `Stop the current job?`; text `{Job label} is still running. If you close the catalog now, it is stopped and the partly downloaded files are deleted. {Consequence}` where the consequence is `Nothing is added to your collection.` (Add, Reinstall), `{name} stays on the version it has now.` (Update) or `Nothing is changed.` (Check repository). Buttons `Stop and Close` and `Keep Working` (the default and the `Esc` button). `Stop and Close` runs the same code as the cancel button and closes the window when the job has ended.
 - A Remove runs: closing is ignored and the job strip label reads `Removing cannot be stopped halfway. Close this window after it ends.` for as long as it runs. No dialog.
 - A download is waiting on the Add preview or the Update preview: closing asks nothing; the window closes and the downloaded copy is deleted (same as `Discard Download`), logged `info` `Discarded the download of {name}. Nothing was added.`
 - Closing the main window closes the catalog window first through the same rules; if the user picks `Keep Working`, the main window stays open too.
@@ -430,7 +436,7 @@ Visible only while a job runs, between the splitter and the button row. One row:
 
 ### Busy rules (D-16, D-14)
 
-The catalog's action buttons (`Add`, `Update`, `Reinstall`, `Remove`, `Add by URL...`, `Check for Updates`, `Set Path Variables...`, and every primary and confirm button on a page) are disabled, each with the reason as tooltip, while:
+The catalog's action buttons (`Add This Library`, `Update This Library`, `Reinstall This Library`, `Remove This Library`, `Add by URL...`, `Check for Updates`, `Set Path Variables...`, and every primary and confirm button on a page) are disabled, each with the reason as tooltip, while:
 
 | Condition | Tooltip |
 |-----------|---------|
@@ -444,7 +450,7 @@ Browsing (search, selecting, reading details, `Help`, `Close`) always works.
 
 The folder switch of the main window (Open, Recent, Use KiCad's Folder, Change Folder..., New Library Collection...) is **refused** while a catalog job runs, a downloaded copy waits for an answer on a review page, or the last change is finishing. The refusal changes nothing, writes one `warning` log line and one 5000 ms status bar message with the same text (no dialog), same mechanism as the import window's refusal:
 
-- Job running: `The library folder cannot change while the library catalog is working. Wait for it to finish, or press Cancel in the catalog window.`
+- Job running: `The library folder cannot change while the library catalog is working. Wait for it to finish, or stop it with the cancel button in the catalog window.`
 - Download waiting: `The library folder cannot change while a downloaded library waits for your answer in the catalog window. Press Add Library or Discard Download there first.`
 
 An idle catalog window (list or details only) never blocks a switch; when the folder changes it reloads for the new collection at once (header path, list, statuses, an update check for the new collection starts) and any open page without a download is dropped.
@@ -473,14 +479,15 @@ Style (from CLAUDE.md and the owner's plain-language rule): short sentences, the
 
 | Element | Copy |
 |---------|------|
-| Primary CTA (Details, not installed) | `Add` |
-| Primary CTA (Details, update available) | `Update` |
-| Primary CTA (Details, folder missing) | `Reinstall` |
+| Primary CTA (Details, not installed) | `Add This Library` |
+| Primary CTA (Details, update available) | `Update This Library` |
+| Primary CTA (Details, folder missing) | `Reinstall This Library` |
 | Primary CTA (Add by URL page) | `Check Repository` |
 | Primary CTA (licence page) | `Download and Check` |
 | Primary CTA (Add preview / Update preview / Reinstall preview) | `Add Library` / `Update Library` / `Reinstall Library` |
 | Destructive confirm | `Remove Library` |
-| Plain buttons | `Add by URL...` · `Check for Updates` (`Checking...`) · `Close` · `Help` · `Back to List` · `Discard Download` · `Keep Library` · `Keep Current Version` · `Try Again` · `Set Path Variables...` · `Generate Tables` · `Remove` · `Cancel` |
+| Plain buttons | `Add by URL...` · `Check for Updates` (`Checking...`) · `Close` · `Help` · `Back to List` · `Discard Download` · `Keep Library` · `Keep Current Version` · `Try Again` · `Set Path Variables...` · `Generate Tables` · `Remove This Library` (Details page) |
+| Cancel buttons (job strip; the word Cancel is kept from D-16, the label names the job) | `Cancel Adding` · `Cancel Updating` · `Cancel Reinstalling` · `Cancel Check` (checking a repository) · `Cancel Removing` (disabled, see Remove flow) |
 | Menu entry | `Library Catalog...` (`Library Catalog... (1 update)`, `Library Catalog... (2 updates)`) |
 | Window title | `Library Catalog - KiCad External Lib Manager` |
 | Window heading and body | `Library Catalog` / `Libraries are installed in {collection}/ThirdParty` |
@@ -597,7 +604,7 @@ Applicable state considerations resolved: 42 covered, 6 backstop, 3 unresolved.
 | loading | C6 Add by URL | ✅ covered | `Checking the repository...` in the job strip; the field and the primary button are disabled while it runs. |
 | error | C7 licence page | ✅ covered | Not enough disk space, already in the catalog and an unlisted folder in the way each stop the page with their own refusal; only `Back to List` remains. |
 | partial | C7 licence page | ✅ covered | The tick appears only for share-alike and proprietary licences, blocks `Download and Check` until ticked, and is replaced by `You confirmed the licence terms on {date}.` for a Reinstall. |
-| loading | C7 download | ✅ covered | The job strip shows `Downloading {name}... {n}%` with Cancel; the page buttons are disabled meanwhile. |
+| loading | C7 download | ✅ covered | The job strip shows `Downloading {name}... {n}%` with its cancel button (`Cancel Adding`); the page buttons are disabled meanwhile. |
 | error | C7/C8 download failed | ✅ covered | Offline, timeout and other failures show a `✖` row, say nothing was added, offer `Try Again`, and delete the staging copy. |
 | error | C8 Git LFS and non-KiCad content | ✅ covered | The Git LFS refusal and the validation refusals appear after the download with `Nothing was added`, and delete staging (D-13). |
 | zero-one-many | C8 name clashes | ✅ covered | Zero clashes show a `✓` line; one or many show the list with kind and clash source; the list scrolls above 6 rows; all clashing libraries start unticked (D-20). |
@@ -611,12 +618,12 @@ Applicable state considerations resolved: 42 covered, 6 backstop, 3 unresolved.
 | empty | C9 Update preview | ✅ covered | Zero added or removed libraries show `None`; zero changes show `✓ {name} is already up to date.` |
 | partial | C9 removed libraries | ✅ covered | Removed libraries are amber with `⚠` and the sentence `Projects that use a removed library lose those parts.` (D-08). |
 | partial | C10 Remove page | ✅ covered | A missing folder reduces the first line to the entry-only wording; no path variables omits that row; the default button is `Keep Library`. |
-| loading | C10 Remove | ✅ covered | `Removing {name}...` is indeterminate with `Cancel` disabled and a tooltip; closing the window during it is ignored with an explanatory line. |
+| loading | C10 Remove | ✅ covered | `Removing {name}...` is indeterminate with `Cancel Removing` disabled and a tooltip; closing the window during it is ignored with an explanatory line. |
 | loading | C11 job strip | ✅ covered | Determinate when git reports a percentage, indeterminate otherwise; hidden when idle. |
 | error | C11 Cancel | ✅ covered | `Stopping...` while the process tree ends; the log says nothing changed. |
 | error | C12 unreadable record | ✅ covered | The strip names the reason, disables every write action, keeps browsing and `Help` available (D-02). |
 | error | C12 Git missing or old | ✅ covered | Missing: the strip disables the network actions (Remove still works). Old: the amber strip warns and allows (D-11). |
-| error | C13 close while running | ✅ covered | `Stop the current job?` with `Keep Working` as default and escape button; `Stop and Close` runs Cancel first. |
+| error | C13 close while running | ✅ covered | `Stop the current job?` with `Keep Working` as default and escape button; `Stop and Close` stops the job first, as the cancel button does. |
 | partial | C14 folder switch | ✅ covered | A switch is refused with the two texts in Busy rules while a job runs or a download waits; an idle window never blocks and reloads for the new folder. |
 | overflow | Window minimum size 760 x 520 | 🧪 backstop | `{ statement: "At the window minimum (760 x 520) the toolbar row, the four list columns, the Details rows and the primary button of every page stay visible without horizontal scrolling, and a review page scrolls inside the detail pane instead of growing the window", verification: backstop }` (offscreen geometry test at 900 x 640, 760 x 520 and a 1100 x 720 screen). |
 | long-text | Long library and collection names | 🧪 backstop | `{ statement: "A 200-character collection path in the header, a 60-character library name and a 150-character folder path in the Details page elide or wrap without clipping the buttons or widening the window past 900 px", verification: backstop }` (offscreen geometry test). |
