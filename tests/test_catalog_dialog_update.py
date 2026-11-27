@@ -47,10 +47,11 @@ def dirty_issue(name="Acme"):
     )
 
 
-def remove_plan(*, name="Acme", exists=True, size=69_000_000, nicknames=(), vars=(), listed=True, kicad_open=()):
+def remove_plan(*, name="Acme", exists=True, size=69_000_000, symbols=(), footprints=(), vars=(), listed=True, kicad_open=()):
+    names = sorted({*symbols, *footprints}, key=str.casefold)
     return ops.RemovePlan(
-        name, name, FAKE_COLLECTION / "ThirdParty" / name, exists, size, tuple(nicknames), tuple(vars), listed,
-        tuple(kicad_open),
+        name, name, FAKE_COLLECTION / "ThirdParty" / name, exists, size, tuple(names), tuple(vars), listed,
+        tuple(kicad_open), tuple(sorted(symbols, key=str.casefold)), tuple(sorted(footprints, key=str.casefold)),
     )
 
 
@@ -166,14 +167,15 @@ def test_update_lists_overflow(qtbot):
 
 def test_remove_page(qtbot):
     page = build(qtbot, cp.RemovePage())
-    page.show_plan(remove_plan(name="Acme", nicknames=("A", "B", "C", "D"), vars=("ACME_3D", "ACME_DIR"), kicad_open=("kicad.exe",)))
+    page.show_plan(remove_plan(name="Acme", symbols=("A", "B", "C"), footprints=("D",), vars=("ACME_3D", "ACME_DIR"), kicad_open=("kicad.exe",)))
     assert page.heading_text() == "Remove Acme?"
     folder = (FAKE_COLLECTION / "ThirdParty" / "Acme").as_posix()
     shown = texts(page)
     assert page.line_text() == f"This deletes the folder {folder} (69 MB on disk) and removes Acme from the catalog."
     assert "This deletes the folder" in shown and "(69 MB on disk) and removes Acme from the catalog." in shown
     lst = page.nickname_list()
-    assert lst.heading_text() == "Libraries that leave your scan (4)" and lst.row_count() == 4 and not lst.is_expanded()
+    assert lst.heading_text() == "Libraries that leave your scan: 3 symbol and 1 footprint library"
+    assert lst.row_count() == 4 and not lst.is_expanded()
     assert "The next Generate Tables drops them from your KiCad library tables." in shown
     assert "Path variables it used" in shown and "ACME_3D" in shown and "ACME_DIR" in shown
     mono = next(label for label in page.findChildren(QLabel) if label.text() == "ACME_3D")
@@ -191,6 +193,62 @@ def test_remove_page(qtbot):
     assert not [b for b in page.findChildren(QPushButton) if b.styleSheet() == theme.PRIMARY_BUTTON_QSS]
 
 
+def test_remove_page_counts_each_kind(qtbot):
+    page = build(qtbot, cp.RemovePage())
+    shared = tuple(f"Lib{i:02d}" for i in range(24))
+    symbols = shared + ("Only_Sym",)  # 25 symbol libraries
+    footprints = shared + tuple(f"Only_Fp{i}" for i in range(5))  # 29 footprint libraries, 24 sharing a name
+    page.show_plan(remove_plan(symbols=symbols, footprints=footprints))
+    lst = page.nickname_list()
+    assert lst.heading_text() == "Libraries that leave your scan: 25 symbol and 29 footprint libraries"
+    assert lst.row_count() == 54
+    tree = lst.tree()
+    assert [tree.headerItem().text(column) for column in range(2)] == ["Library", "Kind"]
+    rows = [(tree.topLevelItem(i).text(0), tree.topLevelItem(i).text(1)) for i in range(tree.topLevelItemCount())]
+    assert rows[:2] == [("Lib00", "Footprint"), ("Lib00", "Symbol")]  # one name, two kinds: two rows, name then kind
+    assert rows == sorted(rows, key=lambda row: (row[0].casefold(), row[1]))
+    cases = [
+        ((("A",), ("B",)), "1 symbol and 1 footprint library"),
+        ((("A", "B", "C"), ("D",)), "3 symbol and 1 footprint library"),
+        ((("A",), ("B", "C")), "1 symbol and 2 footprint libraries"),
+        (((), ("X", "Y", "Z")), "3 footprint libraries"),
+        ((("X",), ()), "1 symbol library"),
+        ((("X", "Y"), ()), "2 symbol libraries"),
+        (((), ("X",)), "1 footprint library"),
+    ]
+    for (syms, fps), counts in cases:
+        page.show_plan(remove_plan(symbols=syms, footprints=fps))
+        assert page.nickname_list().heading_text() == f"Libraries that leave your scan: {counts}", counts
+
+
+def test_plan_remove_splits_the_kinds(tmp_path):
+    from catalogfixtures import make_third_party
+    from collectionfixtures import make_collection
+
+    from kicad_lib_manager.catalog import manifest
+    from kicad_lib_manager.models import FootprintLibrary, ScanResult, SymbolLibrary
+
+    root = make_collection(tmp_path / "col")
+    folder = make_third_party(
+        root, "Stray", {"s/Shared.kicad_sym": "(kicad_symbol_lib)", "f/Shared.pretty/a.kicad_mod": "(footprint)", "s/Solo.kicad_sym": "(kicad_symbol_lib)"}
+    )
+    assert folder.is_dir()
+    mf = manifest.load(root)
+    on_disk = ops.plan_remove(root, "Stray", mf, running=lambda: [])
+    assert (on_disk.symbol_nicknames, on_disk.footprint_nicknames) == (("Shared", "Solo"), ("Shared",))
+    assert on_disk.nicknames == ("Shared", "Solo")
+    scan = ScanResult(
+        symbol_libs=[
+            SymbolLibrary("Shared", "ThirdParty/Stray/s/Shared.kicad_sym", "Stray"),
+            SymbolLibrary("Elsewhere", "Custom/Symbols/Elsewhere.kicad_sym", "Custom"),
+        ],
+        footprint_libs=[FootprintLibrary("Shared", "ThirdParty/Stray/f/Shared.pretty", "Stray")],
+    )
+    scanned = ops.plan_remove(root, "Stray", mf, scan=scan, running=lambda: [])
+    assert (scanned.symbol_nicknames, scanned.footprint_nicknames) == (("Shared",), ("Shared",))
+    assert scanned.nicknames == ("Shared",)
+
+
 def test_remove_page_variants(qtbot):
     page = build(qtbot, cp.RemovePage())
     page.show_plan(remove_plan(name="Acme", exists=False, size=0))
@@ -200,7 +258,7 @@ def test_remove_page_variants(qtbot):
     assert "This deletes the folder" not in shown and page.folder_label() is None
     assert page.nickname_list() is None and "Path variables it used" not in shown
     assert not any("KiCad is open" in text for text in shown)
-    page.show_plan(remove_plan(name="Stray", listed=False, nicknames=("S",)))
+    page.show_plan(remove_plan(name="Stray", listed=False, symbols=("S",)))
     folder = (FAKE_COLLECTION / "ThirdParty" / "Stray").as_posix()
     assert page.line_text() == f"This deletes the folder {folder} (69 MB on disk)."  # not in the catalog: nothing to remove from it
     assert page.nickname_list().is_expanded() and page.nickname_list().row_count() == 1
@@ -214,7 +272,7 @@ def test_remove_page_long_names(qtbot):
     page.show()
     qtbot.waitExposed(page)
     long_name = "A" * 90 + "/" + "B" * 90
-    page.show_plan(remove_plan(name=long_name, nicknames=(("N" * 120),)))
+    page.show_plan(remove_plan(name=long_name, symbols=(("N" * 120),)))
     assert page.heading_text() == f"Remove {long_name}?"
     assert page.findChildren(QLabel)[0].wordWrap()  # the heading wraps
     assert page.folder_label().toolTip().endswith(long_name)

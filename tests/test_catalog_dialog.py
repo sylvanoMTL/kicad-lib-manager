@@ -6,6 +6,7 @@ never shown on the desktop (the offscreen platform of the conftest).
 """
 
 import threading
+import time
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
@@ -605,6 +606,65 @@ def test_size_is_read_off_the_gui_thread(qtbot, tmp_path):
     gate.set()
     qtbot.waitUntil(lambda: value(dialog, "size") == "2.0 GB on disk", timeout=5000)
     assert seen and seen[0] is not threading.current_thread()
+
+
+def test_installed_size_cell_shows_size_on_disk(qtbot, tmp_path):
+    gate = threading.Event()
+    sizes = {"SparkFun": 325_000_000, "demo": 9_600_000_000}
+
+    def size(folder):
+        gate.wait(10)
+        if folder.name == "alpha":
+            raise OSError("cannot read")
+        return sizes.get(folder.name, 1_000_000)
+
+    dialog = build(qtbot, tmp_path, size_on_disk=size, clock=CLOCK, **STATUS_FIXTURE)
+    select(dialog, "SparkFun")
+    dialog._search.setText("a")  # hides Third One, which has none
+    shown_before = shown_names(dialog)
+    rows = by_name(dialog)
+    for name in ("SparkFun", "acme/demo-lib", "acme/alpha", "Stray"):
+        assert rows[name].text(3) == "Calculating...", name
+        assert colour(rows[name], 3) == hex_of(theme.MUTED), name
+    assert rows["Third One"].text(3) == "69 MB"  # not installed: the size it is listed with
+    spark = rows["SparkFun"]
+    gate.set()
+    qtbot.waitUntil(lambda: all(by_name(dialog)[n].text(3) != "Calculating..." for n in ("SparkFun", "acme/demo-lib", "acme/alpha", "Stray")), timeout=10000)
+    rows = by_name(dialog)
+    assert rows["SparkFun"] is spark  # the cell changed in place: no rebuild
+    assert (rows["SparkFun"].text(3), rows["acme/demo-lib"].text(3)) == ("325 MB", "9.6 GB")
+    assert rows["SparkFun"].toolTip(3) == "325 MB on disk" and rows["acme/demo-lib"].toolTip(3) == "9.6 GB on disk"
+    assert rows["acme/alpha"].text(3) == "Unknown" and colour(rows["acme/alpha"], 3) == hex_of(theme.MUTED)
+    assert rows["Stray"].text(3) == "1 MB"
+    assert rows["Third One"].text(3) == "69 MB"
+    assert dialog.selected_id() == "SparkFun" and shown_names(dialog) == shown_before and dialog._search.text() == "a"
+
+
+def test_folders_are_measured_one_at_a_time(qtbot, tmp_path):
+    lock = threading.Lock()
+    active = {"now": 0, "most": 0}
+    calls: list[str] = []
+
+    def size(folder):
+        with lock:
+            active["now"] += 1
+            active["most"] = max(active["most"], active["now"])
+            calls.append(folder.name)
+        time.sleep(0.03)
+        with lock:
+            active["now"] -= 1
+        return 325_000_000
+
+    dialog = build(qtbot, tmp_path, size_on_disk=size, clock=CLOCK, **STATUS_FIXTURE)
+    select(dialog, "SparkFun")
+    qtbot.waitUntil(lambda: all(by_name(dialog)[n].text(3) != "Calculating..." for n in ("SparkFun", "acme/demo-lib", "acme/alpha", "Stray")), timeout=10000)
+    assert active["most"] == 1
+    assert calls[0] == "SparkFun"  # the selected row's folder first
+    assert sorted(calls) == ["Stray", "SparkFun", "alpha", "demo"]  # each folder once
+    assert value(dialog, "size") == "325 MB on disk"  # the Details page uses the same measurement
+    select(dialog, "acme/demo-lib")
+    assert value(dialog, "size") == "325 MB on disk"
+    assert len(calls) == 4
 
 
 def test_updates_row_texts(qtbot, tmp_path):
