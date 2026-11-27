@@ -20,6 +20,10 @@ FOOTPRINTS_DIR = "Footprints"
 MODELS_DIR = "3DModels"
 SHARED_FOOTPRINT_LIBRARY = "Atomic_Footprints"
 THIRD_PARTY_DIR = "ThirdParty"
+# The catalog record at the collection root (D-02)
+CATALOG_FILE = "catalog.json"
+# The download folder inside ThirdParty: never a library source, never scanned (D-06)
+STAGING_DIR = ".staging"
 PATH_LENGTH_WARNING = 100
 # The folder the app's code lives in: a new collection is refused inside it, it is never a library folder
 APP_DIR = Path(__file__).resolve().parent.parent

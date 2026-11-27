@@ -5,7 +5,7 @@ import os
 import re
 import stat
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -13,7 +13,7 @@ from typing import Callable
 
 from . import fsutil, kicad_files
 from .atomic_check import check_libraries, summary_line
-from .collection import MODELS_DIR, OWN_DIR, source_of
+from .collection import MODELS_DIR, OWN_DIR, STAGING_DIR, THIRD_PARTY_DIR, source_of
 from .changes import mark_changes
 from .kicad_process import kicad_running
 from .models import (
@@ -27,6 +27,9 @@ from .models import (
 
 FOOTPRINT_RE = re.compile(r'\(property\s+"Footprint"\s+"([^"]*)"')
 CUSTOM_MODEL_PREFIX = "${CUSTOM_3DMODEL_DIR}/"
+# A model stored inside the footprint file itself: no file to find, not an absolute path
+EMBEDDED_MODEL_PREFIX = "kicad-embed://"
+_VAR_MODEL_RE = re.compile(r"\$\{([A-Za-z0-9_]+)\}/(.*)", re.DOTALL)
 
 # downloaded_examples holds vendor packages kept for the importer; never a library source
 SKIP_DIRS = {
@@ -422,23 +425,42 @@ def get_kicad_default_fp_nicknames(kicad_fp_dir: Path | None = None) -> set[str]
     }
 
 
+def get_kicad_default_sym_nicknames(kicad_fp_dir: Path | None = None) -> set[str]:
+    """The stems of KiCad's stock symbol libraries, found in the symbols folder beside its footprints."""
+    fp_dir = kicad_fp_dir or find_kicad_footprint_dir()
+    if not fp_dir:
+        return set()
+    try:
+        return {
+            f.stem for f in (fp_dir.parent / "symbols").iterdir()
+            if f.suffix == ".kicad_sym" and f.is_file()
+        }
+    except OSError:
+        return set()
+
+
 def _determine_source(rel_path: str) -> str:
     return source_of(rel_path)
 
 
-def _walk_matches(root: Path, pattern: str, *, dirs: bool = False) -> list[Path]:
+def _walk_matches(root: Path, pattern: str, *, dirs: bool = False, skip_top: bool = True) -> list[Path]:
     """Sorted files (or folders, dirs=True) under root whose name matches pattern.
 
-    Top-level SKIP_DIRS and a ".git" folder at any depth are never entered, so a
-    collection's own repository internals are never read. Symlinked folders are
-    not followed, and the name match follows the platform case rule, as rglob did.
+    Top-level SKIP_DIRS (when skip_top), the download folder ThirdParty/.staging and a ".git"
+    folder at any depth are never entered, so a collection's own repository internals and a running
+    or leftover download are never read. Symlinked folders are not followed, and the name match
+    follows the platform case rule, as rglob did. skip_top is False when root is a library
+    source's own folder, where a folder named like a SKIP_DIRS entry is part of the clone.
     """
     found: list[Path] = []
+    third_party = root / THIRD_PARTY_DIR
     for current, dirnames, filenames in os.walk(root):
-        at_top = Path(current) == root
+        here = Path(current)
+        at_top = skip_top and here == root
         dirnames[:] = [
             d for d in dirnames
             if d != ".git" and not (at_top and d in SKIP_DIRS)
+            and not (d == STAGING_DIR and here == third_party)
         ]
         names = dirnames if dirs else filenames
         found.extend(Path(current, n) for n in names if fnmatch.fnmatch(n, pattern))
@@ -603,18 +625,79 @@ def _custom_model_names(root: Path) -> set[str]:
     }
 
 
+def _exact_names(folder: Path) -> set[str]:
+    """Exact relative names of every file under folder (forward slashes, case included, .git left out)."""
+    names: set[str] = set()
+    for current, dirnames, filenames in os.walk(folder):
+        dirnames[:] = [d for d in dirnames if d != ".git"]
+        base = Path(current).relative_to(folder)
+        names.update((base / n).as_posix() for n in filenames)
+    return names
+
+
+def _usable_folder(folder: str) -> bool:
+    """True for a clone-relative folder with no way out of the clone (the manifest already checks this)."""
+    return (
+        isinstance(folder, str) and not folder.startswith("/") and "\\" not in folder and ":" not in folder
+        and ".." not in folder.split("/")
+    )
+
+
+def _var_model_missing(path: str, var_folders: Mapping[str, str], clone_dir: Path,
+                       names: dict[str, set[str]]) -> bool | None:
+    """True when a mapped ${VAR}/rest model is not in the folder VAR names; None when the rule does not apply.
+
+    names caches the exact file names per folder of the clone, so each folder is walked once.
+    """
+    match = _VAR_MODEL_RE.match(path)
+    if match is None:
+        return None
+    folder = var_folders.get(match.group(1))
+    if folder is None or not _usable_folder(folder):
+        return None
+    if folder not in names:
+        names[folder] = _exact_names(clone_dir / folder if folder else clone_dir)
+    return match.group(2) not in names[folder]
+
+
+def unresolved_var_models(clone_dir: Path, footprint_files: list[Path],
+                          var_folders: Mapping[str, str]) -> list[str]:
+    """The sorted 3D model paths of the footprint files that a mapped ${VAR} points at and that are not there.
+
+    var_folders maps a variable to a folder of the clone ('' is the clone itself). File names are
+    compared exactly, case included. Variables the map does not name are not checked.
+    """
+    names: dict[str, set[str]] = {}
+    missing: set[str] = set()
+    for mod_file in footprint_files:
+        loaded = kicad_files.load(mod_file)
+        if isinstance(loaded, Issue):
+            continue
+        name = kicad_files.footprint_name(loaded.root)
+        if name is None:
+            continue
+        for model in kicad_files.find_models(name.node):
+            if _var_model_missing(model.path, var_folders, clone_dir, names):
+                missing.add(model.path)
+    return sorted(missing)
+
+
 def _check_model_files(root: Path, mod_files: list[Path], custom_names: set[str],
                        progress: Callable | None = None, *,
                        skip: Callable[[str], bool] | None = None,
                        checking: Callable[[str | None], None] | None = None,
-                       skipped: set[str] | None = None) -> list[Issue]:
+                       skipped: set[str] | None = None,
+                       model_vars: Mapping[str, Mapping[str, str]] | None = None) -> list[Issue]:
     """The 3D model path lines for the given footprint files.
 
     skip is asked for a file's source before the file is read; once it answers True the source goes
     into skipped, none of its files is read again and none of its lines is returned, even those found
     before the answer. checking is told each source as its first file is reached, then None at the end.
+    model_vars maps a catalog id to {variable: clone folder}: a model path ${VAR}/rest in a footprint under
+    ThirdParty/<id>/ is looked up by exact name in that folder (RESEARCH C2). Other variables are not checked.
     """
     found: list[tuple[str, Issue]] = []
+    var_names: dict[str, dict[str, set[str]]] = {}
     skipped = skipped if skipped is not None else set()
     previous: str | None = None
     for i, mod_file in enumerate(mod_files):
@@ -640,6 +723,9 @@ def _check_model_files(root: Path, mod_files: list[Path], custom_names: set[str]
             continue
 
         is_custom = source == OWN_DIR
+        parts = rel.split("/")
+        catalog_id = parts[1] if len(parts) > 2 and parts[0] == THIRD_PARTY_DIR else None
+        var_folders = model_vars.get(catalog_id) if model_vars and catalog_id else None
         for model in kicad_files.find_models(name.node):
             path = model.path
             if is_custom:
@@ -655,6 +741,20 @@ def _check_model_files(root: Path, mod_files: list[Path], custom_names: set[str]
                         "scan.model_missing",
                         f"[{rel}] 3D model not found in Custom/3DModels "
                         f"(names are case-sensitive): {path}",
+                    )))
+            elif path.startswith(EMBEDDED_MODEL_PREFIX):
+                continue
+            elif var_folders and path.startswith("${") and (missing := _var_model_missing(
+                path, var_folders, root / THIRD_PARTY_DIR / catalog_id,
+                var_names.setdefault(catalog_id, {}),
+            )) is not None:
+                if missing:
+                    folder = var_folders[_VAR_MODEL_RE.match(path).group(1)]
+                    where = "/".join(p for p in (THIRD_PARTY_DIR, catalog_id, folder) if p)
+                    found.append((source, Issue(
+                        Severity.WARNING,
+                        "scan.model_missing",
+                        f"[{rel}] 3D model not found in {where} (names are case-sensitive): {path}",
                     )))
             elif not path.startswith("${") and ("/" in path or "\\" in path):
                 found.append((source, Issue(
@@ -701,10 +801,15 @@ def models_rechecked(result: ScanResult) -> list[str]:
     )
 
 
-def check_3d_model_paths(root: Path, progress: Callable | None = None) -> list[Issue]:
-    """Check footprint model paths: Custom/ must use ${CUSTOM_3DMODEL_DIR} and point at a real file."""
+def check_3d_model_paths(root: Path, progress: Callable | None = None, *,
+                         model_vars: Mapping[str, Mapping[str, str]] | None = None) -> list[Issue]:
+    """Check footprint model paths: Custom/ must use ${CUSTOM_3DMODEL_DIR} and point at a real file.
+
+    model_vars (catalog id -> {variable: clone folder}) adds the check of catalog libraries' ${VAR} paths.
+    """
     return _check_model_files(
-        root, _collect_files(root, "*.kicad_mod"), _custom_model_names(root), progress
+        root, _collect_files(root, "*.kicad_mod"), _custom_model_names(root), progress,
+        model_vars=model_vars,
     )
 
 
@@ -722,7 +827,8 @@ def _unchecked_models(mod_files: list[Path], root: Path, fp_libs: list[Footprint
 def scan_all(repo_root: Path, progress: Callable | None = None,
              kicad_fp_dir: Path | None = None, *,
              skip: Callable[[str], bool] | None = None,
-             checking: Callable[[str | None], None] | None = None) -> ScanResult:
+             checking: Callable[[str | None], None] | None = None,
+             model_vars: Mapping[str, Mapping[str, str]] | None = None) -> ScanResult:
     """Scan the whole repo.
 
     checking(source) is called as the symbol parse and then the 3D model path check reach each
@@ -732,6 +838,7 @@ def scan_all(repo_root: Path, progress: Callable | None = None,
     and what is left unchecked in models_unchecked). A skip requested while the symbols are read takes
     effect when that source's check starts. Both are plain callables, called from the scanning thread.
     The symbols are always read in full: a skip never drops a library or a footprint link.
+    model_vars maps a catalog id to {variable: clone folder}; it feeds the 3D model check of catalog libraries.
     """
     # One 0-100 scale for the whole scan. Measured on the full repo (about 70 s): listing 0.25 s,
     # symbol links 6 s, the 3D model path check 63 s, so that check gets most of the bar
@@ -759,7 +866,7 @@ def scan_all(repo_root: Path, progress: Callable | None = None,
     skipped: set[str] = set()
     issues.extend(_check_model_files(
         repo_root, mod_files, _custom_model_names(repo_root), banded(10, 92),
-        skip=skip, checking=checking, skipped=skipped,
+        skip=skip, checking=checking, skipped=skipped, model_vars=model_vars,
     ))
     models_unchecked: list[str] = []
     if skipped:
@@ -876,6 +983,8 @@ def rescan_library(
     kind: str,
     rel_path: str,
     kicad_fp_dir: Path | None = None,
+    *,
+    model_vars: Mapping[str, Mapping[str, str]] | None = None,
 ) -> LibraryRescan | Issue:
     """Read one library again and merge it into a copy of the last scan.
 
@@ -944,7 +1053,8 @@ def rescan_library(
         )
         merged.footprint_libs[index] = refreshed_footprint
         own_lines = _check_model_files(
-            repo_root, sorted((repo_root / rel_path).rglob("*.kicad_mod")), _custom_model_names(repo_root)
+            repo_root, sorted((repo_root / rel_path).rglob("*.kicad_mod")), _custom_model_names(repo_root),
+            model_vars=model_vars,
         )
         own_lines.extend(mark_changes(repo_root, [], [refreshed_footprint]))
         fresh_lines = list(own_lines)

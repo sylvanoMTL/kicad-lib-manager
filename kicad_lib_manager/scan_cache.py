@@ -17,7 +17,7 @@ from datetime import datetime
 from pathlib import Path
 
 from . import fsutil
-from .collection import MODELS_DIR, OWN_DIR
+from .collection import CATALOG_FILE, MODELS_DIR, OWN_DIR, STAGING_DIR, THIRD_PARTY_DIR
 from .library_scanner import SKIP_DIRS, find_kicad_footprint_dir, models_rechecked
 from .models import (
     STATUS_CHANGED,
@@ -44,6 +44,7 @@ KIND_FOOTPRINT = "footprint"
 
 _CUSTOM_MODELS_PREFIX = f"{OWN_DIR}/{MODELS_DIR}/"
 _CUSTOM_PREFIX = f"{OWN_DIR}/"
+_THIRD_PARTY_PREFIX = f"{THIRD_PARTY_DIR}/"
 _STATUSES = (None, STATUS_NEW, STATUS_CHANGED)
 _FALLBACK = "scanning the whole repository."
 
@@ -93,6 +94,9 @@ def _walk(start: str, rel_dir: str, *, skip_top: bool) -> tuple[dict[str, list[i
                         continue
                     if skip_top and not prefix and name in SKIP_DIRS:
                         continue
+                    # a running or leftover download is never a library source (D-06)
+                    if name == STAGING_DIR and prefix == _THIRD_PARTY_PREFIX:
+                        continue
                     if name.lower().endswith(".pretty"):
                         folders.append(rel)
                     if not is_link:
@@ -102,6 +106,8 @@ def _walk(start: str, rel_dir: str, *, skip_top: bool) -> tuple[dict[str, list[i
                     name.lower().endswith((".kicad_sym", ".kicad_mod"))
                     or rel.startswith(_CUSTOM_MODELS_PREFIX)
                     or (name == ".gitignore" and rel.startswith(_CUSTOM_PREFIX))
+                    # the catalog record: its variables feed the 3D model check, so a change must re-scan
+                    or (name == CATALOG_FILE and not prefix)
                 ):
                     continue
                 try:

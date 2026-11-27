@@ -52,7 +52,9 @@ def test_staging_is_never_scanned(tmp_path, nokicad):
     (staging / "fp.pretty" / "b.kicad_mod").write_text(_mod("C:/abs/b.step"), encoding="utf-8")
 
     assert [lib.rel_path for lib in find_symbol_libs(root)] == ["ThirdParty/X/lib.kicad_sym"]
-    assert [lib.rel_path for lib in find_footprint_libs(root)] == ["ThirdParty/X/fp.pretty"]
+    assert [lib.rel_path for lib in find_footprint_libs(root)] == [
+        "Custom/Footprints/Atomic_Footprints.pretty", "ThirdParty/X/fp.pretty",
+    ]
     assert {lib.source for lib in find_symbol_libs(root)} == {"X"}
 
     result = scan_all(root, kicad_fp_dir=nokicad)
