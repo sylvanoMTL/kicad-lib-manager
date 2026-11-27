@@ -58,7 +58,7 @@ def test_corpus_wurth_models_resolve():
     loaded = manifest.load(root)
     assert not isinstance(loaded, Issue), f"catalog.json of the corpus collection: {loaded.text}"
     entry = next((e for e in loaded.libraries if e.id.casefold() == VENDOR.casefold()), None)
-    clone = manifest.entry_folder(root, entry) if entry is not None else None
+    clone = manifest.entry_folder(root, VENDOR)
     if entry is not None and clone.is_dir():
         folder, variables = clone, dict(entry.vars)
     else:
