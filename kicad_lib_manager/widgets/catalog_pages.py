@@ -13,8 +13,8 @@ import math
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton, QSizePolicy,
-    QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QAbstractItemView, QCheckBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton, QScrollArea,
+    QSizePolicy, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 from ..catalog import licences, status
@@ -375,15 +375,31 @@ class ReviewPage(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(SECTION_SPACING)
+        # The heading and the sections scroll on their own; the button row below stays in view however short the
+        # pane is (an owner on a 1080 p display could not see Download and Check under the licence page's rows)
+        self._content_scroll = QScrollArea()
+        self._content_scroll.setObjectName("reviewContentScroll")
+        self._content_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._content_scroll.setWidgetResizable(True)
+        self._content_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._content_scroll.viewport().setAutoFillBackground(False)
+        content = QWidget()
+        content.setAutoFillBackground(False)
+        column = QVBoxLayout(content)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(SECTION_SPACING)
         self._heading = plain_label(wrap=True)
         heading_font(self._heading)
-        root.addWidget(self._heading)
-        root.addSpacing(theme.SP_LG - SECTION_SPACING)  # 24 px between the heading and the first section
+        column.addWidget(self._heading)
+        column.addSpacing(theme.SP_LG - SECTION_SPACING)  # 24 px between the heading and the first section
         self._body = QVBoxLayout()
         self._body.setContentsMargins(0, 0, 0, 0)
         self._body.setSpacing(SECTION_SPACING)
-        root.addLayout(self._body)
-        root.addStretch(1)
+        column.addLayout(self._body)
+        column.addStretch(1)
+        self._content_scroll.setWidget(content)
+        content.setAutoFillBackground(False)  # QScrollArea.setWidget turns it on
+        root.addWidget(self._content_scroll, 1)
         buttons = QHBoxLayout()
         buttons.setSpacing(theme.SP_SM)
         buttons.addStretch(1)

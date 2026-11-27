@@ -961,3 +961,36 @@ def test_kicad_open_line_on_the_licence_page(qtbot, tmp_path, fakes):
     dialog = build(qtbot, tmp_path, fakes, kicad_running=lambda: ["kicad.exe"])
     open_licence(qtbot, dialog)
     assert "⚠ KiCad is open (kicad.exe). Restart it after the library is added to see the changes." in texts(dialog._licence_page)
+
+
+def _fully_visible_in_pane(dialog, button):
+    """True when the whole button lies inside the detail pane's visible area (not scrolled out of it)."""
+    viewport = dialog._scroll.viewport()
+    top_left = button.mapTo(viewport, button.rect().topLeft())
+    bottom_right = button.mapTo(viewport, button.rect().bottomRight())
+    return viewport.rect().contains(top_left) and viewport.rect().contains(bottom_right)
+
+
+@pytest.mark.parametrize("size", [(1030, 660), (760, 520)])
+def test_review_page_buttons_stay_in_view_in_a_short_pane(qtbot, tmp_path, fakes, size):
+    """The owner could not see Download and Check under the licence page's rows (amber Git line, short pane): the
+    page's text scrolls on its own and its button row stays in view."""
+    from kicad_lib_manager.catalog import gitnet
+
+    _, warning = gitnet.version_issues((2, 49, 0))
+    dialog = build(qtbot, tmp_path, fakes, net_status=lambda root: NetStatus(object(), (2, 49, 0), None, warning))
+    dialog.resize(*size)
+    qtbot.wait(50)
+    assert not dialog._git_old_strip.isHidden()
+    open_licence(qtbot, dialog)
+    qtbot.wait(100)
+    page = dialog._licence_page
+    for button in (page.primary_button(), page.back_button()):
+        assert button.isVisible() and _fully_visible_in_pane(dialog, button), button.text()
+    assert dialog._scroll.verticalScrollBar().maximum() == 0  # the pane itself does not scroll on a review page
+    # the preview page, with more rows, keeps its buttons in view too
+    page.primary_button().click()
+    qtbot.waitUntil(lambda: bool(dialog._page_kind == "preview"), timeout=10000)
+    qtbot.wait(100)
+    preview = dialog._preview_page
+    assert _fully_visible_in_pane(dialog, preview.primary_button()) and _fully_visible_in_pane(dialog, preview.back_button())
