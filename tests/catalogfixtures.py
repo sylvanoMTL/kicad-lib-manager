@@ -125,17 +125,46 @@ def make_third_party(root: Path, id: str, files: dict[str, str]) -> Path:
     return folder
 
 
+CLONE_CONFIG = """[core]
+\trepositoryformatversion = 0
+\tfilemode = false
+\tbare = false
+\tlogallrefupdates = true
+\tsymlinks = false
+\tignorecase = true
+\tautocrlf = false
+\tlongpaths = true
+[remote "origin"]
+\turl = https://github.com/a/demo.git
+\tfetch = +refs/heads/main:refs/remotes/origin/main
+\ttagopt = --no-tags
+[branch "main"]
+\tremote = origin
+\tmerge = refs/heads/main
+"""
+
+
+def write_git_config(folder: Path, text: str = CLONE_CONFIG) -> Path:
+    """Write the .git/config a catalog clone has (only keys git itself writes), for quick update tests."""
+    config = Path(folder) / ".git" / "config"
+    config.parent.mkdir(parents=True, exist_ok=True)
+    config.write_text(text, encoding="utf-8", newline="\n")
+    return config
+
+
 def fake_net(
     files=LIB_FILES,
     *,
     sha: str = "a" * 40,
-    status: str = "",
+    status: str | list[str] = "",
     clone_error: str | None = None,
     symref: tuple[str, str] = ("main", "b" * 40),
     fetch_sha: str | None = None,
-    tree: list[str] | None = None,
+    tree: list[str] | dict[str, list[str]] | None = None,
     blobs: dict[str, bytes] | None = None,
-    ls_remote: str | None = None,
+    ls_remote: str | dict[str, str] | None = None,
+    diff_tree: list[tuple[str, str]] | None = None,
+    fetch_error: str | None = None,
 ):
     """A NetGit whose starter starts no process; return (net, calls) where calls lists every argv.
 
@@ -147,12 +176,19 @@ def fake_net(
     letters), ls-remote gives symref (branch, commit) for --symref and ls_remote (default sha) for a branch,
     fetch succeeds, ls-tree lists tree (default: the keys of files), diff-tree is empty and cat-file gives
     blobs[path] or fails.
+
+    Update keywords: status may be a list, one answer per status call (the last one repeats); tree may be a
+    dict of revision (HEAD or a commit id) -> paths; blobs keys are a path or "<rev>:<path>" (the longer form
+    wins); ls_remote may be a dict of branch -> commit id ("*" answers the others; a branch that is missing
+    answers exit code 2); diff_tree is the (letter, path) pairs diff-tree answers; fetch_error makes fetch
+    fail with that stderr line.
     """
     from kicad_lib_manager.catalog.gitnet import NetGit
     from kicad_lib_manager.procs import StreamOutcome
 
     calls: list[list[str]] = []
-    listed = list(files) if tree is None else list(tree)
+    listed = list(files) if tree is None or isinstance(tree, dict) else list(tree)
+    status_answers = [status] if isinstance(status, str) else list(status)
 
     def ok(stdout: bytes = b"") -> StreamOutcome:
         return StreamOutcome(0, stdout, (), False, False)
@@ -183,20 +219,36 @@ def fake_net(
             wanted = fetch_sha or sha if any(a.startswith("FETCH_HEAD") for a in args) else sha
             return ok(f"{wanted}\n".encode())
         if sub == "status":
-            entries = [line for line in status.splitlines() if line]
+            answer = status_answers.pop(0) if len(status_answers) > 1 else (status_answers[0] if status_answers else "")
+            entries = [line for line in answer.splitlines() if line]
             return ok(("\0".join(entries) + "\0").encode() if entries else b"")
         if sub == "ls-remote":
             if "--symref" in args:
                 return ok(f"ref: refs/heads/{symref[0]}\tHEAD\n{symref[1]}\tHEAD\n".encode())
             ref = args[-1]
+            if isinstance(ls_remote, dict):
+                answer = ls_remote.get(ref.removeprefix("refs/heads/"), ls_remote.get("*"))
+                if answer is None:
+                    return StreamOutcome(2, b"", (), False, False)
+                return ok(f"{answer}\t{ref}\n".encode())
             return ok(f"{ls_remote or sha}\t{ref}\n".encode())
         if sub == "ls-tree":
-            return ok(("\0".join(listed) + "\0").encode() if listed else b"")
+            paths = listed
+            if isinstance(tree, dict):
+                paths = tree.get(args[-1], listed)
+            return ok(("\0".join(paths) + "\0").encode() if paths else b"")
+        if sub == "diff-tree":
+            pairs = [part for pair in (diff_tree or []) for part in pair]
+            return ok(("\0".join(pairs) + "\0").encode() if pairs else b"")
+        if sub == "fetch" and fetch_error is not None:
+            return StreamOutcome(128, b"", (fetch_error,), False, False)
         if sub == "cat-file":
-            key = args[-1].partition(":")[2]
-            if blobs is not None and key in blobs:
-                return ok(blobs[key])
+            full = args[-1]
+            key = full.partition(":")[2]
+            for candidate in (full, key):
+                if blobs is not None and candidate in blobs:
+                    return ok(blobs[candidate])
             return StreamOutcome(128, b"", ("fatal: path does not exist",), False, False)
-        return ok()  # fetch, diff-tree, reset
+        return ok()  # fetch, reset
 
     return NetGit(exe=Path("git-under-test"), starter=starter), calls
