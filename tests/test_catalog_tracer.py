@@ -22,7 +22,7 @@ from kicad_lib_manager.catalog.ops import AddSource, Staged, register_add, stage
 from kicad_lib_manager.library_scanner import scan_all
 from kicad_lib_manager.models import Severity
 from kicad_lib_manager.procs import StreamOutcome
-from kicad_lib_manager.table_generator import generate_sym_lib_table
+from kicad_lib_manager.table_generator import generate_fp_lib_table, generate_sym_lib_table
 
 NO_LIBRARIES_TEXT = "This repository holds no KiCad symbol or footprint libraries, so there is nothing to add."
 
@@ -75,8 +75,12 @@ def test_add_one_library_end_to_end(tmp_path):
     symbol = next(lib for lib in result.symbol_libs if lib.rel_path == "ThirdParty/Demo/symbols/Demo.kicad_sym")
     footprint = next(lib for lib in result.footprint_libs if lib.rel_path == "ThirdParty/Demo/footprints/Demo.pretty")
     assert symbol.source == "Demo" and footprint.source == "Demo"
-    table = generate_sym_lib_table([symbol])
-    assert "${KICAD_LIB_GITHUB}/ThirdParty/Demo/symbols/Demo.kicad_sym" in table.content
+    # Generate Tables writes the selected libraries
+    symbol.selected = footprint.selected = True
+    sym_table = generate_sym_lib_table([symbol])
+    fp_table = generate_fp_lib_table([footprint])
+    assert "${KICAD_LIB_GITHUB}/ThirdParty/Demo/symbols/Demo.kicad_sym" in sym_table.content
+    assert "${KICAD_LIB_GITHUB}/ThirdParty/Demo/footprints/Demo.pretty" in fp_table.content
 
 
 @pytest.mark.slow
