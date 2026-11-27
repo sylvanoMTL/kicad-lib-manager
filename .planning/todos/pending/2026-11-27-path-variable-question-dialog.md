@@ -25,3 +25,8 @@ Owner-confirmed layout (2026-11-27), one dialog for both callers:
 The owner will not re-test this by hand: cover it with offscreen tests (button roles and default, Esc,
 rows for folder and catalog variables, `not set`, the settings-file line, elided paths) and update the
 User Guide and CLAUDE.md wording. Do it after Phase 17 (quick task), before Phase 19's menu regroup.
+
+Also seen in the 17-17 check: for a catalog variable (SPARKFUN_KICAD_LIBRARY after adding SparkFun) the
+consequence line still says "all your KiCad projects will then use the libraries in <collection folder>".
+For a catalog library it must name that library and its folder, for example
+"After KiCad restarts, all your KiCad projects find the SparkFun libraries in <its ThirdParty folder>."
