@@ -97,7 +97,7 @@ ALLOWED: dict[str, set[str]] = {
     # layering_errors only checks modules found on disk, so an unused key raises no error
     "importer.plan": {"models", "importer.package", "importer.layout", "importer.stems"},
     "importer.kicad_cli": {"models", "kicad_files", "procs"},
-    "importer.verify": {"models", "fsutil", "kicad_files", "sexpr", "importer.plan", "importer.layout"},
+    "importer.verify": {"models", "collection", "fsutil", "kicad_files", "sexpr", "importer.plan", "importer.layout"},
     "importer.planner": {
         "models",
         "collection",

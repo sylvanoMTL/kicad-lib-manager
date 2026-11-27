@@ -10,6 +10,7 @@ import re
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 
+from ..collection import STAGING_DIR, THIRD_PARTY_DIR
 from ..kicad_files import (
     LoadedFile,
     footprint_name,
@@ -24,7 +25,8 @@ from .layout import RepoLayout
 from .plan import MODEL_DIR_VAR, InstallPlan, ToolContext
 
 _DIGITS = re.compile(r"(\d+)")
-_WURTH_PREFIX = "WurthElektronik:"
+_WURTH_PREFIX = "WurthElektronik:"  # the legacy submodule folder, searched while it exists
+_FLAT_LABELS = ("", "KiCad:")  # own, extra and stock folders are flat; third-party layouts nest
 
 
 def _err(code: str, text: str) -> Issue:
@@ -232,9 +234,24 @@ def pin_pad_issues(symbol_name: str, footprint: str, pins: set[str], pads: set[s
 # -- the same part name in another library (POST-03, D-21) ------------------------
 
 
+def _third_party_dirs(repo_root: Path) -> list[Path]:
+    """The ThirdParty/<id> clones, sorted by id without case; the staging and dot folders are not libraries."""
+    try:
+        names = os.listdir(repo_root / THIRD_PARTY_DIR)
+    except OSError:
+        return []
+    folders = [
+        repo_root / THIRD_PARTY_DIR / n
+        for n in names
+        if n != STAGING_DIR and not n.startswith(".") and (repo_root / THIRD_PARTY_DIR / n).is_dir()
+    ]
+    return sorted(folders, key=lambda p: p.name.casefold())
+
+
 def symbol_search_dirs(layout: RepoLayout, tools: ToolContext) -> list[tuple[str, Path]]:
     """(label prefix, folder) pairs searched for an existing part name, most local first."""
     dirs: list[tuple[str, Path]] = [("", layout.symbols_dir)]
+    dirs.extend((f"{d.name}:", d) for d in _third_party_dirs(layout.repo_root))
     wurth = layout.repo_root / "WurthElektronik"
     if wurth.is_dir():
         dirs.append((_WURTH_PREFIX, wurth))
@@ -245,14 +262,14 @@ def symbol_search_dirs(layout: RepoLayout, tools: ToolContext) -> list[tuple[str
 
 
 def _symbol_files(prefix: str, folder: Path) -> list[Path]:
-    """The .kicad_sym files of one search folder; WurthElektronik is searched recursively, the rest are flat."""
+    """The .kicad_sym files of one search folder; every third-party label is searched recursively, the rest are flat."""
     found: list[Path] = []
     try:
-        if prefix == _WURTH_PREFIX:
+        if prefix in _FLAT_LABELS:
+            found.extend(folder / f for f in os.listdir(folder) if f.casefold().endswith(".kicad_sym"))
+        else:
             for here, _, files in os.walk(folder):
                 found.extend(Path(here) / f for f in files if f.casefold().endswith(".kicad_sym"))
-        else:
-            found.extend(folder / f for f in os.listdir(folder) if f.casefold().endswith(".kicad_sym"))
     except OSError:
         pass
     return sorted(found)
