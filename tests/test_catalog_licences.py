@@ -32,6 +32,9 @@ SHARE = LicenceClass.SHARE_ALIKE
         ("MPL-2.0", "MPL 2.0", SHARE),
         ("EPL-1.0", "EPL 1.0", SHARE),
         ("EPL-2.0", "EPL 2.0", SHARE),
+        # the versionless names KiCad's add-on list uses
+        ("CC-BY-SA", "CC BY-SA", SHARE),
+        ("CC-BY", "CC BY", OPEN),
     ],
 )
 def test_every_row_of_the_ui_spec_table(spdx, label, cls):
@@ -86,3 +89,9 @@ def test_the_class_set_is_the_documented_one():
 def test_labels_never_show_a_raw_spdx_id_for_the_table_rows():
     for spdx in ("BSD-3-Clause", "GPL-3.0-or-later", "NOASSERTION", "Apache-2.0"):
         assert licence_label(spdx) != spdx
+
+
+def test_cern_ohl_from_kicads_list_stays_other():
+    assert licence_label("CERN-OHL") == "Other (see the licence file)"
+    assert licence_class("CERN-OHL") is LicenceClass.OTHER
+    assert needs_tick(licence_class("cc-by-sa")) is True and needs_tick(licence_class("CC-BY")) is False
