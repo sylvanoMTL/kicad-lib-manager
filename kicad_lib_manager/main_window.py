@@ -16,6 +16,7 @@ from . import scan_cache
 from .atomic_check import is_atomic
 from .catalog import curated as catalog_curated
 from .catalog import manifest as catalog_manifest
+from .catalog import names as catalog_names
 from .catalog import ops as catalog_ops
 from .catalog import selection as catalog_selection
 from .catalog import status as catalog_status
@@ -31,7 +32,7 @@ from .kicad_setup import (
 )
 from .library_scanner import (
     ConfirmAnswer, LibraryRescan, find_kicad_footprint_dir, remove_source, rescan_library, scan_all, scan_source,
-    sync_kicad_path_vars, would_change_path_vars,
+    summarize_catalog_lines, sync_kicad_path_vars, would_change_path_vars,
 )
 from .table_generator import (
     add_library_entries, write_tables, restore_backup_pair, stock_descriptions,
@@ -197,6 +198,21 @@ def catalog_model_vars(root: Path) -> dict[str, dict[str, str]]:
     if isinstance(record, Issue):
         return {}
     return {entry.id: dict(entry.vars) for entry in record.libraries}
+
+
+def catalog_source_names(root: Path) -> dict[str, str]:
+    """Library source (folder under ThirdParty) -> the name the catalog gives it, for the trees and the log (CAT-01).
+
+    Curated names alone when catalog.json is missing or cannot be read; other sources are not in the map and keep
+    their folder name.
+    """
+    try:
+        record = catalog_manifest.load(root)
+    except Exception:
+        record = None
+    if record is None or isinstance(record, Issue):
+        record = catalog_manifest.Manifest(())
+    return catalog_names.source_names(record)
 
 
 def _selected_count(result: ScanResult) -> int:
@@ -1121,7 +1137,7 @@ class MainWindow(QMainWindow):
             self._prune_dest_items()
         # Blank trees and no selection: the new folder starts as the app did, with the libraries
         # of the Destination tables pre-selected by its first scan (D-05)
-        self._tree.populate(ScanResult())
+        self._populate_tree(ScanResult())
         self._show_list_page(None)
         self._scan_result = None
         self._reset_catalog_for_switch()
@@ -1494,7 +1510,7 @@ class MainWindow(QMainWindow):
                 self._log_issues(self._trim_collided_selection(outcome.result))
                 self._scan_result = outcome.result
                 self._share_scan_with_catalog()
-                self._tree.populate(outcome.result)
+                self._populate_tree(outcome.result)
                 self._show_list_page(outcome.result)
                 self._log_library_rescanned(outcome)
         finally:
@@ -1603,7 +1619,7 @@ class MainWindow(QMainWindow):
                 n = self._select_atomic_libraries(result)
                 self._log.log(f"Selected {n} Atomic_ libraries for Generate Tables", "info")
 
-            self._tree.populate(result)
+            self._populate_tree(result)
             self._show_list_page(result)
             if pending is not None and pending.scan_started:
                 self._finish_post_install(result)
@@ -1614,7 +1630,7 @@ class MainWindow(QMainWindow):
                     self._generate_after_scan = False
                     self._run_migration_generate()
 
-            self._log_issues(result.issues)
+            self._log_scan_issues(result.issues, result)
 
             if not any(
                 i.severity in (Severity.WARNING, Severity.ERROR) for i in result.issues
@@ -2228,6 +2244,17 @@ class MainWindow(QMainWindow):
         for issue in issues:
             self._log.log_issue(issue)
 
+    def _log_scan_issues(self, issues: list[Issue], scan: ScanResult):
+        """Write a scan's lines to the log, one line per catalog library and kind instead of one per file.
+
+        Only the log is shortened: the scan result keeps every issue, and the warning counts read the raw lines.
+        """
+        self._log_issues(summarize_catalog_lines(issues, scan, catalog_source_names(self._root)))
+
+    def _populate_tree(self, result: ScanResult):
+        """Fill both library trees, naming a catalog source by its catalog name (CAT-01)."""
+        self._tree.populate(result, source_names=catalog_source_names(self._root))
+
     def _check_checkout(self, after: str) -> str | None:
         """D-26: compare the library folder with the folder KiCad's KICAD_LIB_GITHUB names.
 
@@ -2542,7 +2569,7 @@ class MainWindow(QMainWindow):
         """Select the Atomic_ libraries, then run the normal Generate path (D-24)."""
         if self._scan_result is not None:
             self._select_atomic_libraries(self._scan_result)
-            self._tree.populate(self._scan_result)
+            self._populate_tree(self._scan_result)
         issues = self._on_generate()
         # The write moved the Destination to the top of the history; show it first, because a
         # changed folder clears the status line
@@ -2941,7 +2968,7 @@ class MainWindow(QMainWindow):
             self._select_catalog_source(merged, previous, followup, copy_ticks=True)
             self._scan_result = merged
             self._share_scan_with_catalog()
-            self._tree.populate(merged)
+            self._populate_tree(merged)
             self._show_list_page(merged)
         finally:
             self._end_refreshing()
@@ -3011,7 +3038,7 @@ class MainWindow(QMainWindow):
             return
         old = set(previous.issues) if previous is not None else set()
         new = [issue for issue in merged.issues if issue not in old]
-        self._log_issues(new)
+        self._log_scan_issues(new, merged)
         warnings = sum(1 for issue in new if issue.severity in (Severity.WARNING, Severity.ERROR))
         text = f"Rescanned {followup.name}"
         if warnings == 0:

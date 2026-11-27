@@ -1,4 +1,5 @@
 import html
+from collections.abc import Mapping
 
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QTreeWidget, QTreeWidgetItem,
@@ -12,6 +13,9 @@ from ..models import (
     SymbolLibrary, FootprintLibrary, Violation,
 )
 from .theme import ACCENT, AMBER, HEADING_PT
+
+# The source key of a group header (its text is the name shown, which a catalog source takes from the catalog)
+_SOURCE_ROLE = Qt.ItemDataRole.UserRole + 1
 
 _STATUS_WORD = {STATUS_NEW: "New", STATUS_CHANGED: "Changed"}
 _STATUS_TIP = {
@@ -108,15 +112,16 @@ class LibraryTableWidget(QWidget):
             self._sym_tree.setCurrentItem(first)
         self._sym_tree.setFocus()
 
-    def populate(self, scan_result: ScanResult):
+    def populate(self, scan_result: ScanResult, source_names: Mapping[str, str] | None = None):
+        """Fill both trees; source_names maps a source to the name shown for it (the source itself when absent)."""
         previous = self._updating
         self._updating = True
         try:
-            self._populate_trees(scan_result)
+            self._populate_trees(scan_result, source_names or {})
         finally:
             self._updating = previous
 
-    def _populate_trees(self, scan_result: ScanResult):
+    def _populate_trees(self, scan_result: ScanResult, source_names: Mapping[str, str]):
         self._sym_tree.clear()
         self._fp_tree.clear()
         self._sym_items.clear()
@@ -141,7 +146,9 @@ class LibraryTableWidget(QWidget):
 
         # Populate symbols
         for source in sources:
-            group = QTreeWidgetItem([source])
+            shown = source_names.get(source, source)
+            group = QTreeWidgetItem([shown])
+            group.setData(0, _SOURCE_ROLE, source)
             group.setFlags(group.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsAutoTristate)
             group.setCheckState(0, Qt.CheckState.Unchecked)
             group.setFont(0, bold_font)
@@ -171,7 +178,7 @@ class LibraryTableWidget(QWidget):
                 else:
                     status = "OK"
 
-                item = QTreeWidgetItem([lib.nickname, source, fp_text, status])
+                item = QTreeWidgetItem([lib.nickname, shown, fp_text, status])
                 item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
                 item.setCheckState(0, state)
                 item.setData(0, Qt.ItemDataRole.UserRole, lib)
@@ -209,7 +216,9 @@ class LibraryTableWidget(QWidget):
 
         # Populate footprints
         for source in sources:
-            group = QTreeWidgetItem([source])
+            shown = source_names.get(source, source)
+            group = QTreeWidgetItem([shown])
+            group.setData(0, _SOURCE_ROLE, source)
             group.setFlags(group.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsAutoTristate)
             group.setCheckState(0, Qt.CheckState.Unchecked)
             group.setFont(0, bold_font)
@@ -220,7 +229,7 @@ class LibraryTableWidget(QWidget):
                     continue
                 state = Qt.CheckState.Checked if lib.selected else Qt.CheckState.Unchecked
                 item = QTreeWidgetItem([
-                    lib.nickname, source, "Collision" if lib.collision_peers else "OK"
+                    lib.nickname, shown, "Collision" if lib.collision_peers else "OK"
                 ])
                 item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
                 item.setCheckState(0, state)
@@ -357,7 +366,7 @@ class LibraryTableWidget(QWidget):
             checked_libs = [lib] if lib.selected else []
         else:
             # Group header changed — update all children
-            source = item.text(0)  # Group header text is the source name
+            source = item.data(0, _SOURCE_ROLE)  # the header shows a name; its source key is in the role
             for i in range(item.childCount()):
                 child = item.child(i)
                 child_lib = child.data(0, Qt.ItemDataRole.UserRole)

@@ -1189,6 +1189,125 @@ def rescan_library(
     )
 
 
+# ── One log line per catalog library and kind ────────────────────────
+
+_CATALOG_SUMMARY_CODE = "scan.catalog_summary"
+_CATALOG_MODEL_CODES = frozenset({"scan.model_missing", "scan.model_absolute", "scan.unreadable"})
+_MISSING_LINK_RE = re.compile(r"^\[(?P<nickname>[^\]]*)\] Footprint library '(?P<library>.*)' not found in repo ")
+
+
+def _catalog_id(rel_path: str) -> str | None:
+    """The catalog id of a path under ThirdParty/<id>/ (never the staging folder), else None."""
+    parts = rel_path.split("/")
+    if len(parts) > 2 and parts[0] == THIRD_PARTY_DIR and parts[1] and parts[1] != STAGING_DIR:
+        return parts[1]
+    return None
+
+
+def _catalog_group(issue: Issue, owner: Mapping[str, set[str | None]]) -> tuple[str, str] | None:
+    """(catalog id, code) of a line that belongs to one catalog library and is summarized, else None."""
+    if issue.code in _CATALOG_MODEL_CODES:
+        if not issue.text.startswith("[") or "]" not in issue.text:
+            return None
+        found = _catalog_id(issue.text[1:issue.text.index("]")])
+        return (found, issue.code) if found else None
+    if issue.code == "scan.footprint_lib_missing":
+        match = _MISSING_LINK_RE.match(issue.text)
+        ids = owner.get(match.group("nickname")) if match else None
+        # A nickname that symbol libraries outside the source also use cannot be told apart: its lines stay
+        if ids is not None and len(ids) == 1 and None not in ids:
+            return (next(iter(ids)), issue.code)
+    return None
+
+
+def _examples(items: Sequence[str], examples: int) -> str:
+    """The first distinct items, then 'and {m} more' for the distinct ones left out."""
+    distinct = list(dict.fromkeys(items))
+    text = ", ".join(distinct[:examples])
+    if len(distinct) > examples:
+        text += f" and {len(distinct) - examples:,} more"
+    return text
+
+
+def _catalog_summary_text(name: str, code: str, items: list[str], count: int, examples: int) -> str:
+    n = f"{count:,}"
+    if code == "scan.model_absolute":
+        if count == 1:
+            return f"{name}: 1 footprint points its 3D model at a fixed folder instead of a path variable: {items[0]}."
+        return (
+            f"{name}: {n} footprints point their 3D model at a fixed folder instead of a path variable, "
+            f"for example {_examples(items, examples)}."
+        )
+    if code == "scan.model_missing":
+        if count == 1:
+            return f"{name}: 1 3D model was not found (names are case-sensitive): {items[0]}."
+        return f"{name}: {n} 3D models were not found (names are case-sensitive), for example {_examples(items, examples)}."
+    if code == "scan.unreadable":
+        if count == 1:
+            return f"{name}: 1 footprint file could not be read: {items[0]}."
+        return f"{name}: {n} footprint files could not be read, for example {_examples(items, examples)}."
+    where = "KiCad's own libraries"
+    if count == 1:
+        return (
+            f"{name}: 1 footprint link points to a footprint library that is not in your collection "
+            f"or in {where}: {items[0]}."
+        )
+    return (
+        f"{name}: {n} footprint links point to footprint libraries that are not in your collection "
+        f"or in {where}: {_examples(items, examples)}."
+    )
+
+
+def _catalog_items(code: str, catalog_id: str, issues: list[Issue]) -> list[str]:
+    """What each line of a group is about: a model path, a file inside the library folder, or a library name."""
+    items = []
+    for issue in issues:
+        if code == "scan.unreadable":
+            rel = issue.text[1:issue.text.index("]")]
+            items.append(rel.removeprefix(f"{THIRD_PARTY_DIR}/{catalog_id}/"))
+        elif code == "scan.footprint_lib_missing":
+            items.append(_MISSING_LINK_RE.match(issue.text).group("library"))
+        else:
+            items.append(issue.text.rsplit(": ", 1)[-1])
+    return items
+
+
+def summarize_catalog_lines(issues: Sequence[Issue], scan: ScanResult, names: Mapping[str, str] | None = None,
+                            *, examples: int = 5) -> list[Issue]:
+    """The lines to write to the log: one warning per catalog library and kind instead of one per file.
+
+    The 3D model lines (not found, fixed folder instead of a path variable, unreadable footprint file) of a
+    ThirdParty/<id> library, and the missing footprint library links of its symbols, become one
+    scan.catalog_summary warning each, with the count and the first few examples, placed where the first line of
+    the group was. Every other line (Custom, collisions, notes) keeps its text and its place. names maps an id to
+    its catalog name, the id when absent. A new list comes back; issues itself (and the ScanResult) are never
+    changed, so only what is written to the log is shortened.
+    """
+    names = names or {}
+    owner: dict[str, set[str | None]] = {}
+    for lib in scan.symbol_libs:
+        owner.setdefault(lib.nickname, set()).add(_catalog_id(lib.rel_path))
+    keys = [_catalog_group(issue, owner) for issue in issues]
+    groups: dict[tuple[str, str], list[Issue]] = {}
+    for issue, key in zip(issues, keys):
+        if key is not None:
+            groups.setdefault(key, []).append(issue)
+    result: list[Issue] = []
+    written: set[tuple[str, str]] = set()
+    for issue, key in zip(issues, keys):
+        if key is None:
+            result.append(issue)
+        elif key not in written:
+            written.add(key)
+            catalog_id, code = key
+            lines = groups[key]
+            text = _catalog_summary_text(
+                names.get(catalog_id, catalog_id), code, _catalog_items(code, catalog_id, lines), len(lines), examples,
+            )
+            result.append(Issue(Severity.WARNING, _CATALOG_SUMMARY_CODE, text))
+    return result
+
+
 # ── Rescan or drop one library source ────────────────────────────────
 
 def _source_prefix(source_dir: str) -> str | None:

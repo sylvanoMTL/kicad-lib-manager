@@ -743,7 +743,7 @@ def test_rescan_with_populate_raising_still_clears_busy_state(
 ):
     w = make_window([ScanResult()])
 
-    def boom(_result):
+    def boom(_result, **_kwargs):
         raise RuntimeError("populate boom")
 
     monkeypatch.setattr(w._tree, "populate", boom)
@@ -1077,7 +1077,7 @@ def test_startup_finish_raising_consumes_startup_flag(make_window, qtbot, monkey
     w = make_window([_gated(ScanResult(), gate)], wait=False)
     assert w._startup_pending is True
 
-    def boom(_result):
+    def boom(_result, **_kwargs):
         raise RuntimeError("populate boom")
 
     with monkeypatch.context() as patch:

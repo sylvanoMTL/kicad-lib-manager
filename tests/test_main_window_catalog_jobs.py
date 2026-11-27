@@ -768,7 +768,7 @@ def test_log_shows_one_line_per_catalog_library(harness):
     raw = [
         Issue(
             Severity.WARNING, "scan.model_absolute",
-            f"[ThirdParty/Acme/footprints/F.pretty/P{n}.kicad_mod] Absolute/non-variable 3D model path: C:/Old/models/m{n}.step",
+            f"[ThirdParty/Acme/footprints/Old.pretty/P{n}.kicad_mod] Absolute/non-variable 3D model path: C:/Old/models/m{n}.step",
         )
         for n in range(300)
     ]
