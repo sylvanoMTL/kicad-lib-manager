@@ -58,6 +58,10 @@ class AddSource:
     vars is the path-variable map to record; detect_vars asks for the map found in the download instead (an
     Add by URL). proprietary and licence_known decide the licence class together with licence_spdx. licence_url is
     the page that holds the licence terms (from the curated entry); "" makes the licence page link to the repository.
+
+    nickname_prefix is the name rule of the library: "" (its own names) or PCM_PREFIX (KiCad's add-on names) fixes
+    it, None has the check of the download decide it from the library's own links, with default_prefix for a tie
+    (D-34). addon_id is KiCad's own id for a library added from its add-on list ("" otherwise).
     """
 
     id: str
@@ -70,6 +74,9 @@ class AddSource:
     licence_known: bool = True
     detect_vars: bool = False
     licence_url: str = ""
+    nickname_prefix: str | None = ""
+    default_prefix: str = ""
+    addon_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -350,6 +357,7 @@ def _checked_source(checked: CheckedRepo) -> AddSource:
         info.spdx if info is not None else None,
         licence_known=info is not None,
         detect_vars=True,
+        nickname_prefix=None,  # decided by the check of the download, from its own links (D-34)
     )
 
 
@@ -569,6 +577,8 @@ def stage_add(
         own=own or {},
         other_catalog=other_catalog or {},
         progress=check_progress,
+        prefix=source.nickname_prefix,
+        default_prefix=source.default_prefix,
     )
     if isinstance(report, Issue):
         return fail(report)
@@ -704,6 +714,7 @@ def register_add(
         return [moved]
 
     day = today or date.today().isoformat()
+    report_prefix = staged.report.nickname_prefix if staged.report is not None else (source.nickname_prefix or "")
     if previous is not None and previous.acknowledged:
         acknowledged_on = previous.acknowledged_on
     else:
@@ -719,6 +730,9 @@ def register_add(
         acknowledged_on=acknowledged_on,
         added_on=(previous.added_on if previous is not None else "") or day,
         known_dirty=tuple(staged.known_dirty),
+        name=name,
+        nickname_prefix=report_prefix,
+        addon_id=source.addon_id,
     )
     saved = manifest.save(root, current.with_entry(entry))
     if saved is not None:

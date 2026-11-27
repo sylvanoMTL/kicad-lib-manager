@@ -77,6 +77,10 @@ _SYSTEM_NAMES = frozenset(
 )
 _SYSTEM_PREFIXES = ("LD_", "DYLD_", "PYTHON")
 
+# KiCad's Plugin and Content Manager puts this in front of the library names it lists (the literal is used, KiCad's own
+# setting for it is never read); a module-private copy of catalog.manifest.PCM_PREFIX that the tests pin
+PCM_PREFIX = "PCM_"
+
 KIND_SYMBOL = "Symbol"
 KIND_FOOTPRINT = "Footprint"
 CLASHES_STOCK = "a KiCad library"
@@ -95,13 +99,14 @@ class Collision:
 class StagingReport:
     """What the Add preview shows about an accepted download."""
 
-    symbol_libs: tuple[str, ...]  # nicknames, sorted
+    symbol_libs: tuple[str, ...]  # nicknames with the name rule applied, sorted
     footprint_libs: tuple[str, ...]
     collisions: tuple[Collision, ...]
     vars: dict[str, str]  # non-KiCad path variable -> clone folder the models are under ('' = the clone itself)
     kicad_var_models: int  # models that use KiCad's own variables, never mapped
     licence_text: str | None
     warnings: tuple[Issue, ...]
+    nickname_prefix: str = ""  # the name rule: "" (the library's own names) or PCM_PREFIX (KiCad's add-on names)
 
 
 @dataclass
@@ -111,6 +116,7 @@ class _Tree:
     symbol_libs: list[str]
     footprint_libs: list[str]
     mod_files: list[Path]
+    sym_files: list[Path] = field(default_factory=list)
     lib_files: int = 0
     zips: int = 0
     other_files: int = 0
@@ -199,6 +205,7 @@ def _walk(folder: Path) -> _Tree:
             low = name.casefold()
             if low.endswith(".kicad_sym"):
                 tree.symbol_libs.append(name[: -len(".kicad_sym")])
+                tree.sym_files.append(path)
             elif low.endswith(".kicad_mod"):
                 tree.mod_files.append(path)
             elif low.endswith(".lib"):
@@ -423,6 +430,28 @@ def find_collisions(
     return tuple(rows)
 
 
+def decide_prefix(tree_sym_files: Collection[Path], footprint_stems: Collection[str], default_prefix: str = "") -> str:
+    """The name rule a download's own links decide (D-34): PCM_PREFIX, or "" for the library's own names.
+
+    Counts the Footprint links of every symbol file that name one of the download's own footprint libraries,
+    by its plain name and by PCM_PREFIX in front of it. More PCM_ links give PCM_PREFIX, more plain links give
+    "", and a tie (no such link at all included) gives default_prefix.
+    """
+    stems = set(footprint_stems)
+    plain = addon = 0
+    for sym_file in tree_sym_files:
+        for ref in library_scanner.footprint_refs_of(sym_file):
+            if ref.library_name in stems:
+                plain += 1
+            elif ref.library_name.startswith(PCM_PREFIX) and ref.library_name[len(PCM_PREFIX):] in stems:
+                addon += 1
+    if addon > plain:
+        return PCM_PREFIX
+    if plain > addon:
+        return ""
+    return default_prefix
+
+
 def validate_staging(
     folder: Path,
     *,
@@ -431,6 +460,8 @@ def validate_staging(
     own: Mapping[str, str],
     other_catalog: Mapping[str, str],
     progress: Callable[[int, int], None] | None = None,
+    prefix: str | None = "",
+    default_prefix: str = "",
 ) -> "StagingReport | Issue":
     """Check a downloaded folder: an Issue (the first refusal) or the report the Add preview shows.
 
@@ -438,6 +469,10 @@ def validate_staging(
     ("your Atomic_ libraries", "your Custom libraries"); other_catalog maps a nickname to the catalog
     library that has it. progress(done, total) counts the footprint files read (see detect_vars); it is not
     called for a refusal or a download with no footprint file.
+
+    prefix is the name rule: "" or PCM_PREFIX fixes it (a curated library, a Reinstall); None decides it from
+    the download's own links (decide_prefix, with default_prefix for a tie). The report lists the libraries and
+    finds the clashes under the names the rule gives.
     """
     folder = Path(folder)
     tree = _walk(folder)
@@ -463,12 +498,17 @@ def validate_staging(
         warnings.append(Issue(Severity.WARNING, "catalog.kicad_vars", KICAD_VARS_ONE_TEXT))
     elif kicad_var_models:
         warnings.append(Issue(Severity.WARNING, "catalog.kicad_vars", KICAD_VARS_TEXT.format(n=kicad_var_models)))
+    if prefix is None:
+        prefix = decide_prefix(tree.sym_files, tree.footprint_libs, default_prefix)
+    symbol_libs = [prefix + name for name in tree.symbol_libs]
+    footprint_libs = [prefix + name for name in tree.footprint_libs]
     return StagingReport(
-        symbol_libs=tuple(tree.symbol_libs),
-        footprint_libs=tuple(tree.footprint_libs),
+        symbol_libs=tuple(symbol_libs),
+        footprint_libs=tuple(footprint_libs),
+        nickname_prefix=prefix,
         collisions=find_collisions(
-            tree.symbol_libs,
-            tree.footprint_libs,
+            symbol_libs,
+            footprint_libs,
             stock_fp=stock_fp,
             stock_sym=stock_sym,
             own=own,

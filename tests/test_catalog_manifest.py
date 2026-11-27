@@ -104,7 +104,9 @@ def test_save_writes_a_fixed_key_order(tmp_path):
     manifest.save(tmp_path, Manifest((entry,)))
     data = json.loads((tmp_path / manifest.MANIFEST_NAME).read_text(encoding="utf-8"))
     assert list(data) == ["format", "libraries"]
-    assert list(data["libraries"][0]) == ["id", "url", "branch", "commit", "vars", "licence", "added_on", "known_dirty"]
+    assert list(data["libraries"][0]) == [
+        "id", "url", "branch", "name", "nickname_prefix", "addon_id", "commit", "vars", "licence", "added_on", "known_dirty",
+    ]
     assert list(data["libraries"][0]["licence"]) == ["spdx", "acknowledged", "acknowledged_on"]
 
 

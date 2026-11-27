@@ -48,6 +48,9 @@ _SYSTEM_NAMES = frozenset(
     }
 )
 _SYSTEM_PREFIXES = ("LD_", "DYLD_", "PYTHON")
+# KiCad's Plugin and Content Manager puts this in front of every library name it lists in the tables (D-33, D-34);
+# the literal is used, KiCad's own setting for it is never read
+PCM_PREFIX = "PCM_"
 
 
 @dataclass(frozen=True)
@@ -62,6 +65,9 @@ class CatalogEntry:
     acknowledged_on: str = ""
     added_on: str = ""
     known_dirty: tuple[str, ...] = ()
+    name: str = ""  # the name the library was added with ("" for an entry written without one)
+    nickname_prefix: str = ""  # the name rule decided at the check of the download: "" or PCM_PREFIX
+    addon_id: str = ""  # KiCad's own id for a library added from its add-on list
 
 
 @dataclass(frozen=True)
@@ -98,6 +104,11 @@ def valid_var_name(name: str) -> bool:
     if name in _APP_OWN or name in _SYSTEM_NAMES or name.startswith(_SYSTEM_PREFIXES):
         return False
     return not any(pattern.match(name) for pattern in _KICAD_OWN)
+
+
+def nickname_prefixes(mf: "Manifest") -> dict[str, str]:
+    """Catalog id -> the prefix its library names get (PCM_PREFIX), for the entries that have one (D-34)."""
+    return {entry.id: entry.nickname_prefix for entry in mf.libraries if entry.nickname_prefix}
 
 
 def safe_var_folder(text: str) -> bool:
@@ -171,6 +182,11 @@ def _entry_from(raw, allow_file: bool) -> CatalogEntry:
     branch = raw.get("branch")
     if not urls.valid_branch(branch):
         _refuse(f"The branch of {name} is not a branch name this app can use.")
+    nickname_prefix = raw.get("nickname_prefix", "")
+    if nickname_prefix not in ("", PCM_PREFIX):
+        _refuse(f"{name} has a library-name rule this app does not know.")
+    shown_name = raw.get("name", "")
+    addon_id = raw.get("addon_id", "")
     commit = raw.get("commit", "")
     if not isinstance(commit, str) or (commit and _SHA_RE.fullmatch(commit) is None):
         _refuse(f"The version of {name} is not a 40-character version code.")
@@ -211,6 +227,9 @@ def _entry_from(raw, allow_file: bool) -> CatalogEntry:
         acknowledged_on=acknowledged_on,
         added_on=added_on,
         known_dirty=tuple(dirty),
+        name=shown_name if isinstance(shown_name, str) else "",
+        nickname_prefix=nickname_prefix,
+        addon_id=addon_id if isinstance(addon_id, str) else "",
     )
 
 
@@ -283,6 +302,9 @@ def _entry_to(entry: CatalogEntry) -> dict:
         "id": entry.id,
         "url": entry.url,
         "branch": entry.branch,
+        "name": entry.name,
+        "nickname_prefix": entry.nickname_prefix,
+        "addon_id": entry.addon_id,
         "commit": entry.commit,
         "vars": dict(sorted(entry.vars.items())),
         "licence": {

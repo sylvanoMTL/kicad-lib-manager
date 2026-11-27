@@ -503,18 +503,29 @@ def _collect_files(root: Path, pattern: str) -> list[Path]:
     return _walk_matches(root, pattern)
 
 
+def _name_prefix(rel_path: str, prefixes: Mapping[str, str] | None) -> str:
+    """The prefix the library names under ThirdParty/<id>/ get (the catalog's name rule, D-34); '' for any other path."""
+    if not prefixes:
+        return ""
+    catalog_id = _catalog_id(rel_path)
+    return prefixes.get(catalog_id, "") if catalog_id is not None else ""
+
+
 def find_symbol_libs(root: Path, progress: Callable | None = None, *,
-                     checking: Callable[[str | None], None] | None = None) -> list[SymbolLibrary]:
+                     checking: Callable[[str | None], None] | None = None,
+                     prefixes: Mapping[str, str] | None = None) -> list[SymbolLibrary]:
     """Every symbol library with its footprint links.
 
     checking is told each source as its first file is reached. It only reports: every file is still
-    parsed, so a skip requested meanwhile never drops a library or a link.
+    parsed, so a skip requested meanwhile never drops a library or a link. prefixes maps a catalog id to
+    the prefix its library names get.
     """
-    return _symbol_libs_from(root, _collect_files(root, "*.kicad_sym"), progress, checking)
+    return _symbol_libs_from(root, _collect_files(root, "*.kicad_sym"), progress, checking, prefixes)
 
 
 def _symbol_libs_from(root: Path, sym_files: list[Path], progress: Callable | None = None,
-                      checking: Callable[[str | None], None] | None = None) -> list[SymbolLibrary]:
+                      checking: Callable[[str | None], None] | None = None,
+                      prefixes: Mapping[str, str] | None = None) -> list[SymbolLibrary]:
     """The symbol libraries of the given files, each with its rel_path taken against root."""
     libs = []
     previous: str | None = None
@@ -528,7 +539,7 @@ def _symbol_libs_from(root: Path, sym_files: list[Path], progress: Callable | No
         previous = source
         fp_refs, holds_symbol = _symbol_file_facts(f)
         libs.append(SymbolLibrary(
-            nickname=f.stem,
+            nickname=_name_prefix(rel, prefixes) + f.stem,
             rel_path=rel,
             source=source,
             footprint_refs=fp_refs,
@@ -537,12 +548,14 @@ def _symbol_libs_from(root: Path, sym_files: list[Path], progress: Callable | No
     return libs
 
 
-def find_footprint_libs(root: Path, progress: Callable | None = None) -> list[FootprintLibrary]:
-    return _footprint_libs_from(root, _walk_matches(root, "*.pretty", dirs=True), progress)
+def find_footprint_libs(root: Path, progress: Callable | None = None, *,
+                        prefixes: Mapping[str, str] | None = None) -> list[FootprintLibrary]:
+    return _footprint_libs_from(root, _walk_matches(root, "*.pretty", dirs=True), progress, prefixes)
 
 
 def _footprint_libs_from(root: Path, pretty_dirs: list[Path],
-                         progress: Callable | None = None) -> list[FootprintLibrary]:
+                         progress: Callable | None = None,
+                         prefixes: Mapping[str, str] | None = None) -> list[FootprintLibrary]:
     """The footprint libraries of the given .pretty folders, each with its rel_path taken against root."""
     libs = []
     for i, d in enumerate(pretty_dirs):
@@ -551,7 +564,7 @@ def _footprint_libs_from(root: Path, pretty_dirs: list[Path],
         rel = d.relative_to(root).as_posix()
         source = _determine_source(rel)
         libs.append(FootprintLibrary(
-            nickname=d.stem,
+            nickname=_name_prefix(rel, prefixes) + d.stem,
             rel_path=rel,
             source=source,
             empty=not _pretty_holds_footprint(d),
@@ -570,6 +583,11 @@ def _pretty_holds_footprint(folder: Path) -> bool:
         )
     except OSError:
         return True
+
+
+def footprint_refs_of(sym_file: Path) -> list[FootprintRef]:
+    """The footprint links (library name and footprint name) of one symbol file; none when it cannot be read."""
+    return _symbol_file_facts(sym_file)[0]
 
 
 def _symbol_file_facts(sym_file: Path) -> tuple[list[FootprintRef], bool]:
@@ -870,7 +888,8 @@ def scan_all(repo_root: Path, progress: Callable | None = None,
              kicad_fp_dir: Path | None = None, *,
              skip: Callable[[str], bool] | None = None,
              checking: Callable[[str | None], None] | None = None,
-             model_vars: Mapping[str, Mapping[str, str]] | None = None) -> ScanResult:
+             model_vars: Mapping[str, Mapping[str, str]] | None = None,
+             prefixes: Mapping[str, str] | None = None) -> ScanResult:
     """Scan the whole repo.
 
     checking(source) is called as the symbol parse and then the 3D model path check reach each
@@ -881,6 +900,7 @@ def scan_all(repo_root: Path, progress: Callable | None = None,
     effect when that source's check starts. Both are plain callables, called from the scanning thread.
     The symbols are always read in full: a skip never drops a library or a footprint link.
     model_vars maps a catalog id to {variable: clone folder}; it feeds the 3D model check of catalog libraries.
+    prefixes maps a catalog id to the prefix its library names get (the catalog's name rule, D-34).
     """
     # One 0-100 scale for the whole scan. Measured on the full repo (about 70 s): listing 0.25 s,
     # symbol links 6 s, the 3D model path check 63 s, so that check gets most of the bar
@@ -898,8 +918,8 @@ def scan_all(repo_root: Path, progress: Callable | None = None,
 
     report("Discovering files...", 0)
 
-    fp_libs = find_footprint_libs(repo_root, banded(0, 1))
-    sym_libs = find_symbol_libs(repo_root, banded(1, 10), checking=checking)
+    fp_libs = find_footprint_libs(repo_root, banded(0, 1), prefixes=prefixes)
+    sym_libs = find_symbol_libs(repo_root, banded(1, 10), checking=checking, prefixes=prefixes)
 
     report("Cross-referencing...", 10)
     issues = find_nickname_collisions(sym_libs, fp_libs)
@@ -966,12 +986,16 @@ def _full_needed(text: str) -> Issue:
 
 
 def _refresh_symbol_library(repo_root: Path, merged: ScanResult, index: int,
-                            kicad_fp_dir: Path | None) -> tuple[SymbolLibrary, list[Issue]]:
-    """Read one symbol library again in place; returns it and its own lines (never the atomic summary)."""
+                            kicad_fp_dir: Path | None,
+                            nickname: str | None = None) -> tuple[SymbolLibrary, list[Issue]]:
+    """Read one symbol library again in place; returns it and its own lines (never the atomic summary).
+
+    nickname is the name to give it (default: the one it had).
+    """
     old = merged.symbol_libs[index]
     refs, holds_symbol = _symbol_file_facts(repo_root / old.rel_path)
     fresh = SymbolLibrary(
-        nickname=old.nickname,
+        nickname=nickname if nickname is not None else old.nickname,
         rel_path=old.rel_path,
         source=old.source,
         footprint_refs=refs,
@@ -1027,6 +1051,7 @@ def rescan_library(
     kicad_fp_dir: Path | None = None,
     *,
     model_vars: Mapping[str, Mapping[str, str]] | None = None,
+    prefixes: Mapping[str, str] | None = None,
 ) -> LibraryRescan | Issue:
     """Read one library again and merge it into a copy of the last scan.
 
@@ -1034,6 +1059,8 @@ def rescan_library(
     (line order within a kind of line may differ). A footprint library also re-checks the Atomic_
     symbol libraries that link to it, because their footprint and 3D model verdicts read its files.
     previous is never mutated; the selected flags of the result are a snapshot the GUI re-applies.
+    prefixes maps a catalog id to the prefix its library names get; given, the rescanned library takes
+    the name its source's rule says, otherwise it keeps the name it had.
 
     Returns a rescan.full_needed Issue instead when only a full scan is right: the library is not
     in the last scan, was deleted or renamed, shares its nickname with another library, or its
@@ -1054,6 +1081,7 @@ def rescan_library(
     if index is None:
         return _full_needed(f"{rel_path} is not in the last scan; running a full rescan instead.")
     target = libs[index]
+    nickname = target.nickname if prefixes is None else _name_prefix(rel_path, prefixes) + Path(rel_path).stem
     on_disk = (repo_root / rel_path).is_file() if kind == _KIND_SYMBOL else (repo_root / rel_path).is_dir()
     if not on_disk:
         return _full_needed(
@@ -1068,7 +1096,7 @@ def rescan_library(
     recheck = [
         i for i, lib in enumerate(merged.symbol_libs)
         if kind == _KIND_FOOTPRINT and lib.atomic
-        and any(ref.library_name == target.nickname for ref in lib.footprint_refs)
+        and any(ref.library_name in (target.nickname, nickname) for ref in lib.footprint_refs)
     ]
     for i in recheck:
         lib = merged.symbol_libs[i]
@@ -1085,12 +1113,12 @@ def rescan_library(
     refreshed_symbols: list[SymbolLibrary] = []
     refreshed_footprint: FootprintLibrary | None = None
     if kind == _KIND_SYMBOL:
-        fresh, own_lines = _refresh_symbol_library(repo_root, merged, index, kicad_fp_dir)
+        fresh, own_lines = _refresh_symbol_library(repo_root, merged, index, kicad_fp_dir, nickname)
         refreshed_symbols.append(fresh)
         fresh_lines = list(own_lines)
     else:
         refreshed_footprint = FootprintLibrary(
-            nickname=target.nickname, rel_path=target.rel_path, source=target.source,
+            nickname=nickname, rel_path=target.rel_path, source=target.source,
             selected=target.selected, empty=not _pretty_holds_footprint(repo_root / rel_path),
         )
         merged.footprint_libs[index] = refreshed_footprint
@@ -1115,7 +1143,7 @@ def rescan_library(
         if issue.code in _MODEL_CODES:
             return issue.text.startswith(f"[{rel_path}/")
         if issue.code in ("scan.footprint_new", "scan.footprint_changed"):
-            return issue.text.startswith(f"Footprint {target.nickname} / ")
+            return issue.text.startswith((f"Footprint {target.nickname} / ", f"Footprint {nickname} / "))
         name = _skip_line_file(issue)
         if name is None or not name.lower().endswith(".kicad_mod"):
             return False
@@ -1181,7 +1209,7 @@ def rescan_library(
         if issue.code != "scan.changes_skipped" or _skip_line_file(issue) is not None
     ]
     if kind == _KIND_SYMBOL:
-        own_lines.extend(issue for issue in cross if issue.text.startswith(f"[{target.nickname}] "))
+        own_lines.extend(issue for issue in cross if issue.text.startswith(f"[{nickname}] "))
     return LibraryRescan(
         result=merged,
         issues=own_lines,
@@ -1398,12 +1426,14 @@ def scan_source(
     *,
     model_vars: Mapping[str, Mapping[str, str]] | None = None,
     progress: Callable[[int, int], None] | None = None,
+    prefixes: Mapping[str, str] | None = None,
 ) -> ScanResult | Issue:
     """Read one catalog source (ThirdParty/<id>) again and merge it into a copy of the last scan (D-18).
 
     The result has the libraries and lines a full scan_all of the same tree would give (line order
     aside), without reading any other source. previous is never mutated; the selected flags of the
-    result are a snapshot the GUI re-applies. model_vars maps a catalog id to {variable: clone folder}.
+    result are a snapshot the GUI re-applies. model_vars maps a catalog id to {variable: clone folder};
+    prefixes maps a catalog id to the prefix its library names get.
     progress(done, total) counts the symbol files read and the footprint files checked (total is both together);
     it never goes down and ends with (total, total).
 
@@ -1436,14 +1466,14 @@ def scan_source(
         def mod_progress(_text, done, _count):
             progress(len(sym_files) + done, total)
     # The symbols first, then the footprints, so the count only goes up
-    fresh_sym = _symbol_libs_from(repo_root, sym_files, sym_progress)
+    fresh_sym = _symbol_libs_from(repo_root, sym_files, sym_progress, None, prefixes)
     # The custom model names are only read for a Custom footprint, never for a catalog source
     lines = _check_model_files(repo_root, mod_files, set(), mod_progress, model_vars=model_vars)
     if progress is not None and total:
         progress(total, total)
     _replace_source(
         merged, source_dir, fresh_sym,
-        _footprint_libs_from(repo_root, pretty_dirs), lines, kicad_fp_dir, repo_root,
+        _footprint_libs_from(repo_root, pretty_dirs, None, prefixes), lines, kicad_fp_dir, repo_root,
     )
     return merged
 
