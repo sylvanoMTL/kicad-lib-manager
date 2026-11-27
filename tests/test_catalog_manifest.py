@@ -285,3 +285,61 @@ def test_what_save_writes_load_accepts(tmp_path):
     loaded = manifest.load(tmp_path)
     assert isinstance(loaded, Manifest)
     assert {e.id for e in loaded.libraries} == {"SparkFun", "4ms"}
+
+
+# ── the name, the name rule and KiCad's add-on id (plan 17-24, D-33, D-34) ──────────────────────
+
+ADDON_ID = "com.github.4ms.4ms-kicad-lib"
+
+
+def test_name_rule_name_and_addon_id_round_trip_with_the_same_bytes(tmp_path):
+    entry = CatalogEntry(
+        id="4ms-4ms-kicad-lib", url="https://github.com/4ms/4ms-kicad-lib.git", branch="main",
+        name="4ms Kicad Libraries", nickname_prefix=manifest.PCM_PREFIX, addon_id=ADDON_ID,
+    )
+    assert manifest.save(tmp_path, Manifest((entry,))) is None
+    first = (tmp_path / manifest.MANIFEST_NAME).read_bytes()
+    loaded = manifest.load(tmp_path)
+    assert isinstance(loaded, Manifest) and loaded.libraries == (entry,)
+    assert manifest.save(tmp_path, loaded) is None
+    assert (tmp_path / manifest.MANIFEST_NAME).read_bytes() == first
+    assert manifest.nickname_prefixes(loaded) == {"4ms-4ms-kicad-lib": "PCM_"}
+
+
+def test_an_entry_written_before_the_new_keys_reads_with_empty_values(tmp_path):
+    _write(tmp_path, [_entry()])
+    entry = manifest.load(tmp_path).find("SparkFun")
+    assert (entry.name, entry.nickname_prefix, entry.addon_id) == ("", "", "")
+    assert manifest.nickname_prefixes(manifest.load(tmp_path)) == {}
+    assert manifest.PCM_PREFIX == "PCM_"
+
+
+_RULE_TEXT = "SparkFun has a library-name rule this app does not know."
+_NAME_TEXT = "The name of SparkFun is not text this app can show."
+_ID_TEXT = "The KiCad add-on id of SparkFun is not in a form this app understands."
+
+
+@pytest.mark.parametrize(
+    ("changes", "text"),
+    [
+        ({"nickname_prefix": "X_"}, _RULE_TEXT),
+        ({"nickname_prefix": "pcm_"}, _RULE_TEXT),
+        ({"nickname_prefix": 5}, _RULE_TEXT),
+        ({"name": "bad\nname"}, _NAME_TEXT),
+        ({"name": "x" * 101}, _NAME_TEXT),
+        ({"name": 7}, _NAME_TEXT),
+        ({"addon_id": "has space"}, _ID_TEXT),
+        ({"addon_id": "a" * 129}, _ID_TEXT),
+        ({"addon_id": ".leading"}, _ID_TEXT),
+        ({"addon_id": None}, _ID_TEXT),
+    ],
+)
+def test_a_bad_name_rule_name_or_addon_id_makes_the_record_unreadable(tmp_path, changes, text):
+    _write(tmp_path, [_entry(**changes)])
+    assert _refused(tmp_path).text == text
+
+
+def test_the_longest_accepted_name_and_addon_id_are_read(tmp_path):
+    _write(tmp_path, [_entry(name="n" * 100, addon_id="a" * 128, nickname_prefix="PCM_")])
+    entry = manifest.load(tmp_path).find("SparkFun")
+    assert len(entry.name) == 100 and len(entry.addon_id) == 128 and entry.nickname_prefix == "PCM_"
