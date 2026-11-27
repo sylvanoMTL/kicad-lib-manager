@@ -464,6 +464,24 @@ def _desktop_screen_area(monkeypatch):
     monkeypatch.setattr(module, "screen_area", lambda widget: QRect(0, 0, 1920, 1032))
 
 
+@pytest.fixture(autouse=True)
+def _no_addon_list_network(monkeypatch):
+    """A read of KiCad's add-on list without an opener answers as offline: the suite never reaches the network.
+
+    The tests of the reader hand read_index an opener stand-in. Any other read (for example a catalog window
+    opened by a main-window test) gets the offline answer; each test's settings folder is empty, so no kept
+    copy exists and the window shows the curated list.
+    """
+    import urllib.error
+
+    from kicad_lib_manager.catalog import addons
+
+    def offline(request, timeout, limit):
+        raise urllib.error.URLError("the tests use no network")
+
+    monkeypatch.setattr(addons, "_default_opener", offline)
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _qsettings_sandbox(tmp_path_factory):
     """Point QSettings at a throwaway folder for code that builds one outside a test (session fixtures).
