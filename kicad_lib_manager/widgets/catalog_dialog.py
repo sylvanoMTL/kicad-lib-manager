@@ -11,6 +11,9 @@ run on daemon threads (widgets/background.py), and a generation counter drops ev
 window closed or the collection changed.
 """
 
+import html
+import math
+import os
 import shutil
 import threading
 from collections.abc import Callable
@@ -21,7 +24,7 @@ from pathlib import Path
 from PySide6.QtCore import QEvent, QModelIndex, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QKeySequence
 from PySide6.QtWidgets import (
-    QAbstractItemView, QDialog, QFrame, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QPushButton, QScrollArea,
+    QAbstractItemView, QDialog, QFrame, QGridLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QPushButton, QScrollArea,
     QSizePolicy, QSplitter, QStackedWidget, QStyle, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
@@ -29,6 +32,7 @@ from .. import kicad_process, library_scanner
 from ..catalog import curated as curated_list
 from ..catalog import githubapi, manifest, ops, status
 from ..catalog.licences import LicenceClass
+from ..catalog.manifest import CatalogEntry
 from ..catalog.status import Check, State
 from ..models import Issue, Severity
 from . import theme
@@ -75,6 +79,48 @@ GIT_MISSING_TIP = "Git was not found."
 GIT_TOO_OLD_TIP = "Your Git is too old for the catalog."
 GIT_CHECKING_TIP = "Looking for Git..."
 FINISHING_TIP = "Finishing the last change..."
+
+GENERATE_TEXT = "Generate Tables"
+MANIFEST_NOTE_TEXT = "catalog.json in {collection} changed. The app does not commit it for you."
+
+# The Details page (UI-SPEC "Details page")
+FIELDS = (
+    ("repository", "Repository"),
+    ("licence", "Licence"),
+    ("size", "Size"),
+    ("libraries", "Libraries"),
+    ("vars", "Path variables"),
+    ("version", "Installed version"),
+    ("updates", "Updates"),
+    ("folder", "Folder"),
+)
+LABEL_COLUMN_WIDTH = 120
+NOT_STATED_TEXT = "Not stated by the repository"
+LICENCE_UNREADABLE_TEXT = "Could not be read from GitHub"
+SIZE_PENDING_TEXT = "Calculating..."
+LIBRARIES_UNKNOWN_TEXT = "Known after it is added"
+NO_VARS_TEXT = "This library needs none."
+VARS_PENDING_TEXT = "Reading KiCad settings..."
+VAR_SET_TEXT = "✓ set"
+VAR_NOT_SET_TEXT = "⚠ not set"
+VAR_DIFFERENT_TEXT = "⚠ set to a different folder"
+VAR_NO_SETTINGS_TEXT = "KiCad settings were not found"
+UPDATES_CHECKING_TEXT = "Checking for updates..."
+UPDATES_NEVER_TEXT = "Not checked yet"
+UPDATES_OFFLINE_TEXT = "Could not check for updates (GitHub could not be reached)"
+UPDATES_BRANCH_GONE_TEXT = "Could not check for updates (the repository no longer has this branch)"
+FOLDER_MISSING_STRIP = (
+    "✖ The folder {folder} is missing. It may have been deleted, or this collection was copied from another "
+    "computer without it. Reinstall This Library downloads it again from {repository}."
+)
+NOT_IN_CATALOG_STRIP = (
+    "⚠ This folder is in ThirdParty but is not in the catalog, so the app does not know where it came from. "
+    "Its libraries are still scanned like any other. The app never deletes it by itself; Remove This Library "
+    "deletes it after you confirm."
+)
+UPDATE_STRIP = "⚠ A newer version is available ({installed} -> {available})."
+CHECK_OFFLINE_LINE = "Could not check for updates: GitHub could not be reached."
+STEP_FAILED = "Library catalog step failed: {text}"
 
 # ── Sizes (UI-SPEC "Spacing Scale"; px at 96 DPI) ───────────────────────────────────────────────────
 
@@ -209,6 +255,8 @@ class CatalogDialog(QDialog):
         self._manual_check = False
         self._shown_id: str | None = None
         self._split_user = False
+        self._size_cache: dict[Path, int | None] = {}  # folder -> bytes on disk, None when it could not be measured
+        self._size_pending: set[Path] = set()
 
         self.setWindowTitle(CATALOG_TITLE)
         self.setWindowModality(Qt.WindowModality.NonModal)
@@ -417,6 +465,7 @@ class CatalogDialog(QDialog):
         return pane
 
     def _build_details(self) -> QWidget:
+        """The Details page: heading, description, result strip, problem strip, the labelled rows and a button row."""
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -424,9 +473,94 @@ class CatalogDialog(QDialog):
         self._detail_heading = _plain_label(wrap=True)
         _heading_font(self._detail_heading)
         layout.addWidget(self._detail_heading)
+        self._detail_description = _plain_label(wrap=True)
+        _muted(self._detail_description)
+        layout.addWidget(self._detail_description)
+
+        # The result strip: shown after a job ends, kept until another row is selected (D-03, D-18)
+        self._result_strip = QFrame()
+        self._result_strip.setObjectName("resultStrip")
+        self._result_strip.setStyleSheet(
+            f"QFrame#resultStrip {{ background-color: {theme.SURFACE_HEADER}; border: 1px solid {theme.BORDER}; }}"
+        )
+        strip = QHBoxLayout(self._result_strip)
+        strip.setContentsMargins(theme.SP_SM, theme.SP_SM, theme.SP_SM, theme.SP_SM)
+        strip.setSpacing(theme.SP_SM)
+        text = QVBoxLayout()
+        text.setSpacing(theme.SP_XS)
+        self._result_lines_box = QVBoxLayout()
+        self._result_lines_box.setSpacing(theme.SP_XS)
+        text.addLayout(self._result_lines_box)
+        self._result_note = _plain_label(wrap=True)
+        _muted(self._result_note)
+        text.addWidget(self._result_note)
+        strip.addLayout(text, 1)
+        self._result_generate_btn = QPushButton(GENERATE_TEXT)
+        self._result_generate_btn.setAutoDefault(False)
+        self._result_generate_btn.setMinimumHeight(CONTROL_HEIGHT)
+        self._result_generate_btn.clicked.connect(self.generate_requested)
+        strip.addWidget(self._result_generate_btn, 0, Qt.AlignmentFlag.AlignTop)
+        self._result_strip.hide()
+        layout.addWidget(self._result_strip)
+        self._result: tuple[list[tuple[str, str]], bool, bool] | None = None
+
+        # The problem and update strip (folder missing, not in the catalog, a newer version)
+        self._problem_strip = QFrame()
+        self._problem_strip.setObjectName("problemStrip")
+        problem = QHBoxLayout(self._problem_strip)
+        problem.setContentsMargins(theme.SP_SM, theme.SP_SM, theme.SP_SM, theme.SP_SM)
+        self._problem_label = _plain_label(wrap=True)
+        problem.addWidget(self._problem_label, 1)
+        self._problem_strip.hide()
+        layout.addWidget(self._problem_strip)
+
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(theme.SP_SM)
+        grid.setVerticalSpacing(theme.SP_XS)
+        grid.setColumnMinimumWidth(0, LABEL_COLUMN_WIDTH)
+        grid.setColumnStretch(1, 1)
+        self._field_rows: dict[str, tuple[QLabel, QWidget]] = {}
+        for index, (key, title) in enumerate(FIELDS):
+            label = _plain_label(title)
+            label.setMinimumWidth(LABEL_COLUMN_WIDTH)
+            value = self._make_value(key)
+            grid.addWidget(label, index, 0, Qt.AlignmentFlag.AlignTop)
+            grid.addWidget(value, index, 1)
+            self._field_rows[key] = (label, value)
+        layout.addLayout(grid)
+
+        # The buttons of the page sit here (Add, Update, Remove, Reinstall attach in plans 17-13 and 17-15)
+        self._button_row = QHBoxLayout()
+        self._button_row.setSpacing(theme.SP_SM)
+        self._button_row.addStretch(1)
+        layout.addLayout(self._button_row)
         layout.addStretch(1)
-        self._details_layout = layout
         return page
+
+    def _make_value(self, key: str) -> QWidget:
+        if key == "repository":
+            link = QLabel()
+            link.setObjectName("repositoryLink")
+            link.setTextFormat(Qt.TextFormat.RichText)  # the one rich-text label: the Repository link
+            link.setWordWrap(True)
+            link.setOpenExternalLinks(True)
+            link.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
+            palette = link.palette()
+            palette.setColor(palette.ColorRole.Link, QColor(theme.LINK))
+            link.setPalette(palette)
+            return link
+        if key == "folder":
+            folder = ElidedLabel("", mode=Qt.TextElideMode.ElideMiddle, full_tooltip=True)
+            _mono(folder)
+            return folder
+        if key in ("vars", "version"):
+            box = QWidget()
+            lay = QVBoxLayout(box) if key == "vars" else QHBoxLayout(box)
+            lay.setContentsMargins(0, 0, 0, 0)
+            lay.setSpacing(theme.SP_XS if key == "version" else 0)
+            return box
+        return _plain_label(wrap=True)
 
     def _show_page(self, page: QWidget) -> None:
         """Make page the current page; the other pages stop asking for height, so the pane fits the page shown."""
@@ -485,6 +619,7 @@ class CatalogDialog(QDialog):
         self._fresh = True
 
     def _load(self) -> None:
+        self._size_cache.clear()  # the folders may have changed since they were measured
         self._path_label.set_full_text(f"{self._root.as_posix()}/ThirdParty")
         self._mf = self._services.load_manifest(self._root)
         self._rebuild_rows()
@@ -533,6 +668,13 @@ class CatalogDialog(QDialog):
         self._background = []
         self._fit_timer.stop()
         self._manual_check = False
+        self._size_pending.clear()
+
+    def _track(self, task: BackgroundTask) -> BackgroundTask:
+        """Remember a background task so a close or a root change can drop its result."""
+        self._background = [t for t in self._background if not t.is_done()]
+        self._background.append(task)
+        return task
 
     def _on_net(self, gen: int, result) -> None:
         if gen != self._gen:
@@ -544,7 +686,7 @@ class CatalogDialog(QDialog):
     def _on_net_failed(self, gen: int, text: str) -> None:
         if gen != self._gen:
             return
-        self.log_line.emit(f"Library catalog step failed: {text}", "error")
+        self.log_line.emit(STEP_FAILED.format(text=text), "error")
         refusal = Issue(
             Severity.ERROR,
             "catalog.git_check_failed",
@@ -561,7 +703,7 @@ class CatalogDialog(QDialog):
     def _on_step_failed(self, gen: int, text: str) -> None:
         if gen != self._gen:
             return
-        self.log_line.emit(f"Library catalog step failed: {text}", "error")
+        self.log_line.emit(STEP_FAILED.format(text=text), "error")
 
     def _on_vars(self, gen: int, result) -> None:
         if gen != self._gen:
@@ -663,7 +805,10 @@ class CatalogDialog(QDialog):
     # ── The detail pane ───────────────────────────────────────────────────────────────────────
 
     def _on_selection_changed(self) -> None:
-        self._shown_id = self.selected_id()
+        selected = self.selected_id()
+        if selected != self._shown_id:
+            self._result = None  # another row: the result of the last job goes
+        self._shown_id = selected
         self._refresh_details()
 
     def _refresh_details(self) -> None:
@@ -675,7 +820,243 @@ class CatalogDialog(QDialog):
         self._show_page(self._details_page)
 
     def _fill_details(self, row: status.Row) -> None:
+        """Set every Details row for this row; a row that does not apply is hidden, none is ever blank."""
+        installed = row.state in (State.INSTALLED, State.UPDATE_AVAILABLE)
+        on_disk = installed or row.state is State.NOT_IN_CATALOG
+        problem = row.state in (State.FOLDER_MISSING, State.NOT_IN_CATALOG)
         self._detail_heading.setText(row.name)
+        description = row.curated.description if row.curated is not None else ""
+        self._detail_description.setText(description)
+        self._detail_description.setVisible(bool(description))
+        self._fill_problem_strip(row)
+        self._fill_result()
+
+        url = self._repository_url(row)
+        self._set_repository(url)
+        self._set_value("licence", self._licence_text(row))
+        self._set_value("size", self._size_text(row) if on_disk else self._size_estimate(row))
+        self._set_value("libraries", self._libraries_text(row, on_disk))
+        self._fill_vars(row)
+        self._fill_version(row)
+        self._set_value("updates", self._updates_text(row))
+        folder = self._field_rows["folder"][1]
+        folder.set_full_text(row.folder.as_posix())
+
+        self._show_field("repository", bool(url))
+        for key in ("licence", "size", "libraries", "vars"):
+            self._show_field(key, True)
+        self._show_field("version", installed)
+        self._show_field("updates", installed)
+        self._show_field("folder", installed or problem)
+
+    # -- the rows --
+
+    def _show_field(self, key: str, visible: bool) -> None:
+        label, value = self._field_rows[key]
+        label.setVisible(visible)
+        value.setVisible(visible)
+
+    def _set_value(self, key: str, text: str) -> None:
+        self._field_rows[key][1].setText(text)
+
+    @staticmethod
+    def _repository_url(row: status.Row) -> str:
+        """The repository page of a row without the .git ending; '' for a folder the record does not list."""
+        url = row.entry.url if row.entry is not None else (row.curated.url if row.curated is not None else "")
+        return url.removesuffix(".git").rstrip("/")
+
+    def _set_repository(self, url: str) -> None:
+        link = self._field_rows["repository"][1]
+        if not url:
+            link.setText("")
+        elif url.startswith("https://"):
+            # a zero-width space after each slash lets a long address wrap instead of widening the window
+            shown = html.escape(url).replace("/", "/&#8203;")
+            link.setText(f'<a href="{html.escape(url, quote=True)}">{shown}</a>')
+        else:
+            link.setText(html.escape(url))
+
+    @staticmethod
+    def _licence_text(row: status.Row) -> str:
+        if row.licence_class is LicenceClass.NOT_STATED:
+            text = NOT_STATED_TEXT
+        elif row.licence_class is LicenceClass.UNKNOWN:
+            text = LICENCE_UNREADABLE_TEXT
+        else:
+            text = row.licence_label
+        entry = row.entry
+        if entry is not None and entry.acknowledged:
+            when = f" on {entry.acknowledged_on}" if entry.acknowledged_on else ""
+            text += f" (you confirmed you read the terms{when})"
+        return text
+
+    @staticmethod
+    def _size_estimate(row: status.Row) -> str:
+        return "Unknown" if row.size_mb is None else f"about {row.size_text}"
+
+    def _size_text(self, row: status.Row) -> str:
+        """The folder's size on disk; it is measured on a daemon thread, so the row reads Calculating... first."""
+        folder = row.folder
+        if folder in self._size_cache:
+            size = self._size_cache[folder]
+            return "Unknown" if size is None else f"{status.size_text(math.ceil(size / 1_000_000))} on disk"
+        if folder not in self._size_pending:
+            self._size_pending.add(folder)
+            services, gen = self._services, self._gen
+            self._track(
+                run_in_background(
+                    lambda: int(services.size_on_disk(folder)),
+                    lambda result, g=gen: self._on_size(g, folder, result),
+                    lambda text, g=gen: self._on_size(g, folder, None),
+                    name="catalog-folder-size",
+                )
+            )
+        return SIZE_PENDING_TEXT
+
+    def _on_size(self, gen: int, folder: Path, size: int | None) -> None:
+        if gen != self._gen:
+            return
+        self._size_pending.discard(folder)
+        self._size_cache[folder] = size
+        self._refresh_details()
+
+    def _libraries_text(self, row: status.Row, on_disk: bool) -> str:
+        if on_disk and self._scan is not None:
+            prefix = f"ThirdParty/{row.folder.name}/".casefold()
+
+            def count(libraries) -> int:
+                return sum(1 for lib in libraries if lib.rel_path.replace("\\", "/").casefold().startswith(prefix))
+
+            return f"{count(self._scan.symbol_libs)} symbol libraries, {count(self._scan.footprint_libs)} footprint libraries"
+        known = row.curated
+        if known is not None and (known.symbol_libs or known.footprint_libs):
+            return f"{known.symbol_libs} symbol libraries, {known.footprint_libs} footprint libraries"
+        return LIBRARIES_UNKNOWN_TEXT
+
+    def _fill_vars(self, row: status.Row) -> None:
+        """One line per path variable: its name in Mono and whether KiCad has it set to this library's folder (CAT-06)."""
+        box = self._field_rows["vars"][1]
+        self._clear_layout(box.layout())
+        names = row.entry.vars if row.entry is not None else (row.curated.vars if row.curated is not None else {})
+        wanted = self._services.path_vars(self._root, [CatalogEntry(row.id, "", "", vars=dict(names))])
+        if not wanted:
+            box.layout().addWidget(_plain_label(NO_VARS_TEXT, wrap=True))
+            return
+        for name in sorted(wanted):
+            text, token = self._var_state(name, wanted[name])
+            line = QWidget()
+            lay = QHBoxLayout(line)
+            lay.setContentsMargins(0, 0, 0, 0)
+            lay.setSpacing(theme.SP_SM)
+            title = _plain_label(name)
+            _mono(title)
+            state = _plain_label(text, wrap=True)
+            state.setStyleSheet(f"color: {token};")
+            lay.addWidget(title)
+            lay.addWidget(state, 1)
+            box.layout().addWidget(line)
+
+    def _var_state(self, name: str, expected: str) -> tuple[str, str]:
+        if not self._vars_read:
+            return VARS_PENDING_TEXT, theme.MUTED
+        current = self._kicad_vars
+        if current is None:
+            return VAR_NO_SETTINGS_TEXT, theme.MUTED
+        if name not in current:
+            return VAR_NOT_SET_TEXT, theme.AMBER
+        if _same_path(current[name], expected):
+            return VAR_SET_TEXT, theme.SUCCESS
+        return VAR_DIFFERENT_TEXT, theme.AMBER
+
+    def _fill_version(self, row: status.Row) -> None:
+        box = self._field_rows["version"][1]
+        self._clear_layout(box.layout())
+        entry = row.entry
+        if entry is None:
+            return
+        commit = _plain_label(entry.commit[:7] if entry.commit else UNKNOWN_TEXT)
+        if entry.commit:
+            _mono(commit)
+        box.layout().addWidget(commit)
+        if entry.added_on:
+            box.layout().addWidget(_plain_label(f"(added {entry.added_on})"))
+        box.layout().addStretch(1)
+
+    def _updates_text(self, row: status.Row) -> str:
+        if self._checking():
+            return UPDATES_CHECKING_TEXT
+        update = row.update
+        if update is None or update.check is Check.NOT_CHECKED:
+            return UPDATES_NEVER_TEXT
+        if update.check is Check.UNKNOWN:
+            return UPDATES_OFFLINE_TEXT
+        if update.check is Check.BRANCH_GONE:
+            return UPDATES_BRANCH_GONE_TEXT
+        when = f" {time_wording(update.checked_at, self._clock())}" if update.checked_at is not None else ""
+        outcome = "an update is available" if update.check is Check.AVAILABLE else "up to date"
+        return f"Checked{when}: {outcome}"
+
+    def _fill_problem_strip(self, row: status.Row) -> None:
+        text, token, amber = "", theme.ERROR, False
+        if row.state is State.FOLDER_MISSING:
+            text = FOLDER_MISSING_STRIP.format(folder=row.folder.as_posix(), repository=self._repository_url(row))
+        elif row.state is State.NOT_IN_CATALOG:
+            text, token, amber = NOT_IN_CATALOG_STRIP, theme.AMBER, True
+        elif row.state is State.UPDATE_AVAILABLE and row.entry is not None and row.update is not None:
+            text = UPDATE_STRIP.format(installed=row.entry.commit[:7], available=(row.update.remote_sha or "")[:7])
+            token, amber = theme.AMBER, True
+        if not text:
+            self._problem_strip.hide()
+            return
+        self._problem_strip.setStyleSheet(
+            f"QFrame#problemStrip {{ background-color: {theme.AMBER_TINT}; border-left: 2px solid {theme.AMBER}; }}"
+            if amber
+            else f"QFrame#problemStrip {{ border: 1px solid {theme.BORDER}; }}"
+        )
+        self._problem_label.setStyleSheet(f"color: {token};")
+        self._problem_label.setText(text)
+        self._problem_label.setAccessibleName(text)
+        self._problem_strip.show()
+
+    @staticmethod
+    def _clear_layout(layout) -> None:
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+
+    # -- the result strip --
+
+    def show_result(self, lines: list[tuple[str, str]], *, generate: bool, manifest_note: bool) -> None:
+        """Show what a job did on the selected row's page, until another row is selected or another action starts.
+
+        lines are (text, level) with level "success" or "warning"; the window adds the glyph. generate adds the
+        Generate Tables button; manifest_note adds the catalog.json line (only when the root is a git repository, D-03).
+        """
+        self._result = (list(lines), bool(generate), bool(manifest_note))
+        self._shown_id = self.selected_id()
+        self._fill_result()
+
+    def _fill_result(self) -> None:
+        self._clear_layout(self._result_lines_box)
+        if self._result is None:
+            self._result_strip.hide()
+            return
+        lines, generate, note = self._result
+        for text, level in lines:
+            glyph, token = ("✓ ", theme.SUCCESS) if level == "success" else ("⚠ ", theme.AMBER)
+            label = _plain_label(glyph + text, wrap=True)
+            label.setObjectName("resultLine")
+            label.setStyleSheet(f"color: {token};")
+            label.setAccessibleName(label.text())
+            self._result_lines_box.addWidget(label)
+        is_git = (self._root / ".git").exists()
+        self._result_note.setText(MANIFEST_NOTE_TEXT.format(collection=self._root.as_posix()) if note and is_git else "")
+        self._result_note.setVisible(bool(note and is_git))
+        self._result_generate_btn.setVisible(generate)
+        self._result_strip.show()
 
     # ── Strips and actions ────────────────────────────────────────────────────────────────────
 
@@ -741,7 +1122,52 @@ class CatalogDialog(QDialog):
         self._add_url_btn.setToolTip(reason or "")
 
     def _on_check_clicked(self) -> None:
-        """Check for Updates; attached in the next task."""
+        """Check for Updates on a daemon thread; the result is dropped when the window closed or the collection changed."""
+        if self._checking() or self._action_block() is not None or isinstance(self._mf, Issue):
+            return
+        services, root, mf, net = self._services, self._root, self._mf, self._net_status.net
+        cancel, gen = self._check_cancel, self._gen
+        self._manual_check = True
+        self._refresh_actions()
+        self._refresh_details()
+        self._track(
+            run_in_background(
+                lambda: services.check_updates(root, mf, net, cancel=cancel),
+                lambda states: self._on_check_done(gen, states),
+                lambda text: self._on_check_failed(gen, text),
+                name="catalog-update-check",
+            )
+        )
+
+    def _on_check_done(self, gen: int, states) -> None:
+        if gen != self._gen:
+            return
+        self._manual_check = False
+        self._updates = dict(states)
+        self._rebuild_rows()
+        self._refresh_actions()
+        self._refresh_details()
+        self.update_states_changed.emit(self._updates)
+        names = [row.name for row in self._rows if row.state is State.UPDATE_AVAILABLE]
+        line = status.updates_line(names)
+        if line is not None:
+            self.log_line.emit(line, "info")
+            return
+        checks = [state.check for state in self._updates.values()]
+        if checks and all(check is Check.UNKNOWN for check in checks):
+            self.log_line.emit(CHECK_OFFLINE_LINE, "warning")
+            return
+        current = sum(1 for check in checks if check is Check.CURRENT)
+        noun = "library" if current == 1 else "libraries"
+        self.log_line.emit(f"Checked {current} catalog {noun}: all up to date.", "info")
+
+    def _on_check_failed(self, gen: int, text: str) -> None:
+        if gen != self._gen:
+            return
+        self._manual_check = False
+        self._refresh_actions()
+        self._refresh_details()
+        self.log_line.emit(STEP_FAILED.format(text=text), "error")
 
     # ── The API the main window and the next plans use ────────────────────────────────────────
 
@@ -802,6 +1228,12 @@ class CatalogDialog(QDialog):
 
     # ── Closing ───────────────────────────────────────────────────────────────────────────────
 
+    def closeEvent(self, event) -> None:
+        """A close always drops outstanding results, also for a window that is not visible (it is then deleted)."""
+        self._stop_background()
+        self._fresh = False
+        super().closeEvent(event)
+
     def done(self, r: int) -> None:
         """Hide the window (it is reused); stop every timer and drop every outstanding result."""
         self._stop_background()
@@ -822,6 +1254,14 @@ class CatalogDialog(QDialog):
         self._help_dialog.show()
         self._help_dialog.raise_()
         self._help_dialog.activateWindow()
+
+
+def _same_path(first: str, second: str) -> bool:
+    """True when two folder texts name the same place (slashes, trailing slash and, on Windows, letter case ignored)."""
+    def norm(text: str) -> str:
+        return os.path.normcase(os.path.normpath(text.strip()))
+
+    return norm(first) == norm(second)
 
 
 def time_wording(when: datetime, now: datetime) -> str:

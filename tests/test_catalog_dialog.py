@@ -727,7 +727,7 @@ def test_path_variable_states(qtbot, tmp_path):
     mono = [label.text() for label in dialog._field_rows["vars"][1].findChildren(QLabel) if label.font().family() == theme.MONO_FAMILY]
     assert mono == ["SPARKFUN_KICAD_LIBRARY"]
 
-    good = manifest.path_vars(dialog._root, [PATH_ENTRIES[0]])["SPARKFUN_KICAD_LIBRARY"]
+    good = manifest.path_vars(tmp_path / "b" / "col", [PATH_ENTRIES[0]])["SPARKFUN_KICAD_LIBRARY"]
     dialog = path_dialog(qtbot, tmp_path / "b", {"SPARKFUN_KICAD_LIBRARY": good})
     assert value(dialog, "vars") == "SPARKFUN_KICAD_LIBRARY ✓ set"
 
