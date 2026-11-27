@@ -207,7 +207,56 @@ Plans:
   5. Würth and SparkFun work end to end (Espressif, 4ms and Alternate-KiCad-Library join the curated list only once verified), and in the owner's collection WurthElektronik is a catalog entry with no missing library or 3D model afterwards.
 **Research flags**: Decide at plan time: D2 (clone location and Würth path: `ThirdParty/<id>/` with a one-time rewrite of about 89 `WurthElektronik/...` URIs, or `<Vendor>/<Repo>` with Würth kept in place; `source_of` handles both), D6 (minimum git: 2.49.1+ for CVE-2025-48384 with a warning below; this machine has 2.49.0), D7 (update by `fetch --depth 1 origin <ref>` + `reset --hard FETCH_HEAD` on a clean tree, recommended, or `merge --ff-only`), D11 (curated list and licence gate: refuse libraries with no licence, or warn and ask for acknowledgement; research leans to the latter). Research: Git LFS pointer detection during staging (`version https://git-lfs`) and the GitHub 304 / ETag cost of the startup check (60 requests per hour unauthenticated). Unverified: Git Credential Manager versus `GIT_TERMINAL_PROMPT=0` (test with a private URL, also set `GCM_INTERACTIVE=Never`); the 3D model paths of Espressif, 4ms and Alternate-KiCad-Library.
 **Notes**: Build order from research: (a) `catalog/gitnet.py` plus a `gitops.launch()` extraction, a layering test that commit-path modules cannot import gitnet, and a threat-model note; (b) manifest, curated list, `scan_source`, `sync_kicad_path_vars(extra_vars=...)`; (c) add / update / remove as plan, preview, apply, tested against local bare repos through `file://` (no network in tests); (d) catalog dialog with progress, Cancel and licence display; (e) the Würth conversion. Catalog Add and Remove change only the collection and its manifest; tables are written by Generate Tables (project-local from Phase 18). The update check runs automatically at startup (owner, 2026-11-22). The Würth conversion is a previewed transaction from the main checkout with a rollback tag: clone, verify the library set, define `WE_3DMODEL_DIR` (7,612 footprint model paths use it), Generate, rescan with zero missing, then remove the submodule (`deinit -f`, `git rm`, delete `.git/modules/...`). PITFALLS.md 6, 15-22.
-**Plans**: TBD
+**Plans**: 20 plans in 14 waves (16 code plans, 3 owner checkpoints, 1 curated-list update); executors run sequentially on main this run
+
+Plans:
+**Wave 1**
+- [ ] 17-01-PLAN.md — Tracer: a `file://` library through `procs.StreamedProcess`, hardened `catalog/gitnet`, staging, `ThirdParty/<id>`, `catalog.json`, the scan and the table URIs
+- [ ] 17-02-PLAN.md — Folded todo: the migration window stops its draft and rebuild timers on close
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 17-03-PLAN.md — Full gitnet surface, git version policy (refuse below 2.32, warn below 2.49.1), clone config allow-list, layering rules cutting the commit path off the network
+- [ ] 17-04-PLAN.md — URL and id rules, validated `catalog.json`, curated list (Würth, SparkFun) with 4ms / Alternate-KiCad-Library / Espressif as candidates, licence labels
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 17-05-PLAN.md — Scanner: `${VAR}` 3D model rule, `.staging` prune, `scan_source` / `remove_source`, `extra_vars`, catalog-aware table descriptions
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- [ ] 17-06-PLAN.md — Staging check: refusals (not KiCad, KiCad 5 only, PCM only, LFS, links), collisions, path-variable detection, unresolved models
+
+**Wave 5** *(blocked on Wave 4 completion)*
+- [ ] 17-07-PLAN.md — The GitHub lookup, `fsutil.remove_tree`, Add and Reinstall as plan, stage and register (disk space, licence tick, `.gitignore` line)
+- [ ] 17-08-PLAN.md — Würth-specific code and tests follow `ThirdParty/<id>`; vendor-name invariant test
+- [ ] 17-09-PLAN.md — `scripts/catalog/wurth_to_catalog.py`: dry run and apply, the three D-26 pass checks, bundle and tag, module data moved, way back
+
+**Wave 6** *(blocked on Wave 5 completion)*
+- [ ] 17-10-PLAN.md — Update and Remove, statuses, `check_updates`, slow real-git lifecycle proofs
+
+**Wave 7** *(blocked on Wave 6 completion)*
+- [ ] 17-11-PLAN.md — Catalog window, browse slice: shell, notice strips, list, search, Details page, Check for Updates
+
+**Wave 8** *(blocked on Wave 7 completion)*
+- [ ] 17-12-PLAN.md — Main window: File > Library Catalog... (Ctrl+Shift+L) with update count, startup check, busy rules, path-variable wiring
+- [ ] 17-13-PLAN.md — Add, Add by URL and Reinstall pages and jobs; job strip with Cancel; close question
+
+**Wave 9** *(blocked on Wave 8 completion)*
+- [ ] 17-14-PLAN.md — After a job: source rescan, preselection, Würth selection carry-over (D-28), path-variable question
+- [ ] 17-15-PLAN.md — Update preview, dirty refusal, Remove confirmation, Set Path Variables...
+
+**Wave 10** *(blocked on Wave 9 completion)*
+- [ ] 17-16-PLAN.md — User Guide page, shortcut row, CLAUDE.md, README, tests/README slow-module list
+
+**Wave 11** *(owner checkpoint, real network)*
+- [ ] 17-17-PLAN.md — D-22 real-network checks (SparkFun, 4ms, Alternate-KiCad-Library, Espressif), Cancel, offline start, a real update
+
+**Wave 12** *(blocked on Wave 11)*
+- [ ] 17-18-PLAN.md — Promote passed candidates to the curated list; record failures in REJECTED
+
+**Wave 13** *(owner checkpoint)*
+- [ ] 17-19-PLAN.md — Würth conversion rehearsal on a `--no-local` copy with scratch KiCad settings
+
+**Wave 14** *(owner checkpoint, live run)*
+- [ ] 17-20-PLAN.md — Live Würth conversion from the main checkout
 **UI hint**: yes
 
 ### Phase 18: Project-Local Table Model
